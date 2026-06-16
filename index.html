@@ -3346,7 +3346,8 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
       <div class="f"><label>Delt postboks (valgfritt)</label><input id="cfg-sharedmailbox" placeholder="pmo@globalonsite.com"></div>
       <div style="height:16px"></div>
       <button class="modal-btn" onclick="saveConfig()" style="width:100%">Lagre og koble til</button>
-      <button class="modal-btn ghost" onclick="clearConfig()" style="width:100%;margin-top:8px">Nullstill til demo-data</button>
+      <button class="modal-btn ghost" onclick="seedChecklistTemplates()" style="width:100%;margin-top:8px">📋 Importer sjekkliste-maler til SharePoint (engangs)</button>
+      <button class="modal-btn ghost" onclick="clearConfig()" style="width:100%;margin-top:8px">Nullstill konfigurasjon</button>
     </div>
   </div>
 
@@ -3753,6 +3754,74 @@ function queueProjectSave(p){
 /* Sentral lagringskrok som kalles etter endringer (sjekklister, gantt, arkivering). */
 function saveState(p){ if(p) queueProjectSave(p); }
 
+/* ── Sjekkliste-MALER i SharePoint (lista PMOTIONSjekklistemaler) ──
+   Malene (definisjonene) bor nå i SharePoint og kan redigeres av PMO direkte i lista.
+   Lastes ved oppstart og overstyrer de hardkodede; faller tilbake til hardkodet hvis lista mangler/er tom. */
+const TEMPLATE_LIST_TITLE = 'PMOTIONSjekklistemaler';
+let templateListId = null;
+async function resolveTemplateList(){
+  if(templateListId) return templateListId;
+  try{
+    const d = await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists?$filter=displayName eq '${TEMPLATE_LIST_TITLE}'&$select=id,displayName`);
+    const lst = (d.value||[])[0];
+    templateListId = lst ? lst.id : null;
+  }catch(e){ templateListId = null; }
+  return templateListId;
+}
+async function loadChecklistTemplatesFromSP(){
+  try{
+    const lid = await resolveTemplateList();
+    if(!lid) return false; // lista finnes ikke → behold hardkodede
+    const d = await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?expand=fields&$top=999`);
+    const rows = (d.value||[]).map(it=>it.fields).filter(f=>f && f.FaseNokkel && f.Aktiv!==false);
+    if(!rows.length) return false; // tom liste → behold hardkodede
+    rows.sort((a,b)=>(parseInt(a.Rekkefolge)||0)-(parseInt(b.Rekkefolge)||0));
+    const built = {};
+    rows.forEach(f=>{
+      const key=f.FaseNokkel; if(!built[key]) built[key]=[];
+      const item={ text:f.Title||'', role:f.Rolle||'' };
+      if(f.Punkttype) item.type=f.Punkttype;
+      if(f.Bevis) item.evidence=f.Bevis;
+      built[key].push(item);
+    });
+    Object.keys(built).forEach(key=>{
+      if(CHECKLIST_TEMPLATES_EXTENDED[key]) CHECKLIST_TEMPLATES_EXTENDED[key] = { ...CHECKLIST_TEMPLATES_EXTENDED[key], items: built[key] };
+      else CHECKLIST_TEMPLATES_EXTENDED[key] = { dept: key.endsWith('_offshore')?'offshore':key.endsWith('_aqua')?'aqua':'all', name:key, items: built[key] };
+    });
+    return true;
+  }catch(e){ console.warn('loadChecklistTemplatesFromSP', e); return false; }
+}
+/* Engangs-seeding: skriver dagens hardkodede maler til SharePoint-lista. Kjører kun hvis lista er tom. */
+async function seedChecklistTemplates(){
+  if(!graphMode){ showToast('Logg inn med Microsoft først', true); return; }
+  const lid = await resolveTemplateList();
+  if(!lid){ showToast('Fant ikke lista «'+TEMPLATE_LIST_TITLE+'»', true); return; }
+  let existing;
+  try{ existing = await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?$top=1`); }
+  catch(e){ showToast('Kunne ikke lese mal-lista: '+e.message, true); return; }
+  if((existing.value||[]).length>0){ showToast('Lista er ikke tom – import avbrutt (unngår dubletter)', true); return; }
+  // Verifiser at nødvendige kolonner finnes (ellers feiler hver skriving)
+  let tcols = new Set();
+  try{ const c = await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/columns?$select=name`); tcols = new Set((c.value||[]).map(x=>x.name)); }catch(e){}
+  const missing = ['FaseNokkel','Rolle','Rekkefolge','Punkttype','Bevis','Aktiv'].filter(n=>!tcols.has(n));
+  if(missing.length){ showToast('Mangler kolonner i lista: '+missing.join(', ')+'. Opprett dem først.', true); return; }
+  const rows = [];
+  Object.keys(CHECKLIST_TEMPLATES_EXTENDED).forEach(key=>{
+    (CHECKLIST_TEMPLATES_EXTENDED[key].items||[]).forEach((it,i)=>{
+      rows.push({ Title:it.text||'', FaseNokkel:key, Rolle:it.role||'', Rekkefolge:i+1, Punkttype:it.type||'', Bevis:it.evidence||'', Aktiv:true });
+    });
+  });
+  showToast(`Importerer ${rows.length} malpunkter til SharePoint...`);
+  let ok=0, fail=0;
+  for(const r of rows){
+    try{ await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items`, { fields:r }); ok++; }
+    catch(e){ fail++; console.warn('seed-rad feilet:', r, e); }
+  }
+  showToast(`✅ Import ferdig: ${ok} punkter lagret${fail?', '+fail+' feilet (se konsoll)':''}`);
+  await loadChecklistTemplatesFromSP();
+  if(typeof renderAll==='function') renderAll();
+}
+
 function toFields(p){
   const f = {
     Title:p.name, Fase:p.phase, ProsjektNr:p.projectNr||'', Sannsynlighet:p.prob,
@@ -3805,6 +3874,7 @@ async function loadFromLists(){
   setSyncStatus('loading','Laster...');
   try {
     await ensureListColumns();
+    await loadChecklistTemplatesFromSP();   // hent sjekkliste-maler fra SharePoint (fallback: hardkodet)
     const d = await gGet(listBase()+'?expand=fields&$top=500');
     projects = d.value.map(fromItem);
     setSyncStatus('ok','Synkronisert');
