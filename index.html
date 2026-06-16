@@ -3838,6 +3838,20 @@ async function seedChecklistTemplates(){
   if(typeof renderAll==='function') renderAll();
 }
 
+/* Leser JSON fra en SharePoint-tekstkolonne. Tåler at rik tekst pakker verdien i HTML
+   (stripper tagger og dekoder entiteter) slik at JSON.parse ikke feiler. */
+function parseSPJson(v, fallback){
+  if(v==null) return fallback;
+  let s = String(v).trim();
+  if(!s) return fallback;
+  if(s[0]==='<') s = s.replace(/<[^>]*>/g,'');           // strip HTML-tagger
+  if(s.indexOf('&')>=0){                                   // dekod vanlige entiteter
+    s = s.replace(/&quot;/g,'"').replace(/&#34;/g,'"').replace(/&#39;/g,"'")
+         .replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&');
+  }
+  try{ return JSON.parse(s); }catch(e){ console.warn('parseSPJson feilet', e); return fallback; }
+}
+
 function toFields(p){
   const f = {
     Title:p.name, Fase:p.phase, ProsjektNr:p.projectNr||'', Sannsynlighet:p.prob,
@@ -3882,8 +3896,8 @@ function fromItem(item){
   };
   if(durDays>0){ o.durationDays=durDays; o.durationUnit=durUnit; o.durationValue=durVal; }
   // Sjekkliste-tilstand fra SharePoint (kun hvis kolonnen finnes – ellers behold minne-tilstand)
-  if(f.Checklists!=null){ try{ o.checklists = JSON.parse(f.Checklists||'{}'); }catch(e){ o.checklists={}; } }
-  if(f.Execution!=null){ try{ const ex=JSON.parse(f.Execution||'{}'); if(ex && Object.keys(ex).length) o.execution = ex; }catch(e){} }
+  if(f.Checklists!=null){ o.checklists = parseSPJson(f.Checklists, {}); }
+  if(f.Execution!=null){ const ex=parseSPJson(f.Execution, {}); if(ex && Object.keys(ex).length) o.execution = ex; }
   return o;
 }
 async function loadFromLists(){
@@ -3893,6 +3907,9 @@ async function loadFromLists(){
     await loadChecklistTemplatesFromSP();   // hent sjekkliste-maler fra SharePoint (fallback: hardkodet)
     const d = await gGet(listBase()+'?expand=fields&$top=500');
     projects = d.value.map(fromItem);
+    // Generér sjekklister for alle prosjekter (merger – bevarer avhukinger fra SharePoint).
+    // Gjør at sjekklister og KPI-er vises korrekt umiddelbart etter innlasting/refresh.
+    projects.forEach(p => { try{ PHASES.filter(ph=>ph.id!=='joblost').forEach(ph=> autoAssignChecklists(p, ph.id)); }catch(e){} });
     setSyncStatus('ok','Synkronisert');
     renderAll();
     showToast('Data lastet fra Microsoft Lists ✓');
@@ -10587,6 +10604,9 @@ function deadlineProgressBar(info) {
 renderProjectChecklist = function(p) {
   const deptKey = p.dept || 'offshore';
   if (!p.checklists) p.checklists = {};
+  // Generér on-demand for alle faser (merger – bevarer eksisterende avhukinger).
+  // Sikrer at sjekklista vises uten å bytte fase, og kommer tilbake etter refresh.
+  PHASES.filter(ph => ph.id !== 'joblost').forEach(ph => autoAssignChecklists(p, ph.id));
 
   const deptTemplates = Object.entries(CHECKLIST_TEMPLATES_EXTENDED)
     .filter(([key, tmpl]) => !tmpl.dept || tmpl.dept === deptKey || tmpl.dept === 'all');
