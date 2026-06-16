@@ -3346,7 +3346,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
       <div class="f"><label>Delt postboks (valgfritt)</label><input id="cfg-sharedmailbox" placeholder="pmo@globalonsite.com"></div>
       <div style="height:16px"></div>
       <button class="modal-btn" onclick="saveConfig()" style="width:100%">Lagre og koble til</button>
-      <button class="modal-btn ghost" onclick="seedChecklistTemplates()" style="width:100%;margin-top:8px">📋 Importer sjekkliste-maler til SharePoint (engangs)</button>
+      <button class="modal-btn ghost" onclick="seedChecklistTemplates()" style="width:100%;margin-top:8px">📋 Importer / oppdater sjekkliste-maler i SharePoint</button>
       <button class="modal-btn ghost" onclick="clearConfig()" style="width:100%;margin-top:8px">Nullstill konfigurasjon</button>
     </div>
   </div>
@@ -3777,63 +3777,136 @@ async function templateColMap(lid){
   const byNorm={};
   cols.forEach(col=>{ byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name; });
   const map={ _found: cols.map(c=>c.name) };
-  ['title','fasenokkel','rolle','rekkefolge','punkttype','bevis','aktiv'].forEach(k=>{ map[k]=byNorm[k]||null; });
+  ['title','fasenokkel','rolle','rekkefolge','punkttype','bevis','aktiv','fristdager','pakrevd','gjentakelse'].forEach(k=>{ map[k]=byNorm[k]||null; });
   if(!map.title) map.title='Title';
   return map;
 }
+let templatesFromSP = false;    // true når malene faktisk ble hentet fra SharePoint
+let templateLoadError = false;  // true når henting feilet → reservemaler vises (kan være utdaterte)
+let templateCm = null;          // cachet kolonne-mapping for mal-lista (brukes ved redigering)
 async function loadChecklistTemplatesFromSP(){
+  templateLoadError = false;
   try{
     const lid = await resolveTemplateList();
-    if(!lid) return false; // lista finnes ikke → behold hardkodede
+    if(!lid){ templateLoadError = true; templatesFromSP = false; return false; } // lista mangler → flagg
     const cm = await templateColMap(lid);
-    if(!cm.fasenokkel) return false;
+    templateCm = cm;
+    if(!cm.fasenokkel){ templateLoadError = true; templatesFromSP = false; return false; }
     const d = await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?expand=fields&$top=999`);
-    const rows = (d.value||[]).map(it=>it.fields).filter(f=>f && f[cm.fasenokkel] && (!cm.aktiv || f[cm.aktiv]!==false));
-    if(!rows.length) return false; // tom liste → behold hardkodede
-    rows.sort((a,b)=>(parseInt(cm.rekkefolge?a[cm.rekkefolge]:0)||0)-(parseInt(cm.rekkefolge?b[cm.rekkefolge]:0)||0));
-    const built = {};
-    rows.forEach(f=>{
-      const key=f[cm.fasenokkel]; if(!built[key]) built[key]=[];
-      const item={ text:f[cm.title]||'', role:(cm.rolle?f[cm.rolle]:'')||'' };
-      if(cm.punkttype && f[cm.punkttype]) item.type=f[cm.punkttype];
-      if(cm.bevis && f[cm.bevis]) item.evidence=f[cm.bevis];
-      built[key].push(item);
+    const raw = (d.value||[]).filter(it=>it.fields && it.fields[cm.fasenokkel] && (!cm.aktiv || it.fields[cm.aktiv]!==false));
+    if(!raw.length){ templatesFromSP = false; return false; } // tom liste (ikke importert ennå) – ikke en feil
+    raw.sort((a,b)=>(parseInt(cm.rekkefolge?a.fields[cm.rekkefolge]:0)||0)-(parseInt(cm.rekkefolge?b.fields[cm.rekkefolge]:0)||0));
+    const built = {}, deadlines = {}, execBuilt = {}, execDeadlines = {};
+    raw.forEach(it=>{
+      const f=it.fields, key=f[cm.fasenokkel];
+      if(key.indexOf('exec:')===0){
+        // Fase 4-steg-oppgave → EXEC_STAGES. Bruker SharePoint-radens id som stabil oppgave-id.
+        const sid=key.slice(5); if(!execBuilt[sid]) execBuilt[sid]=[];
+        execBuilt[sid].push({
+          id:'sp'+it.id, spId:it.id, text:f[cm.title]||'',
+          role:_EXEC_ROLE_BY_ID[(cm.rolle?f[cm.rolle]:'')]||'',
+          req: cm.pakrevd ? !!f[cm.pakrevd] : false,
+          repeat: (cm.gjentakelse ? f[cm.gjentakelse] : '')||'none',
+        });
+        if(cm.fristdager && f[cm.fristdager]!=null && execDeadlines[sid]==null) execDeadlines[sid]=parseInt(f[cm.fristdager]);
+      } else {
+        if(!built[key]) built[key]=[];
+        const item={ text:f[cm.title]||'', role:(cm.rolle?f[cm.rolle]:'')||'', spId: it.id };
+        if(cm.punkttype && f[cm.punkttype]) item.type=f[cm.punkttype];
+        if(cm.bevis && f[cm.bevis]) item.evidence=f[cm.bevis];
+        built[key].push(item);
+        if(cm.fristdager && f[cm.fristdager]!=null && deadlines[key]==null) deadlines[key]=parseInt(f[cm.fristdager]);
+      }
     });
     Object.keys(built).forEach(key=>{
-      if(CHECKLIST_TEMPLATES_EXTENDED[key]) CHECKLIST_TEMPLATES_EXTENDED[key] = { ...CHECKLIST_TEMPLATES_EXTENDED[key], items: built[key] };
-      else CHECKLIST_TEMPLATES_EXTENDED[key] = { dept: key.endsWith('_offshore')?'offshore':key.endsWith('_aqua')?'aqua':'all', name:key, items: built[key] };
+      const meta = CHECKLIST_TEMPLATES_EXTENDED[key] || { dept: key.endsWith('_offshore')?'offshore':key.endsWith('_aqua')?'aqua':'all', name:key };
+      const merged = { ...meta, items: built[key] };
+      if(deadlines[key]!=null) merged.deadline = { days: deadlines[key], label: deadlines[key]+' dager' };
+      CHECKLIST_TEMPLATES_EXTENDED[key] = merged;
     });
+    if(typeof EXEC_STAGES!=='undefined'){
+      Object.keys(execBuilt).forEach(sid=>{
+        const stage = EXEC_STAGES.find(s=>s.id===sid);
+        if(stage){ stage.tasks = execBuilt[sid]; if(execDeadlines[sid]!=null) stage.deadlineDays = execDeadlines[sid]; }
+      });
+    }
+    templatesFromSP = true; templateLoadError = false;
     return true;
-  }catch(e){ console.warn('loadChecklistTemplatesFromSP', e); return false; }
+  }catch(e){ console.warn('loadChecklistTemplatesFromSP', e); templateLoadError = true; templatesFromSP = false; return false; }
+}
+/* ── Lagring av mal-endringer til SharePoint-lista ── */
+async function _tmplCtx(){
+  const lid = await resolveTemplateList(); if(!lid) return null;
+  if(!templateCm) templateCm = await templateColMap(lid);
+  return { lid, cm: templateCm };
+}
+async function tmplPatchRow(spId, fields){
+  if(!graphMode || !spId) return;
+  try{ const ctx=await _tmplCtx(); if(!ctx) return; await gPatch(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${spId}/fields`, fields); }
+  catch(e){ console.warn('tmplPatchRow', e); showToast('Kunne ikke lagre endringen til SharePoint', true); }
+}
+async function tmplAddRow(fields){
+  if(!graphMode) return null;
+  try{ const ctx=await _tmplCtx(); if(!ctx) return null; const r=await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items`, {fields}); return r&&r.id; }
+  catch(e){ console.warn('tmplAddRow', e); showToast('Kunne ikke lagre nytt punkt til SharePoint', true); return null; }
+}
+async function tmplDeleteRow(spId){
+  if(!graphMode || !spId) return;
+  try{ const ctx=await _tmplCtx(); if(!ctx) return; await gDelete(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${spId}`); }
+  catch(e){ console.warn('tmplDeleteRow', e); showToast('Kunne ikke slette punktet i SharePoint', true); }
+}
+async function retryLoadTemplates(pid){
+  showToast('Henter sjekkliste-maler på nytt...');
+  const ok = await loadChecklistTemplatesFromSP();
+  showToast(ok ? 'Maler oppdatert fra SharePoint ✓' : 'Kunne fortsatt ikke hente maler fra SharePoint', !ok);
+  if(pid && typeof openEditModal==='function') openEditModal(pid, 'checklist');
+  else if(typeof renderAll==='function') renderAll();
 }
 /* Engangs-seeding: skriver dagens hardkodede maler til SharePoint-lista. Kjører kun hvis lista er tom. */
 async function seedChecklistTemplates(){
   if(!graphMode){ showToast('Logg inn med Microsoft først', true); return; }
   const lid = await resolveTemplateList();
   if(!lid){ showToast('Fant ikke lista «'+TEMPLATE_LIST_TITLE+'»', true); return; }
-  let existing;
-  try{ existing = await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?$top=1`); }
-  catch(e){ showToast('Kunne ikke lese mal-lista: '+e.message, true); return; }
-  if((existing.value||[]).length>0){ showToast('Lista er ikke tom – import avbrutt (unngår dubletter)', true); return; }
   const cm = await templateColMap(lid);
   const missing = ['fasenokkel','rolle','rekkefolge','aktiv'].filter(k=>!cm[k]);
   if(missing.length){ showToast('Mangler kolonner: '+missing.join(', ')+'. Fant: '+(cm._found||[]).join(', '), true); return; }
+  // Hvilke seksjoner finnes allerede? (gjør importen idempotent – topper på det som mangler)
+  let existingKeys=[];
+  try{ const ex=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?expand=fields&$top=999`); existingKeys=(ex.value||[]).map(it=>it.fields&&it.fields[cm.fasenokkel]).filter(Boolean); }
+  catch(e){ showToast('Kunne ikke lese lista: '+e.message, true); return; }
+  const hasPhase = existingKeys.some(k=>k.indexOf('exec:')!==0);
+  const hasExec  = existingKeys.some(k=>k.indexOf('exec:')===0);
   const rows = [];
-  Object.keys(CHECKLIST_TEMPLATES_EXTENDED).forEach(key=>{
-    (CHECKLIST_TEMPLATES_EXTENDED[key].items||[]).forEach((it,i)=>{
-      const r = { [cm.title]:it.text||'', [cm.fasenokkel]:key, [cm.rolle]:it.role||'', [cm.rekkefolge]:i+1, [cm.aktiv]:true };
-      if(cm.punkttype) r[cm.punkttype] = it.type||'';   // valgfri – kun for vedlegg-punkter
-      if(cm.bevis) r[cm.bevis] = it.evidence||'';        // valgfri – dokumentnavn
-      rows.push(r);
+  if(!hasPhase){
+    Object.keys(CHECKLIST_TEMPLATES_EXTENDED).filter(k=>k.indexOf('exec:')!==0).forEach(key=>{
+      (CHECKLIST_TEMPLATES_EXTENDED[key].items||[]).forEach((it,i)=>{
+        const r = { [cm.title]:it.text||'', [cm.fasenokkel]:key, [cm.rolle]:it.role||'', [cm.rekkefolge]:i+1, [cm.aktiv]:true };
+        if(cm.punkttype) r[cm.punkttype] = it.type||'';
+        if(cm.bevis) r[cm.bevis] = it.evidence||'';
+        rows.push(r);
+      });
     });
-  });
-  showToast(`Importerer ${rows.length} malpunkter til SharePoint...`);
+  }
+  if(!hasExec && typeof EXEC_STAGES!=='undefined'){
+    EXEC_STAGES.forEach(stage=>{
+      (stage.tasks||[]).forEach((t,i)=>{
+        const r = { [cm.title]:t.text||'', [cm.fasenokkel]:'exec:'+stage.id, [cm.rolle]:execRoleToId(t.role)||'', [cm.rekkefolge]:i+1, [cm.aktiv]:true };
+        if(cm.pakrevd) r[cm.pakrevd] = !!t.req;
+        if(cm.gjentakelse) r[cm.gjentakelse] = t.repeat||'none';
+        if(cm.fristdager) r[cm.fristdager] = stage.deadlineDays||0;
+        rows.push(r);
+      });
+    });
+  }
+  if(!rows.length){ showToast('Alt er allerede importert – ingenting å gjøre', true); return; }
+  const label = (!hasPhase && !hasExec) ? 'rader' : (!hasExec ? 'Fase 4-oppgaver' : 'malpunkter');
+  showToast(`Importerer ${rows.length} ${label} til SharePoint...`);
   let ok=0, fail=0;
   for(const r of rows){
     try{ await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items`, { fields:r }); ok++; }
     catch(e){ fail++; console.warn('seed-rad feilet:', r, e); }
   }
-  showToast(`✅ Import ferdig: ${ok} punkter lagret${fail?', '+fail+' feilet (se konsoll)':''}`);
+  showToast(`✅ Import ferdig: ${ok} rader lagret${fail?', '+fail+' feilet (se konsoll)':''}`);
   await loadChecklistTemplatesFromSP();
   if(typeof renderAll==='function') renderAll();
 }
@@ -10337,21 +10410,31 @@ function openTemplateDetail(key) {
 
 function _itemText(item){ return (typeof item==='object') ? (item.text||'') : item; }
 
-function addTemplateItem(key) {
+async function addTemplateItem(key) {
   const tmpl = CHECKLIST_TEMPLATES_EXTENDED[key]; if (!tmpl) return;
   if (!Array.isArray(tmpl.items)) tmpl.items = [];
   const input = document.getElementById('cl-new-item');
   const text  = input?.value?.trim(); if (!text) return;
   // Keep object-shape consistent with the rest of the template
-  tmpl.items.push({ text, role:'', type:'check' });
+  const item = { text, role:'', type:'check' };
+  tmpl.items.push(item);
   input.value = '';
+  // Lagre nytt punkt som rad i SharePoint
+  if(graphMode && templateCm){
+    const fields = { [templateCm.title]:text, [templateCm.fasenokkel]:key, [templateCm.rekkefolge]:tmpl.items.length };
+    if(templateCm.rolle) fields[templateCm.rolle]='';
+    if(templateCm.aktiv) fields[templateCm.aktiv]=true;
+    const id = await tmplAddRow(fields); if(id) item.spId = id;
+  }
   openTemplateDetail(key);
   showToast('Punkt lagt til ✓');
 }
 
 function deleteTemplateItem(key, idx) {
   const tmpl = CHECKLIST_TEMPLATES_EXTENDED[key]; if (!tmpl) return;
-  if (!confirm(`Slett "${_itemText(tmpl.items[idx])}"?`)) return;
+  const item = tmpl.items[idx];
+  if (!confirm(`Slett "${_itemText(item)}"?`)) return;
+  if(graphMode && typeof item==='object' && item.spId) tmplDeleteRow(item.spId);  // fjern rad i SharePoint
   tmpl.items.splice(idx, 1);
   openTemplateDetail(key);
   showToast('Punkt slettet');
@@ -10365,6 +10448,8 @@ function editTemplateItem(key, idx) {
   const t = newText.trim();
   if (!t) return;
   if (typeof item === 'object') item.text = t; else tmpl.items[idx] = { text:t, role:'', type:'check' };
+  const it2 = tmpl.items[idx];
+  if(graphMode && templateCm && it2.spId) tmplPatchRow(it2.spId, { [templateCm.title]: t });  // lagre tekst
   openTemplateDetail(key);
   showToast('Punkt oppdatert ✓');
 }
@@ -10385,20 +10470,31 @@ function duplicateTemplate(key) {
 // ── Fase 4 execution-stage editing (same EXEC_STAGES used by prosjektgjennomføring) ──
 function _execStage(id){ return EXEC_STAGES.find(s => s.id === id); }
 
-function addExecTask(stageId) {
+async function addExecTask(stageId) {
   const stage = _execStage(stageId); if (!stage) return;
   const input = document.getElementById('cl-new-item');
   const text  = input?.value?.trim(); if (!text) return;
   const tid = stageId.charAt(0) + 't' + (stage.tasks.length + 1) + '_' + Date.now().toString(36);
-  stage.tasks.push({ id: tid, text, role: 'Site Lead', req: false, repeat: 'none' });
+  const task = { id: tid, text, role: 'Site Lead', req: false, repeat: 'none' };
+  stage.tasks.push(task);
   input.value = '';
+  if(graphMode && templateCm){
+    const fields = { [templateCm.title]:text, [templateCm.fasenokkel]:'exec:'+stageId, [templateCm.rekkefolge]:stage.tasks.length };
+    if(templateCm.rolle) fields[templateCm.rolle]=execRoleToId('Site Lead');
+    if(templateCm.aktiv) fields[templateCm.aktiv]=true;
+    if(templateCm.pakrevd) fields[templateCm.pakrevd]=false;
+    if(templateCm.gjentakelse) fields[templateCm.gjentakelse]='none';
+    const id = await tmplAddRow(fields); if(id){ task.spId=id; task.id='sp'+id; }
+  }
   openTemplateDetail('exec:' + stageId);
   showToast('Oppgave lagt til ✓');
 }
 
 function deleteExecTask(stageId, idx) {
   const stage = _execStage(stageId); if (!stage) return;
-  if (!confirm(`Slett "${stage.tasks[idx]?.text||''}"?`)) return;
+  const task = stage.tasks[idx];
+  if (!confirm(`Slett "${task?.text||''}"?`)) return;
+  if(graphMode && task && task.spId) tmplDeleteRow(task.spId);  // fjern rad i SharePoint
   stage.tasks.splice(idx, 1);
   openTemplateDetail('exec:' + stageId);
   showToast('Oppgave slettet');
@@ -10418,6 +10514,7 @@ function editExecTaskText(stageId, idx) {
   if (newText === null) return;
   const t = newText.trim(); if (!t) return;
   task.text = t;
+  if(graphMode && templateCm && task.spId) tmplPatchRow(task.spId, { [templateCm.title]: t });
   openTemplateDetail('exec:' + stageId);
   showToast('Oppgave oppdatert ✓');
 }
@@ -10428,6 +10525,7 @@ function setExecTaskRole(stageId, idx, roleId) {
   const newName = _EXEC_ROLE_BY_ID[roleId] || '';
   // Toggle: click the active role again to clear it
   task.role = (task.role === newName) ? '' : newName;
+  if(graphMode && templateCm && templateCm.rolle && task.spId) tmplPatchRow(task.spId, { [templateCm.rolle]: execRoleToId(task.role) });
   openTemplateDetail('exec:' + stageId);
 }
 
@@ -10435,12 +10533,16 @@ function toggleExecTaskReq(stageId, idx) {
   const stage = _execStage(stageId); if (!stage) return;
   const task = stage.tasks[idx]; if (!task) return;
   task.req = !task.req;
+  if(graphMode && templateCm && templateCm.pakrevd && task.spId) tmplPatchRow(task.spId, { [templateCm.pakrevd]: task.req });
   openTemplateDetail('exec:' + stageId);
 }
 
 function updateExecStageDeadline(stageId, days) {
   const stage = _execStage(stageId); if (!stage) return;
   stage.deadlineDays = (isNaN(days) || days < 0) ? 0 : days;
+  if(graphMode && templateCm && templateCm.fristdager){
+    (stage.tasks||[]).forEach(t=>{ if(t.spId) tmplPatchRow(t.spId, { [templateCm.fristdager]: stage.deadlineDays }); });
+  }
   showToast('Frist oppdatert ✓');
 }
 
@@ -10616,6 +10718,14 @@ renderProjectChecklist = function(p) {
     Sjekklister per fase · 💬 kommentar · roller og frister vises per punkt
     ${p.dept ? `<span class="dept-badge ${p.dept==='offshore'?'dept-offshore':'dept-aqua'}">${p.dept==='offshore'?'Offshore & Marine':'Aquaculture'}</span>` : ''}
   </div>`;
+
+  // Advarsel: malene kunne ikke hentes fra SharePoint → viser innebygde reservemaler (kan være utdaterte)
+  if (graphMode && templateLoadError) {
+    html += `<div style="margin-bottom:14px;padding:10px 14px;background:rgba(245,158,11,.12);border:1px solid #f59e0b;border-radius:8px;color:#f59e0b;font-size:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span>⚠ Kunne ikke hente sjekkliste-maler fra SharePoint. Viser innebygde reservemaler som kan være utdaterte.</span>
+      <button onclick="retryLoadTemplates('${p.id}')" style="background:#f59e0b;color:#1a1205;border:none;border-radius:6px;padding:4px 12px;font-size:11px;font-weight:600;cursor:pointer">Prøv igjen</button>
+    </div>`;
+  }
 
   // Deadline summary row
   const deadlineSummary = deptTemplates.filter(([k]) => p.checklists[k]?.length > 0).map(([k]) => {
@@ -10869,6 +10979,8 @@ function setItemRole(key, idx, roleId) {
     // Toggle: click same role again to remove
     tmpl.items[idx].role = item.role === roleId ? '' : roleId;
   }
+  const it = tmpl.items[idx];
+  if(graphMode && templateCm && templateCm.rolle && it.spId) tmplPatchRow(it.spId, { [templateCm.rolle]: it.role||'' });  // lagre rolle
   renderChecklistAdminDetail(key);
 }
 
@@ -10877,6 +10989,10 @@ function updateTemplateDeadline(key, days) {
   if (!tmpl.deadline) tmpl.deadline = {};
   tmpl.deadline.days = days;
   tmpl.deadline.label = days + ' dager';
+  // Lagre frist på radene i SharePoint (krever kolonnen FristDager – Number)
+  if(graphMode && templateCm && templateCm.fristdager){
+    (tmpl.items||[]).forEach(it=>{ if(it && it.spId) tmplPatchRow(it.spId, { [templateCm.fristdager]: days }); });
+  }
   showToast(`Frist oppdatert: ${days} dager ✓`);
 }
 
