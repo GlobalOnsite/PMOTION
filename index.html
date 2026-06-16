@@ -2641,6 +2641,25 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
 .role-name{font-size:14px;font-weight:600;color:var(--text)}
 .role-active-tag{margin-left:auto;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:rgba(34,197,94,.2);color:#22c55e}
 .role-mandate{font-size:11.5px;color:var(--muted);line-height:1.4}
+/* ── Prosjekt-wizard ─────────────────────────────────────────── */
+.wiz-wrap{padding:30px 34px 26px}
+.wiz-steps{display:flex;align-items:center;gap:0;margin:18px 0 24px;flex-wrap:wrap}
+.wiz-step{display:flex;align-items:center;gap:8px;cursor:pointer;opacity:.55;transition:opacity .15s;padding:2px 2px}
+.wiz-step:hover{opacity:.85}
+.wiz-step.active{opacity:1}
+.wiz-step.done{opacity:.9}
+.wiz-step-num{width:26px;height:26px;flex:0 0 26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;background:var(--surface);border:1.5px solid var(--border);color:var(--muted)}
+.wiz-step.active .wiz-step-num{background:var(--accent);border-color:var(--accent);color:#fff}
+.wiz-step.done .wiz-step-num{background:rgba(34,197,94,.18);border-color:#22c55e;color:#22c55e}
+.wiz-step-label{font-size:12.5px;font-weight:600;color:var(--text);white-space:nowrap}
+.wiz-step.active .wiz-step-label{color:var(--accent)}
+.wiz-step-sep{flex:1;height:1.5px;min-width:14px;background:var(--border);margin:0 8px}
+.wiz-panel{animation:wizFade .18s ease}
+@keyframes wizFade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.wiz-nav{display:flex;align-items:center;gap:12px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
+.wiz-nav .modal-btn{min-width:140px}
+.wiz-progress-text{flex:1;text-align:center;font-size:11px;color:var(--muted);font-family:'DM Mono',monospace}
+@media(max-width:560px){.wiz-step-label{display:none}.wiz-step-sep{margin:0 4px}.wiz-nav .modal-btn{min-width:0;flex:1}}
 </style>
 </head>
 <body>
@@ -3555,6 +3574,45 @@ function badgeHTML(ph){const p=phaseMap[ph];return`<span class="badge" style="ba
 function probColor(p){return p>=80?'#16a34a':p>=50?'#d97706':'#6b7280';}
 function showToast(msg,err=false){const t=document.getElementById('toast');t.textContent=msg;t.className='toast'+(err?' err':'');t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000);}
 function daysBetween(a,b){return Math.round((new Date(b)-new Date(a))/(1000*60*60*24));}
+/* ── Varighet: dager/uker/måneder ──────────────────────────────
+   Kanonisk lagring: durationDays (+ durationUnit/durationValue for visning).
+   durationMonths holdes i synk for eldre moduler/visninger. */
+function durationToDays(value,unit){
+  const v=parseInt(value)||0;
+  if(v<=0) return 0;
+  if(unit==='weeks')  return v*7;
+  if(unit==='months') return Math.round(v*30.44);
+  return v; // days
+}
+function projDurationDays(p){
+  if(p.durationDays>0) return p.durationDays;
+  if(p.durationMonths>0) return Math.round(p.durationMonths*30.44);
+  return 0;
+}
+function projEndDate(p){
+  if(!p.startDate) return null;
+  const days=projDurationDays(p);
+  if(days<=0) return null;
+  const d=new Date(p.startDate); d.setDate(d.getDate()+days); return d;
+}
+/* ISO-dato (YYYY-MM-DD) for sluttdato, eller '' */
+function projEndISO(p){ const d=projEndDate(p); return d?d.toISOString().split('T')[0]:''; }
+/* {value,unit} for skjema – utleder fra lagret enhet, ellers måneder */
+function durationParts(p){
+  if(p.durationUnit && (p.durationValue||p.durationValue===0))
+    return {value:p.durationValue, unit:p.durationUnit};
+  if(p.durationMonths>0) return {value:p.durationMonths, unit:'months'};
+  if(p.durationDays>0)   return {value:p.durationDays,   unit:'days'};
+  return {value:0, unit:'months'};
+}
+/* Lesbar varighetstekst, f.eks. "7 dager" / "3 uker" / "2 mnd" */
+function fmtDuration(p){
+  const {value,unit}=durationParts(p);
+  if(!value) return '–';
+  if(unit==='days')  return value+(value===1?' dag':' dager');
+  if(unit==='weeks') return value+(value===1?' uke':' uker');
+  return value+' mnd';
+}
 function closeModal(){
   document.querySelectorAll('.modal.pw-modal').forEach(m=>m.classList.remove('pw-modal'));document.getElementById('modal-overlay').classList.remove('open');}
 
@@ -3567,9 +3625,12 @@ function initMsal(){
   const accs=msalInstance.getAllAccounts();
   if(accs.length>0){currentAccount=accs[0];onSignedIn();}
 }
+// Scopes for Microsoft Graph: SharePoint-lister + personvelger (PM/KAM) fra organisasjonen.
+// User.ReadBasic.All = lese basis-profil for alle i org; People.Read = relevante kontakter (/me/people).
+const GRAPH_SCOPES = ['User.Read','User.ReadBasic.All','People.Read','Sites.ReadWrite.All'];
 async function signIn(){
   if(!msalInstance){showToast('Fyll inn konfigurasjon først',true);return;}
-  try{const r=await msalInstance.loginPopup({scopes:['Sites.ReadWrite.All','User.Read']});currentAccount=r.account;onSignedIn();}
+  try{const r=await msalInstance.loginPopup({scopes:GRAPH_SCOPES});currentAccount=r.account;onSignedIn();}
   catch(e){showToast('Innlogging feilet: '+e.message,true);}
 }
 async function signOut(){
@@ -3587,8 +3648,8 @@ function updateUserUI(){
 function setSyncStatus(s,msg){document.getElementById('sync-dot').className='sync-dot '+s;document.getElementById('sync-text').textContent=msg;}
 async function getToken(){
   if(!msalInstance||!currentAccount)return null;
-  try{const r=await msalInstance.acquireTokenSilent({scopes:['Sites.ReadWrite.All'],account:currentAccount});return r.accessToken;}
-  catch(e){const r=await msalInstance.acquireTokenPopup({scopes:['Sites.ReadWrite.All']});return r.accessToken;}
+  try{const r=await msalInstance.acquireTokenSilent({scopes:GRAPH_SCOPES,account:currentAccount});return r.accessToken;}
+  catch(e){const r=await msalInstance.acquireTokenPopup({scopes:GRAPH_SCOPES});return r.accessToken;}
 }
 const GRAPH='https://graph.microsoft.com/v1.0';
 /* ── GRAPH ERROR HANDLING ────────────────────────────── */
@@ -3666,8 +3727,8 @@ async function gPost(path, body) { return graphFetch(path, { method:'POST',  bod
 async function gPatch(path,body) { return graphFetch(path, { method:'PATCH', body }); }
 async function gDelete(path)     { return graphFetch(path, { method:'DELETE' }); }
 function listBase(){return`/sites/${GRAPH_CONFIG.siteId}/lists/${GRAPH_CONFIG.listId}/items`;}
-function toFields(p){return{fields:{Title:p.name,Fase:p.phase,ProsjektNr:p.projectNr||'',Sannsynlighet:p.prob,Kunde:p.customer,Lokasjon:p.location,Rigg:p.rig,Startdato:p.startDate||null,Varighet:p.durationMonths,EstimertVerdi:p.value,Personell:p.personnel,Utstyr:p.equipment,Hub:p.hub,Avdeling:p.dept||'',PM:p.pm||'',KAM:p.kam||'',PhaseLog:JSON.stringify(p.phaseLog||{}),EquipBookings:JSON.stringify(p.equipBookings||[])}}}
-function fromItem(item){const f=item.fields;let pl={},eb=[];try{pl=JSON.parse(f.PhaseLog||'{}');}catch(e){}try{eb=JSON.parse(f.EquipBookings||'[]');}catch(e){}return{id:item.id,name:f.Title||'',projectNr:f.ProsjektNr||'',phase:f.Fase||'fase0',prob:parseInt(f.Sannsynlighet)||0,customer:f.Kunde||'',location:f.Lokasjon||'',rig:f.Rigg||'',startDate:f.Startdato?f.Startdato.split('T')[0]:'',durationMonths:parseInt(f.Varighet)||0,value:parseFloat(f.EstimertVerdi)||0,personnel:f.Personell||'',equipment:f.Utstyr||'',hub:f.Hub||'lillesand',dept:f.Avdeling||'',pm:f.PM||'',kam:f.KAM||'',phaseLog:pl,equipBookings:eb};}
+function toFields(p){return{fields:{Title:p.name,Fase:p.phase,ProsjektNr:p.projectNr||'',Sannsynlighet:p.prob,Kunde:p.customer,Lokasjon:p.location,Rigg:p.rig,Startdato:p.startDate||null,Varighet:p.durationMonths,EstimertVerdi:p.value,Personell:'',Utstyr:'',Hub:p.hub,Avdeling:p.dept||'',PM:p.pm||'',KAM:p.kam||'',PhaseLog:JSON.stringify(p.phaseLog||{}),EquipBookings:JSON.stringify(p.equipBookings||[])}}}
+function fromItem(item){const f=item.fields;let pl={},eb=[];try{pl=JSON.parse(f.PhaseLog||'{}');}catch(e){}try{eb=JSON.parse(f.EquipBookings||'[]');}catch(e){}return{id:item.id,name:f.Title||'',projectNr:f.ProsjektNr||'',phase:f.Fase||'fase0',prob:parseInt(f.Sannsynlighet)||0,customer:f.Kunde||'',location:f.Lokasjon||'',rig:f.Rigg||'',startDate:f.Startdato?f.Startdato.split('T')[0]:'',durationMonths:parseInt(f.Varighet)||0,value:parseFloat(f.EstimertVerdi)||0,description:f.Beskrivelse||'',personnel:[],equipment:[],hub:f.Hub||'lillesand',dept:f.Avdeling||'',pm:f.PM||'',kam:f.KAM||'',phaseLog:pl,equipBookings:eb};}
 async function loadFromLists(){
   setSyncStatus('loading','Laster...');
   try {
@@ -4594,7 +4655,7 @@ function renderProjects(){
         <span class="chevron open">▾</span>
       </div>
       <div class="group-body">
-        ${group.length===0?(hasActiveFilter()?'<div class="empty-state">Ingen prosjekter matcher filteret i denne fasen</div>':'<div class="empty-state" style="border:2px dashed var(--border);border-radius:8px;margin:8px">Dra prosjekter hit</div>'):`
+        ${group.length===0?(hasActiveFilter()?'<div class="empty-state">Ingen prosjekter matcher filteret i denne fasen</div>':'<div class="empty-state">Ingen prosjekter i denne fasen</div>'):`
         <table class="project-table">
           <thead><tr><th style="width:28px"></th><th>Nr.</th><th>Prosjektnavn</th><th>Avdeling</th><th>Kunde</th><th>PM / KAM</th><th>Lokasjon</th><th>Sannsynlighet</th><th>Startdato</th><th>Estimert verdi</th></tr></thead>
           <tbody>${group.map(p=>`<tr class="proj-drag-row" id="prow-${p.id}"
@@ -4706,7 +4767,7 @@ function renderGantt(){
   let rows='';
   const visiblePhases = PHASES.filter(ph=>!ganttHiddenPhases[ph.id]);
   visiblePhases.forEach(ph=>{
-    let group=projects.filter(p=>p.phase===ph.id && !p.archived && p.startDate && p.durationMonths>0);
+    let group=projects.filter(p=>p.phase===ph.id && !p.archived && p.startDate && projDurationDays(p)>0);
     if(ganttDept!=='all') group=group.filter(p=>(p.dept||'')===ganttDept);
     if(ganttHub!=='all') group=group.filter(p=>(p.hub||'lillesand')===ganttHub);
     if(!group.length) return;
@@ -4728,18 +4789,18 @@ function renderGantt(){
   // ── Name column (fixed left) built in parallel ──
   let nameCol=`<div class="gantt-namecol"><div class="gantt-label-col">Prosjekt</div>`;
   visiblePhases.forEach(ph=>{
-    let group=projects.filter(p=>p.phase===ph.id && !p.archived && p.startDate && p.durationMonths>0);
+    let group=projects.filter(p=>p.phase===ph.id && !p.archived && p.startDate && projDurationDays(p)>0);
     if(ganttDept!=='all') group=group.filter(p=>(p.dept||'')===ganttDept);
     if(ganttHub!=='all') group=group.filter(p=>(p.hub||'lillesand')===ganttHub);
     if(!group.length) return;
-    nameCol+=`<div class="gantt-name-phase">${ph.label}</div>`;
+    nameCol+=`<div class="gantt-name-phase">`+ph.label+`</div>`;
     group.forEach(p=>{
       nameCol+=`<div class="gantt-name" onclick="openEditModal('${p.id}')"><span class="gantt-proj-name">${escHtml(p.name)}</span><span class="gantt-proj-customer">${escHtml(p.customer||'')}</span></div>`;
     });
   });
 
   // ── No-date projects (respect dept filter) ──
-  let noDate=projects.filter(p=>!p.archived && (!p.startDate||!p.durationMonths));
+  let noDate=projects.filter(p=>!p.archived && (!p.startDate||projDurationDays(p)<=0));
   if(ganttDept!=='all') noDate=noDate.filter(p=>(p.dept||'')===ganttDept);
   if(ganttHub!=='all') noDate=noDate.filter(p=>(p.hub||'lillesand')===ganttHub);
   if(noDate.length){
@@ -4908,6 +4969,8 @@ function initGanttDrag(){
     p.startDate = new Date(d._ns).toISOString().split('T')[0];
     const days = Math.max(1, daysBetween(d._ns, d._ne));
     p.durationDays = days;
+    p.durationUnit = 'days';
+    p.durationValue = days;
     // Hold durationMonths grovt i synk (for moduler som bruker den)
     p.durationMonths = Math.max(1, Math.round(days/30.44));
 
@@ -5394,7 +5457,7 @@ function renderProjectEquip(p){
       <div class="f"><label>Tilgjengelig fra hub</label><span id="eq-inv-avail" style="font-size:12px;color:var(--accent2);padding:9px 0;display:block">–</span></div>
       <div class="f"><label>Fra dato</label><input id="eq-inv-from" type="date" value="${p.startDate||''}"></div>
       <div class="f"><label>Til dato</label>
-        <input id="eq-inv-to" type="date" value="${p.startDate&&p.durationMonths?(()=>{const d=new Date(p.startDate);d.setMonth(d.getMonth()+p.durationMonths);return d.toISOString().split('T')[0];})():''}">
+        <input id="eq-inv-to" type="date" value="${projEndISO(p)}">
       </div>
     </div>
     <button class="modal-btn" onclick="addEquipBookingToProject('${p.id}')">Book utstyr</button>`;
@@ -5453,8 +5516,7 @@ async function removeEquipBooking(projectId,bookingIdx){
 /* ═══════════════════════════════════
    PROJECT MODAL (TABBED)
 ═══════════════════════════════════ */
-function projectFormFields(p){
-  return`<div class="modal-grid">
+function pfBasics(p){return`<div class="modal-grid">
     <div class="f"><label>Prosjektnavn</label><input id="m-name" value="${p.name||''}"></div>
     <div class="f">
       <label>Prosjektnummer (Tripletex)</label>
@@ -5465,41 +5527,14 @@ function projectFormFields(p){
     </div>
     <div class="f"><label>Kunde</label><input id="m-customer" value="${p.customer||''}"></div>
     <div class="f"><label>Lokasjon</label><input id="m-location" value="${p.location||''}"></div>
-    <div class="f"><label>Hub</label>
-      <select id="m-hub">${HUBS.map(h=>`<option value="${h.id}" ${h.id===(p.hub||'lillesand')?'selected':''}>${h.flag} ${h.name}</option>`).join('')}</select>
-    </div>
-    <div class="f"><label>Riggtype</label>
-      <select id="m-rigtype">
-        <option value="">Velg type...</option>
-        <option value="jackup"    ${(p.rigType||'')==='jackup'    ?'selected':''}>Jack-up</option>
-        <option value="drillship" ${(p.rigType||'')==='drillship' ?'selected':''}>Drillship</option>
-        <option value="semi"      ${(p.rigType||'')==='semi'      ?'selected':''}>Semi-submersible</option>
-        <option value="fpso"      ${(p.rigType||'')==='fpso'      ?'selected':''}>FPSO</option>
-        <option value="tender"    ${(p.rigType||'')==='tender'    ?'selected':''}>Tender</option>
-        <option value="fixed"     ${(p.rigType||'')==='fixed'     ?'selected':''}>Fast installasjon</option>
-        <option value="barge"     ${(p.rigType||'')==='barge'     ?'selected':''}>Barge</option>
-        <option value="other"     ${(p.rigType||'')==='other'     ?'selected':''}>Annet</option>
-      </select>
-    </div>
-    <div class="f"><label>Riggnavn</label><input id="m-rig" value="${p.rig||''}" placeholder="f.eks. West Hercules"></div>
-    <div class="f" style="grid-column:1/-1"><label>MMSI-nummer (for live sporing)</label>
-      <div class="mmsi-input-row">
-        <div class="f" style="margin:0"><input id="m-mmsi" value="${p.mmsi||''}" placeholder="f.eks. 257123456" style="font-family:'DM Mono',monospace"></div>
-        <button onclick="lookupMMSI()" type="button">🔍 Slå opp</button>
-      </div>
-      <div style="font-size:10px;color:var(--muted)">Finn MMSI på <a href="https://www.marinetraffic.com" target="_blank" style="color:var(--accent2)">marinetraffic.com</a> eller <a href="https://www.vesselfinder.com" target="_blank" style="color:var(--accent2)">vesselfinder.com</a></div>
-    </div>
+    <div class="f" style="grid-column:1/-1"><label>Beskrivelse</label><textarea id="m-description" rows="3" placeholder="Kort beskrivelse av prosjektet – scope, bakgrunn, mål...">${p.description||''}</textarea></div>
+  </div>`;}
+
+function pfStatus(p){return`<div class="modal-grid">
     <div class="f"><label>Status / Fase</label>
       <select id="m-phase">${PHASES.map(ph=>`<option value="${ph.id}" ${ph.id===(p.phase||'fase0')?'selected':''}>${ph.label} – ${ph.desc}</option>`).join('')}</select>
     </div>
     <div class="f"><label>Sannsynlighet (%)</label><input id="m-prob" type="number" min="0" max="100" value="${p.prob||0}"></div>
-    <div class="f"><label>Startdato</label><input id="m-start" type="date" value="${p.startDate||''}"></div>
-    <div class="f"><label>Varighet (måneder)</label><input id="m-dur" type="number" value="${p.durationMonths||0}"></div>
-    <div class="f"><label>Estimert verdi (NOK)</label><input id="m-value" type="number" value="${p.value||0}"></div>
-  </div>
-  <div class="f"><label>Personell</label><input id="m-personnel" value="${p.personnel||''}"></div>
-  <div class="f"><label>Utstyr (fritekst)</label><input id="m-equipment" value="${p.equipment||''}"></div>
-  <div class="modal-grid" style="margin-top:0">
     <div class="f"><label>Avdeling</label>
       <select id="m-dept">
         <option value="">Velg avdeling...</option>
@@ -5525,10 +5560,60 @@ function projectFormFields(p){
       <input type="hidden" id="m-kam" value="${p.kam||''}">
       <div id="m-kam-dropdown" class="people-dropdown"></div>
     </div>
-  </div>`;
+  </div>`;}
+
+function pfRig(p){return`<div class="modal-grid">
+    <div class="f"><label>Hub</label>
+      <select id="m-hub">${HUBS.map(h=>`<option value="${h.id}" ${h.id===(p.hub||'lillesand')?'selected':''}>${h.flag} ${h.name}</option>`).join('')}</select>
+    </div>
+    <div class="f"><label>Riggtype</label>
+      <select id="m-rigtype">
+        <option value="">Velg type...</option>
+        <option value="jackup"    ${(p.rigType||'')==='jackup'    ?'selected':''}>Jack-up</option>
+        <option value="drillship" ${(p.rigType||'')==='drillship' ?'selected':''}>Drillship</option>
+        <option value="semi"      ${(p.rigType||'')==='semi'      ?'selected':''}>Semi-submersible</option>
+        <option value="fpso"      ${(p.rigType||'')==='fpso'      ?'selected':''}>FPSO</option>
+        <option value="tender"    ${(p.rigType||'')==='tender'    ?'selected':''}>Tender</option>
+        <option value="fixed"     ${(p.rigType||'')==='fixed'     ?'selected':''}>Fast installasjon</option>
+        <option value="barge"     ${(p.rigType||'')==='barge'     ?'selected':''}>Barge</option>
+        <option value="other"     ${(p.rigType||'')==='other'     ?'selected':''}>Annet</option>
+      </select>
+    </div>
+    <div class="f"><label>Riggnavn</label><input id="m-rig" value="${p.rig||''}" placeholder="f.eks. West Hercules"></div>
+    <div class="f" style="grid-column:1/-1"><label>MMSI-nummer (for live sporing)</label>
+      <div class="mmsi-input-row">
+        <div class="f" style="margin:0"><input id="m-mmsi" value="${p.mmsi||''}" placeholder="f.eks. 257123456" style="font-family:'DM Mono',monospace"></div>
+        <button onclick="lookupMMSI()" type="button">🔍 Slå opp</button>
+      </div>
+      <div style="font-size:10px;color:var(--muted)">Finn MMSI på <a href="https://www.marinetraffic.com" target="_blank" style="color:var(--accent2)">marinetraffic.com</a> eller <a href="https://www.vesselfinder.com" target="_blank" style="color:var(--accent2)">vesselfinder.com</a></div>
+    </div>
+  </div>`;}
+
+function pfTimeline(p){const dp=durationParts(p);return`<div class="modal-grid">
+    <div class="f"><label>Startdato</label><input id="m-start" type="date" value="${p.startDate||''}"></div>
+    <div class="f"><label>Varighet</label>
+      <div class="dur-input-row" style="display:flex;gap:6px">
+        <input id="m-dur" type="number" min="0" value="${dp.value||0}" style="flex:1">
+        <select id="m-dur-unit" style="flex:0 0 110px">
+          <option value="days"   ${dp.unit==='days'  ?'selected':''}>dager</option>
+          <option value="weeks"  ${dp.unit==='weeks' ?'selected':''}>uker</option>
+          <option value="months" ${dp.unit==='months'?'selected':''}>måneder</option>
+        </select>
+      </div>
+    </div>
+    <div class="f"><label>Estimert verdi (NOK)</label><input id="m-value" type="number" value="${p.value||0}"></div>
+  </div>
+  <div class="f" style="margin-top:4px"><div style="font-size:11px;color:var(--muted);background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 12px">Personell og utstyr kobles på via ressurs- og utstyrsbooking på prosjektet (ikke fritekst).</div></div>`;}
+
+/* Samlet skjema (redigering) – samme felt som wizarden, stablet */
+function projectFormFields(p){
+  return pfBasics(p)+pfStatus(p)+pfRig(p)+pfTimeline(p);
 }
 
 function getFormData(){
+  const _durVal  = parseInt(document.getElementById('m-dur')?.value)||0;
+  const _durUnit = document.getElementById('m-dur-unit')?.value || 'months';
+  const _durDays = durationToDays(_durVal,_durUnit);
   return{
     name:document.getElementById('m-name').value.trim(),
     description:document.getElementById('m-description')?.value||'',
@@ -5542,30 +5627,111 @@ function getFormData(){
     rigType:document.getElementById('m-rigtype').value,
     mmsi:document.getElementById('m-mmsi')?.value||'',
     startDate:document.getElementById('m-start').value,
-    durationMonths:parseInt(document.getElementById('m-dur').value)||0,
+    durationValue:_durVal,
+    durationUnit:_durUnit,
+    durationDays:_durDays,
+    durationMonths:_durUnit==='months' ? _durVal : (_durDays>0 ? Math.round(_durDays/30.44) : 0),
     value:parseFloat(document.getElementById('m-value').value)||0,
-    personnel:document.getElementById('m-personnel').value,
-    equipment:document.getElementById('m-equipment').value,
     dept:document.getElementById('m-dept')?.value||'',
     pm: document.getElementById('m-pm')?.value||document.getElementById('m-pm-input')?.value||'',
     kam:document.getElementById('m-kam')?.value||document.getElementById('m-kam-input')?.value||'',
   };
 }
 
+/* ── Prosjekt-wizard (flerstegs oppretting) ───────────────────── */
+let projWizardStep = 0;
+const PROJ_WIZ_STEPS = [
+  {t:'Grunnleggende',     d:'Navn, kunde og beskrivelse'},
+  {t:'Status & eierskap', d:'Fase, avdeling og ansvarlige'},
+  {t:'Rigg & hub',        d:'Hub, riggtype og sporing'},
+  {t:'Tidslinje & verdi', d:'Datoer, varighet og estimat'},
+];
+
 function openAddModal(){
+  projWizardStep = 0;
+  const blank = {};
   document.getElementById('modal-content').innerHTML=`
+    <div class="wiz-wrap">
     <div class="modal-title">Nytt prosjekt</div>
-    <div style="height:16px"></div>
-    ${projectFormFields({})}
-    <div style="height:16px"></div>
-    <button class="modal-btn" onclick="saveNewProject()" style="width:100%">Lagre prosjekt</button>`;
+    <div class="wiz-steps" id="wiz-steps"></div>
+    <div id="wiz-panels">
+      <div class="wiz-panel" data-step="0">${pfBasics(blank)}</div>
+      <div class="wiz-panel" data-step="1" style="display:none">${pfStatus(blank)}</div>
+      <div class="wiz-panel" data-step="2" style="display:none">${pfRig(blank)}</div>
+      <div class="wiz-panel" data-step="3" style="display:none">${pfTimeline(blank)}</div>
+    </div>
+    <div class="wiz-nav">
+      <button class="modal-btn ghost" id="wiz-prev" onclick="wizPrev()">← Tilbake</button>
+      <div class="wiz-progress-text" id="wiz-progress"></div>
+      <button class="modal-btn" id="wiz-next" onclick="wizNext()">Neste →</button>
+      <button class="modal-btn" id="wiz-save" onclick="saveNewProject()" style="display:none">✓ Opprett prosjekt</button>
+    </div>
+    </div>`;
   document.getElementById('modal-overlay').classList.add('open');
+  wizShow();
+  setTimeout(()=>{ const n=document.getElementById('m-name'); if(n) n.focus(); },60);
+}
+
+function wizRenderSteps(){
+  const el=document.getElementById('wiz-steps'); if(!el) return;
+  el.innerHTML = PROJ_WIZ_STEPS.map((s,i)=>{
+    const state = i===projWizardStep ? 'active' : (i<projWizardStep ? 'done' : '');
+    return `<div class="wiz-step ${state}" onclick="wizGoTo(${i})" title="${s.d}">
+      <span class="wiz-step-num">${i<projWizardStep?'✓':i+1}</span>
+      <span class="wiz-step-label">${s.t}</span>
+    </div>`;
+  }).join('<span class="wiz-step-sep"></span>');
+}
+
+function wizShow(){
+  document.querySelectorAll('#wiz-panels .wiz-panel').forEach(pn=>{
+    pn.style.display = (+pn.dataset.step===projWizardStep) ? '' : 'none';
+  });
+  const prev=document.getElementById('wiz-prev');
+  const next=document.getElementById('wiz-next');
+  const save=document.getElementById('wiz-save');
+  const prog=document.getElementById('wiz-progress');
+  const last = projWizardStep===PROJ_WIZ_STEPS.length-1;
+  if(prev) prev.style.visibility = projWizardStep===0 ? 'hidden' : 'visible';
+  if(next) next.style.display = last ? 'none' : '';
+  if(save) save.style.display = last ? '' : 'none';
+  if(prog) prog.textContent = `Steg ${projWizardStep+1} av ${PROJ_WIZ_STEPS.length} · ${PROJ_WIZ_STEPS[projWizardStep].t}`;
+  wizRenderSteps();
+}
+
+/* Minimumsvalidering per steg (kun navn er påkrevd, på steg 1) */
+function wizValidate(step){
+  if(step===0){
+    const n=document.getElementById('m-name');
+    if(n && !n.value.trim()){ showToast('Prosjektnavn er påkrevd',true); n.focus(); return false; }
+  }
+  return true;
+}
+function wizNext(){
+  if(!wizValidate(projWizardStep)) return;
+  if(projWizardStep < PROJ_WIZ_STEPS.length-1){ projWizardStep++; wizShow(); }
+}
+function wizPrev(){
+  if(projWizardStep>0){ projWizardStep--; wizShow(); }
+}
+function wizGoTo(i){
+  if(i===projWizardStep) return;
+  // Hopp fremover kun hvis stegene man passerer er gyldige
+  if(i>projWizardStep){
+    for(let s=projWizardStep; s<i; s++){
+      if(!wizValidate(s)){ projWizardStep=s; wizShow(); return; }
+    }
+  }
+  projWizardStep=i; wizShow();
 }
 
 async function saveNewProject(){
   const data=getFormData();
   if(!data.name){alert('Prosjektnavn er påkrevd');return;}
-  const p={id:'demo-'+Date.now(),...data,phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[]};
+  const p={id:'demo-'+Date.now(),...data,phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]};
+  // Loggfør opprettelsen (tid + innlogget bruker) for sporbarhet
+  p.projChangeLog.push({ ts:new Date().toISOString(), user:getCurrentUser(), type:'create', icon:'✨', what:'Prosjekt opprettet', from:'', to:p.name });
+  if(typeof logChange==='function') logChange(getCurrentUser(),'Prosjekt',`${p.name}: Opprettet`,'–',p.name,'16a34a');
   // Auto-assign checklist for starting phase
   const addedNew = autoAssignChecklists(p, p.phase);
   if(graphMode){
@@ -5780,7 +5946,7 @@ function renderProjectResources(p) {
       </div>
       <div></div>
       <div class="f"><label>Fra dato</label><input id="res-from" type="date" value="${p.startDate||''}"></div>
-      <div class="f"><label>Til dato</label><input id="res-to" type="date" value="${p.startDate&&p.durationMonths?(()=>{const d=new Date(p.startDate);d.setMonth(d.getMonth()+p.durationMonths);return d.toISOString().split('T')[0];})():''}"></div>
+      <div class="f"><label>Til dato</label><input id="res-to" type="date" value="${projEndISO(p)}"></div>
     </div>
     <button class="modal-btn" onclick="addResBooking('${p.id}')" style="width:100%">Book ressurs</button>
   </div>`;
@@ -6175,26 +6341,36 @@ let peopleCache = [];  // cache MS 365 users
 async function fetchOrgPeople(query) {
   if (!graphMode || !currentAccount) return [];
   try {
-    // Use /me/people for relevant contacts, fallback to /users search
-    const url = query
-      ? `/users?$filter=startswith(displayName,'${encodeURIComponent(query)}') or startswith(mail,'${encodeURIComponent(query)}')&$select=displayName,mail,jobTitle&$top=10`
-      : `/me/people?$select=displayName,emailAddresses,jobTitle&$top=15`;
-    const data = await gGet(url);
     if (query) {
+      // Søk i organisasjonens brukere (krever User.ReadBasic.All)
+      const safe = query.replace(/'/g, "''"); // OData: dobbel apostrof
+      const filter = `startswith(displayName,'${safe}') or startswith(mail,'${safe}') or startswith(givenName,'${safe}') or startswith(surname,'${safe}')`;
+      const url = `/users?$filter=${encodeURIComponent(filter)}&$select=displayName,mail,userPrincipalName,jobTitle&$top=15`;
+      const data = await gGet(url);
       return (data.value || []).map(u => ({
         name:  u.displayName || '',
-        email: u.mail || '',
-        title: u.jobTitle || '',
-      }));
-    } else {
-      return (data.value || []).map(u => ({
-        name:  u.displayName || '',
-        email: (u.emailAddresses?.[0]?.address) || '',
+        email: u.mail || u.userPrincipalName || '',
         title: u.jobTitle || '',
       }));
     }
+    // Tomt søk: vis relevante personer (krever People.Read), fall tilbake til org-liste
+    try {
+      const data = await gGet(`/me/people?$select=displayName,scoredEmailAddresses,jobTitle&$top=15`);
+      const list = (data.value || []).filter(u => u.displayName).map(u => ({
+        name:  u.displayName || '',
+        email: (u.scoredEmailAddresses?.[0]?.address) || '',
+        title: u.jobTitle || '',
+      }));
+      if (list.length) return list;
+    } catch(_) { /* People.Read mangler – fall tilbake under */ }
+    const data = await gGet(`/users?$select=displayName,mail,userPrincipalName,jobTitle&$top=20&$orderby=displayName`);
+    return (data.value || []).map(u => ({
+      name:  u.displayName || '',
+      email: u.mail || u.userPrincipalName || '',
+      title: u.jobTitle || '',
+    }));
   } catch(e) {
-    // Fallback: return empty list silently (no access to /users is common)
+    // Mangler tilgang (vanlig uten admin-samtykke) – la kaller falle tilbake til fritekst
     return [];
   }
 }
@@ -6230,7 +6406,8 @@ async function searchPeople(inputId, dropdownId, hiddenId) {
       people = await fetchOrgPeople(query);
     }
 
-    // If not connected or no results, offer free-text option
+    // Ingen treff / ikke innlogget mot Microsoft: tilby fritekst.
+    // (Ingen innebygd navneliste – personopplysninger skal ikke ligge i kildekoden, jf. GDPR.)
     if (people.length === 0) {
       dropdown.innerHTML = query
         ? `<div class="people-option" onclick="selectPerson('${inputId}','${dropdownId}','${hiddenId}','${query.replace(/'/g,"\\'")}','')">
@@ -8779,7 +8956,7 @@ function buildMobEmailText(p){
     `LOKASJON:     ${p.location||'–'}${hub?'  ·  Hub: '+hub.name:''}`,
     p.rig?`RIGG/FARTØY:  ${p.rig}`:null,
     `OPPSTART:     ${fmtD(p.startDate)||'avklares'}`,
-    p.durationMonths?`VARIGHET:     ca. ${p.durationMonths} mnd`:null,
+    projDurationDays(p)?`VARIGHET:     ca. ${fmtDuration(p)}`:null,
     `SITE LEAD:    ${p.pm||'avklares'}`,
     ``,
     `── KUNDE-MOBILISERINGSINFO / HMS-KRAV ──`,
@@ -9621,6 +9798,11 @@ function addProjChangeLog(projectId, type, icon, what, from, to) {
   const p = projects.find(pr => pr.id === projectId); if (!p) return;
   if (!p.projChangeLog) p.projChangeLog = [];
   p.projChangeLog.push({ ts:new Date().toISOString(), user:getCurrentUser(), type, icon, what, from:from||'', to:to||'' });
+  // Speil til global endringslogg (aktivitets-feed) for full sporbarhet
+  if (typeof logChange === 'function') {
+    const colorMap = { phase:'7c3aed', edit:'3b82f6', email:'7c3aed', resource:'0891b2', checklist:'22c55e', create:'16a34a' };
+    logChange(getCurrentUser(), 'Prosjekt', `${p.name}: ${what}`, from||'–', to||'–', colorMap[type]||'3b82f6');
+  }
 }
 
 function exportProjChangelog(projectId) {
@@ -10000,12 +10182,24 @@ saveEdit = async function(id) {
   const data = getFormData(); if (!data.name) { alert('Prosjektnavn påkrevd'); return; }
 
   const changes = [];
-  if (data.name !== p.name)       changes.push({type:'edit',icon:'✏️',what:'Navn endret',from:p.name,to:data.name});
-  if (data.phase !== p.phase)     changes.push({type:'phase',icon:'🔄',what:'Fase endret',from:phaseMap[p.phase]?.label,to:phaseMap[data.phase]?.label});
-  if (data.customer !== p.customer) changes.push({type:'edit',icon:'🏢',what:'Kunde endret',from:p.customer,to:data.customer});
-  if (data.value !== p.value)     changes.push({type:'edit',icon:'💰',what:'Verdi endret',from:fmtS(p.value),to:fmtS(data.value)});
-  if (data.pm !== p.pm)           changes.push({type:'edit',icon:'👤',what:'PM endret',from:p.pm||'–',to:data.pm||'–'});
-  if (data.dept !== p.dept)       changes.push({type:'edit',icon:'🏷',what:'Avdeling endret',from:p.dept||'–',to:data.dept||'–'});
+  if (data.name !== p.name)         changes.push({type:'edit',icon:'✏️',what:'Navn endret',from:p.name,to:data.name});
+  if (data.description !== p.description) changes.push({type:'edit',icon:'📝',what:'Beskrivelse endret',from:(p.description||'–').slice(0,60),to:(data.description||'–').slice(0,60)});
+  if (data.phase !== p.phase)       changes.push({type:'phase',icon:'🔄',what:'Fase endret',from:phaseMap[p.phase]?.label,to:phaseMap[data.phase]?.label});
+  if (data.customer !== p.customer) changes.push({type:'edit',icon:'🏢',what:'Kunde endret',from:p.customer||'–',to:data.customer||'–'});
+  if (data.projectNr !== p.projectNr) changes.push({type:'edit',icon:'🔢',what:'Prosjektnr endret',from:p.projectNr||'–',to:data.projectNr||'–'});
+  if (data.location !== p.location) changes.push({type:'edit',icon:'📍',what:'Lokasjon endret',from:p.location||'–',to:data.location||'–'});
+  if (data.hub !== p.hub)           changes.push({type:'edit',icon:'🏠',what:'Hub endret',from:p.hub||'–',to:data.hub||'–'});
+  if (data.value !== p.value)       changes.push({type:'edit',icon:'💰',what:'Verdi endret',from:fmtS(p.value),to:fmtS(data.value)});
+  if (data.prob !== p.prob)         changes.push({type:'edit',icon:'📊',what:'Sannsynlighet endret',from:(p.prob||0)+'%',to:(data.prob||0)+'%'});
+  if (data.startDate !== p.startDate) changes.push({type:'edit',icon:'📅',what:'Startdato endret',from:fmtD(p.startDate)||'–',to:fmtD(data.startDate)||'–'});
+  if (data.durationDays !== p.durationDays || data.durationUnit !== p.durationUnit || data.durationValue !== p.durationValue)
+                                    changes.push({type:'edit',icon:'⏱',what:'Varighet endret',from:fmtDuration(p),to:fmtDuration(data)});
+  if (data.rig !== p.rig)           changes.push({type:'edit',icon:'🛢',what:'Riggnavn endret',from:p.rig||'–',to:data.rig||'–'});
+  if (data.rigType !== p.rigType)   changes.push({type:'edit',icon:'🛢',what:'Riggtype endret',from:p.rigType||'–',to:data.rigType||'–'});
+  if (data.mmsi !== p.mmsi)         changes.push({type:'edit',icon:'📡',what:'MMSI endret',from:p.mmsi||'–',to:data.mmsi||'–'});
+  if (data.pm !== p.pm)             changes.push({type:'edit',icon:'👤',what:'PM endret',from:p.pm||'–',to:data.pm||'–'});
+  if (data.kam !== p.kam)           changes.push({type:'edit',icon:'👤',what:'KAM endret',from:p.kam||'–',to:data.kam||'–'});
+  if (data.dept !== p.dept)         changes.push({type:'edit',icon:'🏷',what:'Avdeling endret',from:p.dept||'–',to:data.dept||'–'});
 
   Object.assign(p, data);
   changes.forEach(c => addProjChangeLog(id, c.type, c.icon, c.what, c.from, c.to));
@@ -11081,7 +11275,7 @@ function renderProjOverview(p) {
           ['Avdeling',   dept],
           ['Rigg',       rt?rt.label+(p.rig?' – '+p.rig:''):'–'],
           ['Startdato',  fmtD(p.startDate)||'–'],
-          ['Varighet',   p.durationMonths?p.durationMonths+' mnd':'–'],
+          ['Varighet',   fmtDuration(p)],
           ['PM',         p.pm||'–'],
           ['KAM',        p.kam||'–'],
         ].map(([label,val])=>`<div class="proj-info-row">
@@ -11164,11 +11358,6 @@ function renderProjOverview(p) {
 /* ── INFO/EDIT FORM TAB ───────────────────────────────── */
 function renderProjInfoForm(p) {
   return `
-  <div class="proj-section-title">Prosjektbeskrivelse</div>
-  <div class="f" style="margin-bottom:18px">
-    <textarea class="proj-desc-area" id="m-description" rows="4"
-      placeholder="Beskriv prosjektet, scope, spesielle hensyn...">${escHtml(p.description||'')}</textarea>
-  </div>
   ${projectFormFields(p)}
   <div style="height:16px"></div>
   <div style="display:flex;gap:10px">
@@ -11362,7 +11551,7 @@ function printProjectDatasheet(projectId) {
     <div class="kpi"><div class="kpi-val">${fmtS(p.value)||'–'}</div><div class="kpi-label">Estimert verdi</div></div>
     <div class="kpi"><div class="kpi-val">${p.prob}%</div><div class="kpi-label">Sannsynlighet</div></div>
     <div class="kpi"><div class="kpi-val">${fmtD(p.startDate)||'–'}</div><div class="kpi-label">Startdato</div></div>
-    <div class="kpi"><div class="kpi-val">${p.durationMonths?p.durationMonths+' mnd':'–'}</div><div class="kpi-label">Varighet</div></div>
+    <div class="kpi"><div class="kpi-val">${fmtDuration(p)}</div><div class="kpi-label">Varighet</div></div>
     <div class="kpi"><div class="kpi-val">${Object.values(p.checklists||{}).flat().filter(i=>i.checked).length}/${Object.values(p.checklists||{}).flat().length}</div><div class="kpi-label">Sjekkliste</div></div>
   </div>
 
@@ -11372,13 +11561,13 @@ function printProjectDatasheet(projectId) {
     <div class="info-block">
       <div style="font-size:11px;font-weight:700;color:#1a3864;text-transform:uppercase;margin-bottom:8px">Prosjektdetaljer</div>
       ${[['Kunde',p.customer||'–'],['Lokasjon',p.location||'–'],['Hub',hub?hub.flag+' '+hub.name:'–'],
-         ['Avdeling',dept],['Startdato',fmtD(p.startDate)||'–'],['Varighet',p.durationMonths?p.durationMonths+' mnd':'–'],
+         ['Avdeling',dept],['Startdato',fmtD(p.startDate)||'–'],['Varighet',fmtDuration(p)],
          ['Riggtype',rt?.label||'–'],['Riggnavn',p.rig||'–'],['MMSI',p.mmsi||'–']
       ].map(([l,v])=>`<div class="info-row"><span class="info-label">${l}</span><span class="info-val">${v}</span></div>`).join('')}
     </div>
     <div class="info-block">
       <div style="font-size:11px;font-weight:700;color:#1a3864;text-transform:uppercase;margin-bottom:8px">Team</div>
-      ${[['PM / Site Lead',p.pm||'–'],['KAM',p.kam||'–'],['Personell',p.personnel||'–'],['Utstyr (fritekst)',p.equipment||'–']
+      ${[['PM / Site Lead',p.pm||'–'],['KAM',p.kam||'–']
       ].map(([l,v])=>`<div class="info-row"><span class="info-label">${l}</span><span class="info-val" style="max-width:180px">${v}</span></div>`).join('')}
     </div>
   </div>
@@ -13099,9 +13288,9 @@ function getEmployeeBookings(name) {
     });
     if (p.pm === name && !bookings.some(b=>b.projectId===p.id)) {
       // Auto-include as PM if there's a project with this PM
-      if (p.startDate && p.durationMonths) {
+      if (p.startDate && projDurationDays(p)) {
         const start = p.startDate;
-        const endD = new Date(p.startDate); endD.setMonth(endD.getMonth()+p.durationMonths);
+        const endD = projEndDate(p);
         bookings.push({
           projectId: p.id, projectName: p.name, projectPhase: p.phase,
           roleId: 'site_lead', from: start, to: endD.toISOString().split('T')[0], qty: 1, isPM: true,
