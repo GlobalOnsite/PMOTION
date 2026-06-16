@@ -3768,20 +3768,35 @@ async function resolveTemplateList(){
   }catch(e){ templateListId = null; }
   return templateListId;
 }
+/* Matcher logiske feltnavn mot listas faktiske interne kolonnenavn,
+   uavhengig av store/små bokstaver, mellomrom og _x0020_. Gjør import/innlasting robust. */
+function _normCol(s){ return (s||'').toLowerCase().replace(/_x0020_/g,'').replace(/\s+/g,'').replace(/ø/g,'o').replace(/å/g,'a').replace(/æ/g,'ae'); }
+async function templateColMap(lid){
+  let cols=[];
+  try{ const c=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/columns?$select=name,displayName`); cols=c.value||[]; }catch(e){}
+  const byNorm={};
+  cols.forEach(col=>{ byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name; });
+  const map={ _found: cols.map(c=>c.name) };
+  ['title','fasenokkel','rolle','rekkefolge','punkttype','bevis','aktiv'].forEach(k=>{ map[k]=byNorm[k]||null; });
+  if(!map.title) map.title='Title';
+  return map;
+}
 async function loadChecklistTemplatesFromSP(){
   try{
     const lid = await resolveTemplateList();
     if(!lid) return false; // lista finnes ikke → behold hardkodede
+    const cm = await templateColMap(lid);
+    if(!cm.fasenokkel) return false;
     const d = await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?expand=fields&$top=999`);
-    const rows = (d.value||[]).map(it=>it.fields).filter(f=>f && f.FaseNokkel && f.Aktiv!==false);
+    const rows = (d.value||[]).map(it=>it.fields).filter(f=>f && f[cm.fasenokkel] && (!cm.aktiv || f[cm.aktiv]!==false));
     if(!rows.length) return false; // tom liste → behold hardkodede
-    rows.sort((a,b)=>(parseInt(a.Rekkefolge)||0)-(parseInt(b.Rekkefolge)||0));
+    rows.sort((a,b)=>(parseInt(cm.rekkefolge?a[cm.rekkefolge]:0)||0)-(parseInt(cm.rekkefolge?b[cm.rekkefolge]:0)||0));
     const built = {};
     rows.forEach(f=>{
-      const key=f.FaseNokkel; if(!built[key]) built[key]=[];
-      const item={ text:f.Title||'', role:f.Rolle||'' };
-      if(f.Punkttype) item.type=f.Punkttype;
-      if(f.Bevis) item.evidence=f.Bevis;
+      const key=f[cm.fasenokkel]; if(!built[key]) built[key]=[];
+      const item={ text:f[cm.title]||'', role:(cm.rolle?f[cm.rolle]:'')||'' };
+      if(cm.punkttype && f[cm.punkttype]) item.type=f[cm.punkttype];
+      if(cm.bevis && f[cm.bevis]) item.evidence=f[cm.bevis];
       built[key].push(item);
     });
     Object.keys(built).forEach(key=>{
@@ -3800,15 +3815,16 @@ async function seedChecklistTemplates(){
   try{ existing = await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?$top=1`); }
   catch(e){ showToast('Kunne ikke lese mal-lista: '+e.message, true); return; }
   if((existing.value||[]).length>0){ showToast('Lista er ikke tom – import avbrutt (unngår dubletter)', true); return; }
-  // Verifiser at nødvendige kolonner finnes (ellers feiler hver skriving)
-  let tcols = new Set();
-  try{ const c = await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/columns?$select=name`); tcols = new Set((c.value||[]).map(x=>x.name)); }catch(e){}
-  const missing = ['FaseNokkel','Rolle','Rekkefolge','Punkttype','Bevis','Aktiv'].filter(n=>!tcols.has(n));
-  if(missing.length){ showToast('Mangler kolonner i lista: '+missing.join(', ')+'. Opprett dem først.', true); return; }
+  const cm = await templateColMap(lid);
+  const missing = ['fasenokkel','rolle','rekkefolge','aktiv'].filter(k=>!cm[k]);
+  if(missing.length){ showToast('Mangler kolonner: '+missing.join(', ')+'. Fant: '+(cm._found||[]).join(', '), true); return; }
   const rows = [];
   Object.keys(CHECKLIST_TEMPLATES_EXTENDED).forEach(key=>{
     (CHECKLIST_TEMPLATES_EXTENDED[key].items||[]).forEach((it,i)=>{
-      rows.push({ Title:it.text||'', FaseNokkel:key, Rolle:it.role||'', Rekkefolge:i+1, Punkttype:it.type||'', Bevis:it.evidence||'', Aktiv:true });
+      const r = { [cm.title]:it.text||'', [cm.fasenokkel]:key, [cm.rolle]:it.role||'', [cm.rekkefolge]:i+1, [cm.aktiv]:true };
+      if(cm.punkttype) r[cm.punkttype] = it.type||'';   // valgfri – kun for vedlegg-punkter
+      if(cm.bevis) r[cm.bevis] = it.evidence||'';        // valgfri – dokumentnavn
+      rows.push(r);
     });
   });
   showToast(`Importerer ${rows.length} malpunkter til SharePoint...`);
