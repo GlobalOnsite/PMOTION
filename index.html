@@ -2659,6 +2659,8 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
 .wiz-nav{display:flex;align-items:center;gap:12px;margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
 .wiz-nav .modal-btn{min-width:140px}
 .wiz-progress-text{flex:1;text-align:center;font-size:11px;color:var(--muted);font-family:'DM Mono',monospace}
+.wiz-notify{display:flex;align-items:center;gap:9px;margin-top:6px;font-size:13px;color:var(--text);cursor:pointer;background:rgba(59,130,246,.06);border:1px solid rgba(59,130,246,.15);border-radius:8px;padding:11px 13px}
+.wiz-notify input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
 @media(max-width:560px){.wiz-step-label{display:none}.wiz-step-sep{margin:0 4px}.wiz-nav .modal-btn{min-width:0;flex:1}}
 </style>
 </head>
@@ -3625,9 +3627,10 @@ function initMsal(){
   const accs=msalInstance.getAllAccounts();
   if(accs.length>0){currentAccount=accs[0];onSignedIn();}
 }
-// Scopes for Microsoft Graph: SharePoint-lister + personvelger (PM/KAM) fra organisasjonen.
-// User.ReadBasic.All = lese basis-profil for alle i org; People.Read = relevante kontakter (/me/people).
-const GRAPH_SCOPES = ['User.Read','User.ReadBasic.All','People.Read','Sites.ReadWrite.All'];
+// Scopes for Microsoft Graph: SharePoint-lister + personvelger (PM/KAM) fra organisasjonen + e-postvarsel.
+// User.ReadBasic.All = lese basis-profil for alle i org; People.Read = relevante kontakter (/me/people);
+// Mail.Send = sende varsels-e-post fra innlogget bruker (/me/sendMail).
+const GRAPH_SCOPES = ['User.Read','User.ReadBasic.All','People.Read','Mail.Send','Sites.ReadWrite.All'];
 async function signIn(){
   if(!msalInstance){showToast('Fyll inn konfigurasjon først',true);return;}
   try{const r=await msalInstance.loginPopup({scopes:GRAPH_SCOPES});currentAccount=r.account;onSignedIn();}
@@ -3737,6 +3740,7 @@ async function loadFromLists(){
     setSyncStatus('ok','Synkronisert');
     renderAll();
     showToast('Data lastet fra Microsoft Lists ✓');
+    openProjectFromUrl();
   } catch(e) {
     setSyncStatus('err', e.graphError?.type === 'access' ? 'Ingen tilgang' : 'Tilkoblingsfeil');
     if (e.graphError) {
@@ -5549,6 +5553,7 @@ function pfStatus(p){return`<div class="modal-grid">
         oninput="searchPeople('m-pm-input','m-pm-dropdown','m-pm')"
         onfocus="searchPeople('m-pm-input','m-pm-dropdown','m-pm')">
       <input type="hidden" id="m-pm" value="${p.pm||''}">
+      <input type="hidden" id="m-pm-email" value="${p.pmEmail||''}">
       <div id="m-pm-dropdown" class="people-dropdown"></div>
     </div>
     <div class="f people-picker">
@@ -5558,6 +5563,7 @@ function pfStatus(p){return`<div class="modal-grid">
         oninput="searchPeople('m-kam-input','m-kam-dropdown','m-kam')"
         onfocus="searchPeople('m-kam-input','m-kam-dropdown','m-kam')">
       <input type="hidden" id="m-kam" value="${p.kam||''}">
+      <input type="hidden" id="m-kam-email" value="${p.kamEmail||''}">
       <div id="m-kam-dropdown" class="people-dropdown"></div>
     </div>
   </div>`;}
@@ -5635,6 +5641,9 @@ function getFormData(){
     dept:document.getElementById('m-dept')?.value||'',
     pm: document.getElementById('m-pm')?.value||document.getElementById('m-pm-input')?.value||'',
     kam:document.getElementById('m-kam')?.value||document.getElementById('m-kam-input')?.value||'',
+    pmEmail: document.getElementById('m-pm-email')?.value||'',
+    kamEmail:document.getElementById('m-kam-email')?.value||'',
+    notifyAssignees: document.getElementById('m-notify-assignees')?.checked || false,
   };
 }
 
@@ -5658,7 +5667,9 @@ function openAddModal(){
       <div class="wiz-panel" data-step="0">${pfBasics(blank)}</div>
       <div class="wiz-panel" data-step="1" style="display:none">${pfStatus(blank)}</div>
       <div class="wiz-panel" data-step="2" style="display:none">${pfRig(blank)}</div>
-      <div class="wiz-panel" data-step="3" style="display:none">${pfTimeline(blank)}</div>
+      <div class="wiz-panel" data-step="3" style="display:none">${pfTimeline(blank)}
+        <label class="wiz-notify"><input type="checkbox" id="m-notify-assignees" checked> Send e-postvarsel til PM og KAM når prosjektet opprettes</label>
+      </div>
     </div>
     <div class="wiz-nav">
       <button class="modal-btn ghost" id="wiz-prev" onclick="wizPrev()">← Tilbake</button>
@@ -5736,9 +5747,189 @@ async function saveNewProject(){
   const addedNew = autoAssignChecklists(p, p.phase);
   if(graphMode){
     const saved=await saveToLists(p);
-    if(saved){closeModal();renderAll();showToast('Prosjekt lagret i Microsoft Lists ✓');}
+    if(saved){
+      // Behold øktens felter som ikke ligger i SharePoint (e-post, varighet-enhet, beskrivelse)
+      Object.assign(saved, {
+        pmEmail:p.pmEmail, kamEmail:p.kamEmail,
+        description: p.description || saved.description || '',
+        durationValue:p.durationValue, durationUnit:p.durationUnit, durationDays:p.durationDays,
+      });
+      if(!Array.isArray(saved.projChangeLog)) saved.projChangeLog=[];
+      closeModal();renderAll();showToast('Prosjekt lagret i Microsoft Lists ✓');
+      if(data.notifyAssignees) notifyProjectAssignees(saved); // saved.id = ekte SharePoint-ID (riktig lenke)
+    }
   }else{
     projects.push(p);closeModal();renderAll();showToast('Prosjekt lagt til ✓');
+    if(data.notifyAssignees && (p.pmEmail||p.kamEmail))
+      showToast('Demo: e-postvarsel ville blitt sendt til PM/KAM (krever Microsoft-innlogging)');
+  }
+}
+
+/* Bygger en direkte lenke til prosjektet (åpnes via ?project=<id>) */
+function projectLink(p){
+  const base = window.location.href.split('#')[0].split('?')[0];
+  return base + '?project=' + encodeURIComponent(p.id);
+}
+
+/* Åpner prosjektet automatisk hvis URL har ?project=<id>.
+   Kalles etter at prosjektene er lastet (SharePoint) og ved oppstart (demo).
+   Idempotent: fjerner parameteren når prosjektet er funnet/åpnet. */
+function openProjectFromUrl(){
+  try{
+    const params = new URLSearchParams(window.location.search);
+    const pid = params.get('project');
+    if(!pid) return;
+    let proj = projects.find(p=>String(p.id)===String(pid));
+    if(!proj) proj = projects.find(p=>p.projectNr && String(p.projectNr)===String(pid));
+    if(!proj) return; // ikke lastet ennå (f.eks. før innlogging) – prøv igjen etter loadFromLists
+    // Fjern parameteren så prosjektet ikke åpnes på nytt ved videre navigasjon
+    params.delete('project');
+    const q = params.toString();
+    history.replaceState(null,'', window.location.pathname + (q?('?'+q):'') + window.location.hash);
+    setTimeout(()=>{ try{ openEditModal(proj.id); }catch(e){ console.warn('openProjectFromUrl', e); } }, 250);
+  }catch(e){ console.warn('deep-link', e); }
+}
+
+/* Sender et e-postvarsel til PM og KAM når et prosjekt opprettes.
+   Sendes fra innlogget bruker (/me/sendMail) – krever Mail.Send.
+   Hopper over mottakere uten fanget e-postadresse (fritekst) og avsenderen selv. */
+async function notifyProjectAssignees(p){
+  if(!graphMode || !currentAccount) return;
+  const senderEmail = (currentAccount.username||'').toLowerCase();
+  const seen = new Set();
+  const recips = [];
+  [['Prosjektleder (PM)', p.pm, p.pmEmail], ['Key Account Manager (KAM)', p.kam, p.kamEmail]].forEach(([role,name,email])=>{
+    if(email && email.includes('@')){
+      const e = email.toLowerCase();
+      if(!seen.has(e) && e!==senderEmail){ seen.add(e); recips.push({role,name,email}); }
+    }
+  });
+  if(!recips.length) return; // ingen e-post fanget (fritekst valgt) eller kun avsender
+
+  const by    = currentAccount.name || getCurrentUser();
+  const phase = phaseMap[p.phase]?.label || p.phase;
+  const dept  = (typeof DEPARTMENTS!=='undefined' ? (DEPARTMENTS.find(d=>d.id===p.dept)?.name) : '') || '–';
+  const rows = [
+    ['Kunde', p.customer||'–'],
+    ['Lokasjon', p.location||'–'],
+    ['Fase', phase],
+    ['Avdeling', dept],
+    ['Startdato', fmtD(p.startDate)||'–'],
+    ['Varighet', fmtDuration(p)],
+    ['Estimert verdi', p.value?fmtS(p.value):'–'],
+    ['Prosjektleder (PM)', p.pm||'–'],
+    ['KAM', p.kam||'–'],
+  ].map(([k,v])=>`<tr><td style="padding:4px 12px 4px 0;color:#64748b;white-space:nowrap">${k}</td><td style="padding:4px 0;font-weight:600">${escHtml(String(v))}</td></tr>`).join('');
+
+  const roleLine = recips.map(r=>`${r.name?escHtml(r.name)+' ':''}(${r.role})`).join(' og ');
+  const link = projectLink(p);
+  const html = `<div style="font-family:Segoe UI,Arial,sans-serif;color:#0f172a;font-size:14px;line-height:1.6">
+    <h2 style="font-size:18px;margin:0 0 4px">Nytt prosjekt opprettet</h2>
+    <p style="margin:0 0 14px;color:#475569">Du er satt opp som <strong>${roleLine}</strong> på prosjektet <strong>${escHtml(p.name)}</strong>${p.projectNr?` (${escHtml(p.projectNr)})`:''}.</p>
+    ${p.description?`<p style="margin:0 0 14px;background:#f1f5f9;border-radius:8px;padding:10px 12px">${escHtml(p.description)}</p>`:''}
+    <table style="border-collapse:collapse;margin-bottom:14px">${rows}</table>
+    <a href="${link}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 22px;border-radius:8px;margin:2px 0 10px">Åpne prosjektet i PMOTION →</a>
+    <p style="margin:0 0 16px;font-size:12px;color:#94a3b8">Virker ikke knappen? Kopier denne lenken:<br><a href="${link}" style="color:#2563eb;word-break:break-all">${link}</a></p>
+    <p style="margin:0;color:#94a3b8;font-size:12px">Opprettet av ${escHtml(by)} i PMOTION.</p>
+  </div>`;
+
+  try{
+    await gPost('/me/sendMail', {
+      message: {
+        subject: `Nytt prosjekt: ${p.name}`,
+        body: { contentType:'HTML', content: html },
+        toRecipients: recips.map(r=>({ emailAddress:{ address:r.email } })),
+      },
+      saveToSentItems: true,
+    });
+    const names = recips.map(r=>(r.name||r.email).split(' ')[0]).join(', ');
+    showToast(`📧 Varsel sendt til ${names} ✓`);
+    if(typeof logChange==='function')
+      logChange(getCurrentUser(),'Prosjekt',`${p.name}: Varsel sendt til PM/KAM`, '–', recips.map(r=>r.email).join(', '), '7c3aed');
+    if(Array.isArray(p.projChangeLog))
+      p.projChangeLog.push({ ts:new Date().toISOString(), user:getCurrentUser(), type:'email', icon:'📧', what:'E-postvarsel sendt til PM/KAM', from:'', to:recips.map(r=>r.email).join(', ') });
+  }catch(e){
+    if(e.graphError){ showAccessError(e.graphError); }
+    else showToast('Kunne ikke sende varsel: '+(e.message||e), true);
+  }
+}
+
+/* Slår opp e-postadresse fra visningsnavn i organisasjonen (Graph).
+   Brukes ved faseendring, der prosjektet kan være lastet fra SharePoint (kun navn lagret). */
+async function resolvePersonEmail(name){
+  if(!name || !graphMode || !currentAccount) return '';
+  try{
+    const filter = `displayName eq '${name.replace(/'/g, "''")}'`;
+    const data = await gGet(`/users?$filter=${encodeURIComponent(filter)}&$select=mail,userPrincipalName,displayName&$top=1`);
+    const u = (data.value||[])[0];
+    return u ? (u.mail || u.userPrincipalName || '') : '';
+  }catch(e){ return ''; }
+}
+
+/* Sender e-postvarsel til PM og KAM når et prosjekt endrer fase.
+   E-post hentes fra økten hvis tilgjengelig, ellers slås den opp fra navnet via Graph. */
+async function notifyPhaseChange(p, fromId, toId){
+  if(!graphMode || !currentAccount) return;
+  const fromLabel = phaseMap[fromId]?.label || fromId;
+  const toLabel   = phaseMap[toId]?.label   || toId;
+  const senderEmail = (currentAccount.username||'').toLowerCase();
+  const seen = new Set();
+  const recips = [];
+  for(const [role,name,inlineEmail] of [['Prosjektleder (PM)', p.pm, p.pmEmail], ['Key Account Manager (KAM)', p.kam, p.kamEmail]]){
+    if(!name) continue;
+    let email = (inlineEmail && inlineEmail.includes('@')) ? inlineEmail : await resolvePersonEmail(name);
+    if(email && email.includes('@')){
+      const e = email.toLowerCase();
+      if(!seen.has(e) && e!==senderEmail){ seen.add(e); recips.push({role,name,email}); }
+    }
+  }
+  if(!recips.length) return;
+
+  const by    = currentAccount.name || getCurrentUser();
+  const link  = projectLink(p);
+  const fromC = (phaseMap[fromId]?.color) || '#64748b';
+  const toC   = (phaseMap[toId]?.color)   || '#2563eb';
+  const dept  = (typeof DEPARTMENTS!=='undefined' ? (DEPARTMENTS.find(d=>d.id===p.dept)?.name) : '') || '–';
+  const rows = [
+    ['Kunde', p.customer||'–'],
+    ['Lokasjon', p.location||'–'],
+    ['Avdeling', dept],
+    ['Prosjektleder (PM)', p.pm||'–'],
+    ['KAM', p.kam||'–'],
+  ].map(([k,v])=>`<tr><td style="padding:4px 12px 4px 0;color:#64748b;white-space:nowrap">${k}</td><td style="padding:4px 0;font-weight:600">${escHtml(String(v))}</td></tr>`).join('');
+
+  const html = `<div style="font-family:Segoe UI,Arial,sans-serif;color:#0f172a;font-size:14px;line-height:1.6">
+    <h2 style="font-size:18px;margin:0 0 4px">Prosjektet har endret fase</h2>
+    <p style="margin:0 0 14px;color:#475569"><strong>${escHtml(p.name)}</strong>${p.projectNr?` (${escHtml(p.projectNr)})`:''} har gått videre i prosessen.</p>
+    <div style="margin:0 0 16px">
+      <span style="display:inline-block;background:${fromC};color:#fff;font-size:12px;font-weight:600;padding:5px 12px;border-radius:20px">${escHtml(fromLabel)}</span>
+      <span style="color:#94a3b8;margin:0 6px">→</span>
+      <span style="display:inline-block;background:${toC};color:#fff;font-size:12px;font-weight:600;padding:5px 12px;border-radius:20px">${escHtml(toLabel)}</span>
+    </div>
+    <table style="border-collapse:collapse;margin-bottom:14px">${rows}</table>
+    <a href="${link}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 22px;border-radius:8px;margin:2px 0 10px">Åpne prosjektet i PMOTION →</a>
+    <p style="margin:0 0 16px;font-size:12px;color:#94a3b8">Virker ikke knappen? Kopier denne lenken:<br><a href="${link}" style="color:#2563eb;word-break:break-all">${link}</a></p>
+    <p style="margin:0;color:#94a3b8;font-size:12px">Faseendring utført av ${escHtml(by)} i PMOTION.</p>
+  </div>`;
+
+  try{
+    await gPost('/me/sendMail', {
+      message: {
+        subject: `Faseendring: ${p.name} → ${toLabel}`,
+        body: { contentType:'HTML', content: html },
+        toRecipients: recips.map(r=>({ emailAddress:{ address:r.email } })),
+      },
+      saveToSentItems: true,
+    });
+    const names = recips.map(r=>(r.name||r.email).split(' ')[0]).join(', ');
+    showToast(`📧 Fasevarsel sendt til ${names} ✓`);
+    if(typeof logChange==='function')
+      logChange(getCurrentUser(),'Prosjekt',`${p.name}: Fasevarsel sendt (${toLabel})`, '–', recips.map(r=>r.email).join(', '), '7c3aed');
+    if(Array.isArray(p.projChangeLog))
+      p.projChangeLog.push({ ts:new Date().toISOString(), user:getCurrentUser(), type:'email', icon:'📧', what:`Fasevarsel sendt til PM/KAM (${toLabel})`, from:fromLabel, to:toLabel });
+  }catch(e){
+    if(e.graphError){ showAccessError(e.graphError); }
+    else showToast('Kunne ikke sende fasevarsel: '+(e.message||e), true);
   }
 }
 
@@ -6440,8 +6631,10 @@ function selectPerson(inputId, dropdownId, hiddenId, name, email) {
   const input    = document.getElementById(inputId);
   const dropdown = document.getElementById(dropdownId);
   const hidden   = document.getElementById(hiddenId);
+  const emailEl  = document.getElementById(hiddenId + '-email');
   if (input)    input.value  = name;
   if (hidden)   hidden.value = name;
+  if (emailEl)  emailEl.value = email || '';   // lagre e-post for varsling (tom ved fritekst)
   if (dropdown) dropdown.classList.remove('open');
 }
 
@@ -10201,10 +10394,24 @@ saveEdit = async function(id) {
   if (data.kam !== p.kam)           changes.push({type:'edit',icon:'👤',what:'KAM endret',from:p.kam||'–',to:data.kam||'–'});
   if (data.dept !== p.dept)         changes.push({type:'edit',icon:'🏷',what:'Avdeling endret',from:p.dept||'–',to:data.dept||'–'});
 
+  const oldPhase = p.phase;
+  const phaseChanged = data.phase !== p.phase;
   Object.assign(p, data);
   changes.forEach(c => addProjChangeLog(id, c.type, c.icon, c.what, c.from, c.to));
 
-  if (graphMode) { const saved = await saveToLists(p); if (saved) { closeModal(); renderAll(); showToast('Endringer lagret i Microsoft Lists ✓'); } }
+  if (graphMode) {
+    const saved = await saveToLists(p);
+    if (saved) {
+      // Behold øktens felter (e-post, varighet-enhet, beskrivelse) på det lagrede objektet
+      Object.assign(saved, {
+        pmEmail:data.pmEmail, kamEmail:data.kamEmail,
+        description: data.description || saved.description || '',
+        durationValue:data.durationValue, durationUnit:data.durationUnit, durationDays:data.durationDays,
+      });
+      closeModal(); renderAll(); showToast('Endringer lagret i Microsoft Lists ✓');
+      if (phaseChanged) notifyPhaseChange(saved, oldPhase, saved.phase);
+    }
+  }
   else { closeModal(); renderAll(); showToast('Endringer lagret ✓'); }
 };
 
@@ -10853,6 +11060,10 @@ function quickChangePhase(projId, newPhase, opts){
   if(typeof autoAssignChecklists==='function') autoAssignChecklists(p, newPhase);
   const note = opts.override ? ('OVERSTYRT av PMO: ' + (opts.overrideReason||'')) : '';
   logChange(getCurrentUser(),'Fase',(phaseMap[old]?.label||old)+' → '+(phaseMap[newPhase]?.label||newPhase),p.name,note,(phaseMap[newPhase]?.color||'3b82f6').replace('#',''));
+  if(graphMode){
+    saveToLists(p);                      // persister faseendringen til SharePoint
+    notifyPhaseChange(p, old, newPhase); // p.id er allerede ekte SharePoint-ID → riktig lenke
+  }
   document.getElementById('modal-content').innerHTML = renderProjectDashboard(p,'overview');
   const modalBox = document.getElementById('modal-content').closest('.modal');
   if(modalBox) modalBox.classList.add('pw-modal');
@@ -15294,6 +15505,7 @@ if(!graphMode)setSyncStatus('','Demo-modus');
     <div class="pmotion-go-badge">Global Onsite PMO</div>`;
 })();
 renderAll();
+try{ openProjectFromUrl(); }catch(e){ console.warn('deep-link init', e); }
 try{ initSidebarState(); }catch(e){ console.warn('sidebar init', e); }
 try{ applyModuleVisibility(); }catch(e){ console.warn('module vis', e); }
 
