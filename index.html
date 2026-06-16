@@ -3766,6 +3766,7 @@ async function saveToLists(p){
     setSyncStatus('ok','Lagret');
     return u;
   } catch(e) {
+    console.error('PMOTION – lagring til SharePoint feilet:', e, e?.graphError);
     setSyncStatus('err', e.graphError?.type === 'access' ? 'Ingen tilgang' : 'Lagringsfeil');
     if (e.graphError) { showAccessError(e.graphError); }
     else { showToast('Lagring feilet: ' + e.message, true); }
@@ -5849,8 +5850,9 @@ async function notifyProjectAssignees(p){
     if(Array.isArray(p.projChangeLog))
       p.projChangeLog.push({ ts:new Date().toISOString(), user:getCurrentUser(), type:'email', icon:'📧', what:'E-postvarsel sendt til PM/KAM', from:'', to:recips.map(r=>r.email).join(', ') });
   }catch(e){
+    console.error('PMOTION – e-postvarsel (oppretting) feilet:', e, e?.graphError);
     if(e.graphError){ showAccessError(e.graphError); }
-    else showToast('Kunne ikke sende varsel: '+(e.message||e), true);
+    else showToast('Prosjektet ble lagret, men e-postvarsel feilet: '+(e.message||e), true);
   }
 }
 
@@ -5928,8 +5930,9 @@ async function notifyPhaseChange(p, fromId, toId){
     if(Array.isArray(p.projChangeLog))
       p.projChangeLog.push({ ts:new Date().toISOString(), user:getCurrentUser(), type:'email', icon:'📧', what:`Fasevarsel sendt til PM/KAM (${toLabel})`, from:fromLabel, to:toLabel });
   }catch(e){
+    console.error('PMOTION – fasevarsel feilet:', e, e?.graphError);
     if(e.graphError){ showAccessError(e.graphError); }
-    else showToast('Kunne ikke sende fasevarsel: '+(e.message||e), true);
+    else showToast('Faseendring lagret, men fasevarsel feilet: '+(e.message||e), true);
   }
 }
 
