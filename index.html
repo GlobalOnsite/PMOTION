@@ -3347,6 +3347,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
       <div style="height:16px"></div>
       <button class="modal-btn" onclick="saveConfig()" style="width:100%">Lagre og koble til</button>
       <button class="modal-btn ghost" onclick="seedChecklistTemplates()" style="width:100%;margin-top:8px">📋 Importer / oppdater sjekkliste-maler i SharePoint</button>
+      <button class="modal-btn ghost" onclick="addMeAsAdmin()" style="width:100%;margin-top:8px">➕ Legg meg til som PMO-administrator</button>
       <button class="modal-btn ghost" onclick="clearConfig()" style="width:100%;margin-top:8px">Nullstill konfigurasjon</button>
     </div>
   </div>
@@ -3977,6 +3978,7 @@ async function loadFromLists(){
   setSyncStatus('loading','Laster...');
   try {
     await ensureListColumns();
+    await loadRoleAssignment();              // hent rolletildeling (styrer hvilken rolle innlogget bruker får)
     await loadChecklistTemplatesFromSP();   // hent sjekkliste-maler fra SharePoint (fallback: hardkodet)
     const d = await gGet(listBase()+'?expand=fields&$top=500');
     projects = d.value.map(fromItem);
@@ -4060,12 +4062,22 @@ const USER_ROLES = [
 const userRoleMap = {};
 USER_ROLES.forEach(r => userRoleMap[r.id] = r);
 
+let assignedRole = null;          // rolle tildelt innlogget bruker (fra SharePoint)
+let roleAssignmentActive = false; // true når tildelingslista finnes OG har minst én oppføring
 function getCurrentRole(){
+  // Når rolletildeling er aktiv, styres rollen av identiteten – ikke fritt selvvalg
+  if(typeof graphMode!=='undefined' && graphMode && roleAssignmentActive){
+    return (assignedRole && userRoleMap[assignedRole]) ? assignedRole : 'sitelead';
+  }
   try { const r = localStorage.getItem('pmotionUserRole'); if(r && userRoleMap[r]) return r; } catch(e){}
-  return 'pmo'; // demo-standard
+  return 'pmo'; // bootstrap/demo-standard (før tildeling er satt opp)
 }
 function setCurrentRole(roleId){
   if(!userRoleMap[roleId]) return;
+  if(typeof graphMode!=='undefined' && graphMode && roleAssignmentActive){
+    if(typeof showToast==='function') showToast('Rollen tildeles av PMO og kan ikke endres her', true);
+    return;
+  }
   try { localStorage.setItem('pmotionUserRole', roleId); } catch(e){}
   // Synk avledede tilstander
   try {
@@ -4084,6 +4096,66 @@ function roleCan(area){
   if(!r) return false;
   if(r.id==='pmo'||r.id==='ceo') return true;        // full myndighet
   return (r.superOf||[]).includes(area);
+}
+
+/* ── Rolletildeling fra SharePoint (lista PMOTIONBrukerroller) ──
+   Når lista finnes OG har minst én oppføring, styres rollen av innlogget identitet
+   (assignedRole) og kan ikke endres fritt i appen. Tom/manglende liste = åpen modus (bootstrap). */
+const ROLE_LIST_TITLE = 'PMOTIONBrukerroller';
+let roleListId = null;
+async function resolveRoleList(){
+  if(roleListId) return roleListId;
+  try{ const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists?$filter=displayName eq '${ROLE_LIST_TITLE}'&$select=id`); roleListId=((d.value||[])[0]||{}).id||null; }
+  catch(e){ roleListId=null; }
+  return roleListId;
+}
+async function roleColMap(lid){
+  let cols=[]; try{ const c=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/columns?$select=name,displayName`); cols=c.value||[]; }catch(e){}
+  const byNorm={}; cols.forEach(col=>{ byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name; });
+  const map={_found:cols.map(c=>c.name)};
+  ['title','epost','rolle','aktiv'].forEach(k=>{ map[k]=byNorm[k]||null; });
+  if(!map.title) map.title='Title';
+  return map;
+}
+let roleColMapCache = null;
+async function loadRoleAssignment(){
+  assignedRole=null; roleAssignmentActive=false;
+  try{
+    const lid=await resolveRoleList(); if(!lid) return;          // ingen liste → åpen modus (bootstrap)
+    const cm=await roleColMap(lid); roleColMapCache=cm;
+    const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?expand=fields&$top=999`);
+    const rows=(d.value||[]).map(it=>it.fields).filter(f=>f && (!cm.aktiv || f[cm.aktiv]!==false));
+    if(!rows.length) return;                                      // tom liste → åpen modus (bootstrap)
+    roleAssignmentActive=true;                                    // lista styrer nå rollene → lås selvvalg
+    const me=(((currentAccount||{}).username)||'').trim().toLowerCase();
+    const match=rows.find(f=>{
+      const e=(cm.epost?f[cm.epost]:'')||f[cm.title]||'';
+      return String(e).trim().toLowerCase()===me;
+    });
+    if(match){ const r=String((cm.rolle?match[cm.rolle]:'')||'').trim().toLowerCase(); if(userRoleMap[r]) assignedRole=r; }
+  }catch(e){ console.warn('loadRoleAssignment', e); }
+}
+/* Bootstrap: legg innlogget bruker inn som PMO (brukes ved første oppsett, så man ikke låser seg ute). */
+async function addMeAsAdmin(){
+  if(!graphMode || !currentAccount){ showToast('Logg inn med Microsoft først', true); return; }
+  const lid=await resolveRoleList();
+  if(!lid){ showToast('Opprett lista «'+ROLE_LIST_TITLE+'» først', true); return; }
+  const cm=await roleColMap(lid);
+  const missing=['rolle'].filter(k=>!cm[k]);
+  if(missing.length){ showToast('Mangler kolonner: '+missing.join(', ')+'. Fant: '+(cm._found||[]).join(', '), true); return; }
+  const me=(currentAccount.username||'').trim();
+  // Finnes jeg allerede?
+  try{
+    const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?expand=fields&$top=999`);
+    const exists=(d.value||[]).some(it=>{ const f=it.fields||{}; const e=(cm.epost?f[cm.epost]:'')||f[cm.title]||''; return String(e).trim().toLowerCase()===me.toLowerCase(); });
+    if(exists){ showToast('Du ligger allerede i rollelista', true); return; }
+  }catch(e){}
+  const fields={ [cm.title]: currentAccount.name||me };
+  if(cm.epost) fields[cm.epost]=me; else fields[cm.title]=me;
+  if(cm.rolle) fields[cm.rolle]='pmo';
+  if(cm.aktiv) fields[cm.aktiv]=true;
+  try{ await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items`, {fields}); showToast('✅ Du er lagt til som PMO. Last inn på nytt for å aktivere.'); await loadRoleAssignment(); if(typeof renderAll==='function') renderAll(); }
+  catch(e){ console.warn(e); showToast('Kunne ikke legge til: '+e.message, true); }
 }
 
 const MODULE_DEFS = [
@@ -4233,14 +4305,26 @@ function renderRolePicker(){
   const el = document.getElementById('role-picker');
   if(!el) return;
   const cur = getCurrentRole();
-  el.innerHTML = USER_ROLES.map(r=>{
+  const locked = (typeof graphMode!=='undefined' && graphMode && roleAssignmentActive);
+  let head = '';
+  if(locked){
+    if(assignedRole && userRoleMap[assignedRole]){
+      head = `<div style="margin-bottom:12px;padding:10px 14px;background:rgba(8,145,178,.10);border:1px solid #0891b2;border-radius:8px;color:#22d3ee;font-size:12px">
+        🔒 Rollen din tildeles av PMO i SharePoint (lista <strong>${ROLE_LIST_TITLE}</strong>) og kan ikke endres her. Din rolle: <strong>${userRoleMap[assignedRole].name}</strong>.</div>`;
+    } else {
+      head = `<div style="margin-bottom:12px;padding:10px 14px;background:rgba(245,158,11,.12);border:1px solid #f59e0b;border-radius:8px;color:#f59e0b;font-size:12px">
+        ⚠ Din bruker har ingen tildelt rolle ennå. Du har minimumstilgang (Site Lead). Kontakt PMO for å få riktig rolle i lista <strong>${ROLE_LIST_TITLE}</strong>.</div>`;
+    }
+  }
+  el.innerHTML = head + USER_ROLES.map(r=>{
     const active = r.id===cur;
-    const areas = (r.superOf||[]).length ? (r.superOf||[]).join(', ') : 'site-arbeid';
-    return `<div class="role-card ${active?'active':''}" onclick="setCurrentRole('${r.id}')" style="${active?`border-color:${r.color};box-shadow:0 0 0 1px ${r.color}`:''}">
+    const dim = locked && !active;
+    const click = locked ? '' : ` onclick="setCurrentRole('${r.id}')"`;
+    return `<div class="role-card ${active?'active':''}"${click} style="${active?`border-color:${r.color};box-shadow:0 0 0 1px ${r.color}`:''};${locked?'cursor:default;':''}${dim?'opacity:.45;':''}">
       <div class="role-card-top">
         <span class="role-dot" style="background:${r.color}"></span>
         <span class="role-name">${r.name}</span>
-        ${active?'<span class="role-active-tag">Aktiv</span>':''}
+        ${active?`<span class="role-active-tag">${locked?'Tildelt':'Aktiv'}</span>`:''}
       </div>
       <div class="role-mandate">${escHtml(r.mandate)}</div>
     </div>`;
