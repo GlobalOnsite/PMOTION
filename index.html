@@ -3722,8 +3722,10 @@ async function graphFetch(path, opts = {}) {
     throw error;
   }
   if (res.status === 204 || res.status === 202) return null; // No Content (DELETE) / Accepted (f.eks. sendMail – tom body)
-  const text = await res.text();
-  return text ? JSON.parse(text) : null; // noen vellykkede svar har tom body
+  const text = (await res.text()).trim();
+  if (!text) return null;            // noen vellykkede svar har tom/blank body
+  try { return JSON.parse(text); }
+  catch(e){ console.warn('PMOTION – uventet ikke-JSON svar fra Graph', res.status, text.slice(0,200)); return null; }
 }
 
 async function gGet(path)        { return graphFetch(path); }
@@ -3731,11 +3733,65 @@ async function gPost(path, body) { return graphFetch(path, { method:'POST',  bod
 async function gPatch(path,body) { return graphFetch(path, { method:'PATCH', body }); }
 async function gDelete(path)     { return graphFetch(path, { method:'DELETE' }); }
 function listBase(){return`/sites/${GRAPH_CONFIG.siteId}/lists/${GRAPH_CONFIG.listId}/items`;}
-function toFields(p){return{fields:{Title:p.name,Fase:p.phase,ProsjektNr:p.projectNr||'',Sannsynlighet:p.prob,Kunde:p.customer,Lokasjon:p.location,Rigg:p.rig,Startdato:p.startDate||null,Varighet:p.durationMonths,EstimertVerdi:p.value,Personell:'',Utstyr:'',Hub:p.hub,Avdeling:p.dept||'',PM:p.pm||'',KAM:p.kam||'',PhaseLog:JSON.stringify(p.phaseLog||{}),EquipBookings:JSON.stringify(p.equipBookings||[])}}}
-function fromItem(item){const f=item.fields;let pl={},eb=[];try{pl=JSON.parse(f.PhaseLog||'{}');}catch(e){}try{eb=JSON.parse(f.EquipBookings||'[]');}catch(e){}return{id:item.id,name:f.Title||'',projectNr:f.ProsjektNr||'',phase:f.Fase||'fase0',prob:parseInt(f.Sannsynlighet)||0,customer:f.Kunde||'',location:f.Lokasjon||'',rig:f.Rigg||'',startDate:f.Startdato?f.Startdato.split('T')[0]:'',durationMonths:parseInt(f.Varighet)||0,value:parseFloat(f.EstimertVerdi)||0,description:f.Beskrivelse||'',personnel:[],equipment:[],hub:f.Hub||'lillesand',dept:f.Avdeling||'',pm:f.PM||'',kam:f.KAM||'',phaseLog:pl,equipBookings:eb};}
+
+/* Hvilke kolonner finnes i lista (interne navn). Lastes én gang.
+   Brukes til å skrive valgfrie varighet-kolonner KUN hvis de finnes,
+   slik at lagring ikke feiler før kolonnene er opprettet i SharePoint. */
+let listColumnNames = null;
+async function ensureListColumns(){
+  if(listColumnNames) return listColumnNames;
+  try{
+    const d = await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${GRAPH_CONFIG.listId}/columns?$select=name`);
+    listColumnNames = new Set((d.value||[]).map(c=>c.name));
+  }catch(e){ listColumnNames = new Set(); }
+  return listColumnNames;
+}
+function hasCol(n){ return !!(listColumnNames && listColumnNames.has(n)); }
+
+function toFields(p){
+  const f = {
+    Title:p.name, Fase:p.phase, ProsjektNr:p.projectNr||'', Sannsynlighet:p.prob,
+    Kunde:p.customer, Lokasjon:p.location, Rigg:p.rig, Startdato:p.startDate||null,
+    Varighet:p.durationMonths, EstimertVerdi:p.value, Personell:'', Utstyr:'',
+    Hub:p.hub, Avdeling:p.dept||'', PM:p.pm||'', KAM:p.kam||'',
+    PhaseLog:JSON.stringify(p.phaseLog||{}), EquipBookings:JSON.stringify(p.equipBookings||[]),
+  };
+  // Eksakt varighet (dager/uker/måneder) – skrives kun hvis kolonnene finnes i lista
+  if(hasCol('VarighetVerdi')) f.VarighetVerdi = p.durationValue||0;
+  if(hasCol('VarighetEnhet')) f.VarighetEnhet = p.durationUnit||'';
+  if(hasCol('VarighetDager')) f.VarighetDager = projDurationDays(p);
+  // Riggtype, MMSI og beskrivelse – skrives kun hvis kolonnene finnes
+  if(hasCol('Riggtype'))    f.Riggtype    = p.rigType||'';
+  if(hasCol('MMSI'))        f.MMSI        = p.mmsi||'';
+  if(hasCol('Beskrivelse')) f.Beskrivelse = p.description||'';
+  return { fields:f };
+}
+
+function fromItem(item){
+  const f=item.fields; let pl={},eb=[];
+  try{pl=JSON.parse(f.PhaseLog||'{}');}catch(e){}
+  try{eb=JSON.parse(f.EquipBookings||'[]');}catch(e){}
+  const months = parseInt(f.Varighet)||0;
+  // Eksakt varighet hvis nye kolonner finnes, ellers fall tilbake til måneder (eldre rader)
+  let durUnit, durVal, durDays;
+  if(f.VarighetEnhet){ durUnit=f.VarighetEnhet; durVal=parseFloat(f.VarighetVerdi)||0; durDays=durationToDays(durVal,durUnit); }
+  else if(f.VarighetDager!=null && f.VarighetDager!==''){ durDays=parseInt(f.VarighetDager)||0; durUnit='days'; durVal=durDays; }
+  const o = {
+    id:item.id, name:f.Title||'', projectNr:f.ProsjektNr||'', phase:f.Fase||'fase0',
+    prob:parseInt(f.Sannsynlighet)||0, customer:f.Kunde||'', location:f.Lokasjon||'',
+    rig:f.Rigg||'', startDate:f.Startdato?f.Startdato.split('T')[0]:'',
+    rigType:f.Riggtype||'', mmsi:f.MMSI||'',
+    durationMonths:months, value:parseFloat(f.EstimertVerdi)||0, description:f.Beskrivelse||'',
+    personnel:[], equipment:[], hub:f.Hub||'lillesand', dept:f.Avdeling||'',
+    pm:f.PM||'', kam:f.KAM||'', phaseLog:pl, equipBookings:eb,
+  };
+  if(durDays>0){ o.durationDays=durDays; o.durationUnit=durUnit; o.durationValue=durVal; }
+  return o;
+}
 async function loadFromLists(){
   setSyncStatus('loading','Laster...');
   try {
+    await ensureListColumns();
     const d = await gGet(listBase()+'?expand=fields&$top=500');
     projects = d.value.map(fromItem);
     setSyncStatus('ok','Synkronisert');
@@ -3754,6 +3810,7 @@ async function loadFromLists(){
 async function saveToLists(p){
   setSyncStatus('loading','Lagrer...');
   try {
+    await ensureListColumns();
     let r;
     if (p.id && !p.id.startsWith('demo-')) {
       await gPatch(listBase()+'/'+p.id, toFields(p));
