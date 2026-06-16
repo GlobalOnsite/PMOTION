@@ -3721,8 +3721,9 @@ async function graphFetch(path, opts = {}) {
     error.status = res.status;
     throw error;
   }
-  if (res.status === 204) return null; // DELETE success
-  return res.json();
+  if (res.status === 204 || res.status === 202) return null; // No Content (DELETE) / Accepted (f.eks. sendMail – tom body)
+  const text = await res.text();
+  return text ? JSON.parse(text) : null; // noen vellykkede svar har tom body
 }
 
 async function gGet(path)        { return graphFetch(path); }
@@ -5840,6 +5841,7 @@ async function notifyProjectAssignees(p){
         subject: `Nytt prosjekt: ${p.name}`,
         body: { contentType:'HTML', content: html },
         toRecipients: recips.map(r=>({ emailAddress:{ address:r.email } })),
+        ccRecipients: senderEmail.includes('@') ? [{ emailAddress:{ address: currentAccount.username } }] : [], // kopi til oppretter (kvittering)
       },
       saveToSentItems: true,
     });
@@ -5920,6 +5922,7 @@ async function notifyPhaseChange(p, fromId, toId){
         subject: `Faseendring: ${p.name} → ${toLabel}`,
         body: { contentType:'HTML', content: html },
         toRecipients: recips.map(r=>({ emailAddress:{ address:r.email } })),
+        ccRecipients: senderEmail.includes('@') ? [{ emailAddress:{ address: currentAccount.username } }] : [], // kopi til den som endret fasen (kvittering)
       },
       saveToSentItems: true,
     });
