@@ -3501,37 +3501,7 @@ const INVENTORY = [
 /* ═══════════════════════════════════
    PROJECTS
 ═══════════════════════════════════ */
-let projects = [
-  {id:'go-190825',projectNr:'190825',name:'COSL PROSPECTOR RAT June 2026',customer:'Cosl Offshore Management AS',location:'Hammerfest',dept:'offshore',phase:'fase3',prob:95,value:2000000,startDate:'2026-04-17',durationMonths:1,hub:'lillesand',pm:'Freddy Sunde',kam:'Frank Dale',rigType:'semi',rig:'COSL Prospector',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[{'inv': 0, 'qty': 1, 'from': '2026-04-17', 'to': '2026-05-17'}],checklists:{},resourceBookings:[{'roleId': 'site_lead', 'qty': 1, 'from': '2026-04-17', 'to': '2026-05-17'}, {'roleId': 'rat_supervisor', 'qty': 1, 'from': '2026-04-17', 'to': '2026-05-17'}, {'roleId': 'rat_personnel', 'qty': 2, 'from': '2026-04-17', 'to': '2026-05-10'}],log:[],projChangeLog:[]},
-  {id:'go-190824',projectNr:'190824',name:'HIMA - RWI Bygging av repo',customer:'HIMA SEAFOOD RJUKAN AS',location:'Rjukan',dept:'aqua',phase:'fase4',prob:100,value:1000000,startDate:'2026-04-16',durationMonths:1,hub:'lillesand',pm:'Kjetil Moe',kam:'Frank Dale',rigType:'',rig:'',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-190823',projectNr:'190823',name:'Ensco - Rig 249 Trinidad Projects',customer:'ENSCO Incorporated',location:'Trinidad',dept:'offshore',phase:'fase3',prob:100,value:5000000,startDate:'2026-04-14',durationMonths:1,hub:'lillesand',pm:'Simen Jensen',kam:'Frank Dale',rigType:'jackup',rig:'Valaris 249',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[{'inv': 0, 'qty': 1, 'from': '2026-04-14', 'to': '2026-05-14'}, {'inv': 6, 'qty': 2, 'from': '2026-04-14', 'to': '2026-05-14'}],checklists:{},resourceBookings:[{'roleId': 'site_lead', 'qty': 1, 'from': '2026-04-14', 'to': '2026-05-14'}, {'roleId': 'hose_assembly', 'qty': 2, 'from': '2026-04-14', 'to': '2026-05-14'}],log:[],projChangeLog:[]},
-  {id:'go-190822',projectNr:'190822',name:'NOV - Valaris DS-15',customer:'National Oilwell Varco Norway AS',location:'Las Palmas',dept:'offshore',phase:'fase3',prob:100,value:250000,startDate:'2026-04-13',durationMonths:0,hub:'laspalmas',pm:'Simen Jensen',kam:'Frank Dale',rigType:'drillship',rig:'Valaris DS-15',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-190820',projectNr:'190820',name:'Stena Drillmax RAT 2Q-2026',customer:'Stena Drilling LTD',location:'Las Palmas',dept:'offshore',phase:'fase3',prob:100,value:500000,startDate:'2026-04-10',durationMonths:1,hub:'laspalmas',pm:'Simen Jensen',kam:'Frank Dale',rigType:'drillship',rig:'Stena Drillmax',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[{'inv': 1, 'qty': 1, 'from': '2026-04-10', 'to': '2026-05-10'}, {'inv': 4, 'qty': 1, 'from': '2026-04-10', 'to': '2026-05-10'}],checklists:{},resourceBookings:[{'roleId': 'rat_supervisor', 'qty': 1, 'from': '2026-04-10', 'to': '2026-05-10'}, {'roleId': 'rat_personnel', 'qty': 2, 'from': '2026-04-10', 'to': '2026-05-10'}, {'roleId': 'hose_assembly', 'qty': 1, 'from': '2026-04-10', 'to': '2026-05-10'}],log:[],projChangeLog:[]},
-  {id:'go-999-1',projectNr:'999-1',name:'Test av fakturering fra Tripletex',customer:'Simen Jensen',location:'',dept:'aqua',phase:'fase0',prob:0,value:0,startDate:'2026-05-04',durationMonths:0,hub:'lillesand',pm:'Simen Jensen',kam:'Frank Dale',rigType:'',rig:'',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-9190813',projectNr:'9-190813',name:'PURE SALMON TECHNOLOGY AS - Installasjon av siler',customer:'PURE SALMON TECHNOLOGY AS',location:'Adamselv',dept:'aqua',phase:'fase5',prob:100,value:2000000,startDate:'2026-03-04',durationMonths:2,hub:'lillesand',pm:'Kjetil Moe',kam:'Frank Dale',rigType:'',rig:'',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-9190811',projectNr:'9-190811',name:'Eyvi - Purge - Bygging av repo',customer:'Eyvi AS',location:'Rjukan',dept:'aqua',phase:'fase5',prob:100,value:2000000,startDate:'2026-02-24',durationMonths:1,hub:'lillesand',pm:'Kjetil Moe',kam:'Frank Dale',rigType:'',rig:'',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-9190810',projectNr:'9-190810',name:'Stena Forth 1250T Project - Glycol Oil Filtering',customer:'Stena Drilling LTD',location:'Las Palmas',dept:'offshore',phase:'fase5',prob:100,value:2000000,startDate:'2026-01-27',durationMonths:1,hub:'laspalmas',pm:'Simen Jensen',kam:'Frank Dale',rigType:'drillship',rig:'Stena Forth',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-9190809',projectNr:'9-190809',name:'Personnel COSL PIONEER Hose Changeout Anchor Winch Februar 2026',customer:'COSL PIONEER PTE LTD NUF',location:'Nordsjøen',dept:'offshore',phase:'fase5',prob:100,value:2000000,startDate:'2026-02-01',durationMonths:1,hub:'lillesand',pm:'Freddy Sunde',kam:'Frank Dale',rigType:'semi',rig:'COSL Pioneer',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-9190808',projectNr:'9-190808',name:'Biowater - Horsøy RA 2026',customer:'BIOWATER TECHNOLOGY AS',location:'Horsøy',dept:'aqua',phase:'fase5',prob:100,value:2000000,startDate:'2026-01-18',durationMonths:2,hub:'lillesand',pm:'Kjetil Moe',kam:'Frank Dale',rigType:'',rig:'',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-9190807',projectNr:'9-190807',name:'Eyvi - Hima Drift',customer:'Eyvi AS',location:'Rjukan',dept:'aqua',phase:'fase5',prob:100,value:2000000,startDate:'2026-01-16',durationMonths:12,hub:'lillesand',pm:'Kjetil Moe',kam:'Frank Dale',rigType:'',rig:'',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-9190806',projectNr:'9-190806',name:'Castor Drilling Solutions - PLS',customer:'CASTOR DRILLING SOLUTION AS',location:'Nordsjøen',dept:'offshore',phase:'fase5',prob:100,value:2000000,startDate:'2026-01-08',durationMonths:0,hub:'lillesand',pm:'Freddy Sunde',kam:'Frank Dale',rigType:'fixed',rig:'',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-9190804',projectNr:'9-190804',name:'Eyvi - HIMA Rjukan: Study Nouyron Water - RFQ connection of AISI pipe spools',customer:'Eyvi AS',location:'Rjukan',dept:'aqua',phase:'fase5',prob:100,value:2000000,startDate:'2026-01-09',durationMonths:0,hub:'lillesand',pm:'Simen Jensen',kam:'Frank Dale',rigType:'',rig:'',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-9190803',projectNr:'9-190803',name:'Archer - Statfjord A',customer:'Archer AS',location:'Statfjord A',dept:'offshore',phase:'fase5',prob:100,value:2000000,startDate:'2026-01-08',durationMonths:0,hub:'lillesand',pm:'Freddy Sunde',kam:'Frank Dale',rigType:'fixed',rig:'Statfjord A',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-9190802',projectNr:'9-190802',name:'OSM Thone - Survey PLS System',customer:'OSM Thone',location:'Nordsjøen',dept:'offshore',phase:'fase5',prob:100,value:2000000,startDate:'2026-01-08',durationMonths:0,hub:'lillesand',pm:'Freddy Sunde',kam:'Frank Dale',rigType:'fixed',rig:'',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-9190801',projectNr:'9-190801',name:'COSL PIONEER - 01/26 HOSE CHANGEOUT',customer:'Cosl Offshore Management AS',location:'Nordsjøen',dept:'offshore',phase:'fase5',prob:100,value:2000000,startDate:'2026-01-07',durationMonths:1,hub:'lillesand',pm:'Freddy Sunde',kam:'Frank Dale',rigType:'semi',rig:'COSL Pioneer',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-9190795',projectNr:'9-190795',name:'Stena Forth - 6" HP Air Chemical Flushing',customer:'Stena Drilling LTD',location:'Las Palmas',dept:'offshore',phase:'fase5',prob:100,value:2000000,startDate:'2026-01-17',durationMonths:0,hub:'laspalmas',pm:'Simen Jensen',kam:'Frank Dale',rigType:'drillship',rig:'Stena Forth',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-stena-evo',projectNr:'',name:'Stena Evolution - Hose Replacement Job',customer:'Stena Drilling LTD',location:'Gulf of Mexico',dept:'offshore',phase:'fase2',prob:70,value:5000000,startDate:'2026-06-19',durationMonths:2,hub:'laspalmas',pm:'Simen Jensen',kam:'Frank Dale',rigType:'drillship',rig:'Stena Evolution',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-valaris-ds15b',projectNr:'',name:'Valaris DS-15 - Flushing Job',customer:'ENSCO Incorporated',location:'Las Palmas',dept:'offshore',phase:'fase2',prob:70,value:500000,startDate:'2026-04-11',durationMonths:0,hub:'laspalmas',pm:'Simen Jensen',kam:'Frank Dale',rigType:'drillship',rig:'Valaris DS-15',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-normand-max',projectNr:'',name:'Normand Maximums - Hose Replacement Job',customer:'Saipem',location:'Genova',dept:'offshore',phase:'fase2',prob:50,value:5000000,startDate:'2026-09-01',durationMonths:1,hub:'lillesand',pm:'Simen Jensen',kam:'Frank Dale',rigType:'tender',rig:'Normand Maximums',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-andfjord',projectNr:'',name:'Andfjord Salmon',customer:'Andfjord Salmon',location:'Kvalnes, Andøya',dept:'aqua',phase:'fase1',prob:10,value:100000000,startDate:'2026-12-15',durationMonths:36,hub:'lillesand',pm:'Kjetil Moe',kam:'Jan Erik Pedersen',rigType:'',rig:'',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[{'roleId': 'site_lead', 'qty': 1, 'from': '2026-12-15', 'to': '2029-12-15'}, {'roleId': 'foreman', 'qty': 2, 'from': '2026-12-15', 'to': '2029-12-15'}, {'roleId': 'worker', 'qty': 4, 'from': '2026-12-15', 'to': '2028-12-15'}],log:[],projChangeLog:[]},
-  {id:'go-extra-1',projectNr:'190830',name:'Transocean Barents - RAT & Hose Replacement',customer:'Transocean Norge AS',location:'Barentshavet',dept:'offshore',phase:'fase2',prob:65,value:3200000,startDate:'2026-07-01',durationMonths:1,hub:'lillesand',pm:'Freddy Sunde',kam:'Frank Dale',rigType:'semi',rig:'Transocean Barents',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[{'inv': 0, 'qty': 1, 'from': '2026-07-01', 'to': '2026-07-28'}, {'inv': 3, 'qty': 1, 'from': '2026-07-01', 'to': '2026-07-28'}],checklists:{},resourceBookings:[{'roleId': 'site_lead', 'qty': 1, 'from': '2026-07-01', 'to': '2026-07-28'}, {'roleId': 'hose_assembly', 'qty': 2, 'from': '2026-07-01', 'to': '2026-07-28'}, {'roleId': 'rat_supervisor', 'qty': 1, 'from': '2026-07-01', 'to': '2026-07-28'}, {'roleId': 'rat_personnel', 'qty': 2, 'from': '2026-07-01', 'to': '2026-07-21'}],log:[{id:'l1e1',text:'RFQ mottatt fra Transocean. Gjennomgang av scope planlagt til neste uke.',author:'Frank Dale',ts:'2026-04-15T09:00:00',phase:'fase2'},{id:'l2e1',text:'Tilbudsarbeid startet. Sjekker tilgjengelighet på RAT-personell for Juli.',author:'Freddy Sunde',ts:'2026-04-20T11:30:00',phase:'fase2'}],projChangeLog:[]},
-  {id:'go-extra-2',projectNr:'190831',name:'Aker BP - Valhall PH Hose Inspection',customer:'Aker BP ASA',location:'Valhall',dept:'offshore',phase:'fase1',prob:40,value:1800000,startDate:'2026-08-15',durationMonths:2,hub:'lillesand',pm:'Freddy Sunde',kam:'Frank Dale',rigType:'fixed',rig:'Valhall PH',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[{'inv': 0, 'qty': 1, 'from': '2026-08-15', 'to': '2026-10-15'}, {'inv': 6, 'qty': 1, 'from': '2026-08-15', 'to': '2026-10-15'}],checklists:{},resourceBookings:[{'roleId': 'site_lead', 'qty': 1, 'from': '2026-08-15', 'to': '2026-10-15'}, {'roleId': 'foreman', 'qty': 1, 'from': '2026-08-15', 'to': '2026-10-15'}, {'roleId': 'hose_assembly', 'qty': 2, 'from': '2026-08-15', 'to': '2026-10-15'}],log:[],projChangeLog:[]},
-  {id:'go-extra-3',projectNr:'190832',name:'Odfjell Drilling - Deepsea Nordkapp RAT',customer:'Odfjell Drilling AS',location:'Nordsjøen',dept:'offshore',phase:'fase2',prob:80,value:2800000,startDate:'2026-06-01',durationMonths:1,hub:'lillesand',pm:'Simen Jensen',kam:'Frank Dale',rigType:'semi',rig:'Deepsea Nordkapp',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[{'inv': 0, 'qty': 1, 'from': '2026-06-01', 'to': '2026-06-30'}, {'inv': 3, 'qty': 1, 'from': '2026-06-01', 'to': '2026-06-30'}, {'inv': 6, 'qty': 2, 'from': '2026-06-01', 'to': '2026-06-30'}],checklists:{},resourceBookings:[{'roleId': 'site_lead', 'qty': 1, 'from': '2026-06-01', 'to': '2026-06-30'}, {'roleId': 'rat_supervisor', 'qty': 1, 'from': '2026-06-01', 'to': '2026-06-30'}, {'roleId': 'rat_personnel', 'qty': 3, 'from': '2026-06-01', 'to': '2026-06-30'}, {'roleId': 'hose_assembly', 'qty': 2, 'from': '2026-06-01', 'to': '2026-06-30'}],log:[{id:'l1e3',text:'Tilbud innsendt til Odfjell. Konkurrerer mot 2 andre leverandører.',author:'Frank Dale',ts:'2026-03-10T10:00:00',phase:'fase2'},{id:'l2e3',text:'Positiv tilbakemelding fra kunde. Forventer PO innen 2 uker.',author:'Simen Jensen',ts:'2026-04-01T14:00:00',phase:'fase2'}],projChangeLog:[]},
-  {id:'go-extra-4',projectNr:'190833',name:'SalMar - Havmerd Installasjon 2026',customer:'SalMar ASA',location:'Frøya',dept:'aqua',phase:'fase2',prob:70,value:4500000,startDate:'2026-09-01',durationMonths:3,hub:'lillesand',pm:'Kjetil Moe',kam:'Jan Erik Pedersen',rigType:'',rig:'',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[{'roleId': 'site_lead', 'qty': 1, 'from': '2026-09-01', 'to': '2026-11-30'}, {'roleId': 'foreman', 'qty': 2, 'from': '2026-09-01', 'to': '2026-11-30'}, {'roleId': 'worker', 'qty': 3, 'from': '2026-09-01', 'to': '2026-10-31'}],log:[{id:'l1e4',text:'Kickoff-møte med SalMar planlagt. Scope inkluderer installasjon av 6 havmerder.',author:'Jan Erik Pedersen',ts:'2026-04-18T08:30:00',phase:'fase2'}],projChangeLog:[]},
-  {id:'go-extra-5',projectNr:'190834',name:'Mowi - Merd Vedlikehold Hardanger',customer:'Mowi ASA',location:'Hardanger',dept:'aqua',phase:'fase3',prob:100,value:900000,startDate:'2026-05-20',durationMonths:1,hub:'lillesand',pm:'Kjetil Moe',kam:'Jan Erik Pedersen',rigType:'',rig:'',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[{'inv': 6, 'qty': 1, 'from': '2026-05-20', 'to': '2026-06-20'}],checklists:{},resourceBookings:[{'roleId': 'site_lead', 'qty': 1, 'from': '2026-05-20', 'to': '2026-06-20'}, {'roleId': 'foreman', 'qty': 1, 'from': '2026-05-20', 'to': '2026-06-20'}, {'roleId': 'worker', 'qty': 2, 'from': '2026-05-20', 'to': '2026-06-20'}],log:[{id:'l1e5',text:'Kontrakt signert. Mobilisering starter 20. mai.',author:'Kjetil Moe',ts:'2026-05-02T09:00:00',phase:'fase3'},{id:'l2e5',text:'Utstyr klargjort og lastet. Teamet klar for avreise.',author:'Kjetil Moe',ts:'2026-05-18T16:00:00',phase:'fase3'}],projChangeLog:[]},
-  {id:'go-extra-6',projectNr:'190835',name:'TotalEnergies - Elgin Franklin Hose Job',customer:'TotalEnergies EP Norge AS',location:'Nordsjøen',dept:'offshore',phase:'fase1',prob:30,value:6000000,startDate:'2026-10-01',durationMonths:2,hub:'lillesand',pm:'Simen Jensen',kam:'Frank Dale',rigType:'fixed',rig:'Elgin PUQ',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]},
-  {id:'go-extra-7',projectNr:'190836',name:'Valaris DS-12 - HP Flexible Hose Replacement',customer:'ENSCO Incorporated',location:'Gulf of Mexico',dept:'offshore',phase:'fase2',prob:60,value:3500000,startDate:'2026-08-01',durationMonths:1,hub:'houston',pm:'Simen Jensen',kam:'Frank Dale',rigType:'drillship',rig:'Valaris DS-12',mmsi:'',personnel:'',equipment:'',description:'',phaseLog:{},equipBookings:[{'inv': 1, 'qty': 1, 'from': '2026-08-01', 'to': '2026-08-31'}, {'inv': 4, 'qty': 1, 'from': '2026-08-01', 'to': '2026-08-31'}],checklists:{},resourceBookings:[{'roleId': 'site_lead', 'qty': 1, 'from': '2026-08-01', 'to': '2026-08-31'}, {'roleId': 'hose_assembly', 'qty': 2, 'from': '2026-08-01', 'to': '2026-08-31'}, {'roleId': 'rat_supervisor', 'qty': 1, 'from': '2026-08-01', 'to': '2026-08-31'}],log:[],projChangeLog:[]}
-];
+let projects = [];
 
 /* ═══════════════════════════════════
    CONFIG
@@ -3637,9 +3607,33 @@ async function signIn(){
   catch(e){showToast('Innlogging feilet: '+e.message,true);}
 }
 async function signOut(){
-  if(msalInstance&&currentAccount){await msalInstance.logoutPopup({account:currentAccount});currentAccount=null;graphMode=false;updateUserUI();}
+  if(msalInstance&&currentAccount){await msalInstance.logoutPopup({account:currentAccount});currentAccount=null;graphMode=false;projects=[];if(typeof renderAll==='function')renderAll();updateUserUI();showLoginGate();}
 }
-function onSignedIn(){graphMode=true;updateUserUI();loadFromLists();}
+function onSignedIn(){graphMode=true;hideLoginGate();updateUserUI();loadFromLists();}
+
+/* ── Innloggingssperre: nøytral fullskjerm til man er autentisert ── */
+function createLoginGate(){
+  if(document.getElementById('login-gate'))return;
+  const g=document.createElement('div');
+  g.id='login-gate';
+  g.style.cssText='position:fixed;inset:0;z-index:2147483600;display:flex;align-items:center;justify-content:center;background:#0b0e14;color:#e5e7eb;font-family:inherit';
+  g.innerHTML=`
+    <div style="text-align:center;max-width:340px;padding:32px">
+      <div style="font-size:12px;letter-spacing:4px;color:#64748b;margin-bottom:14px">P M O T I O N</div>
+      <div style="font-size:30px;margin-bottom:16px">🔒</div>
+      <div style="font-size:15px;color:#94a3b8;line-height:1.6;margin-bottom:26px">Logg inn med din Microsoft-konto for å fortsette.</div>
+      <button onclick="signIn()" style="display:inline-flex;align-items:center;gap:10px;background:#2563eb;color:#fff;border:none;border-radius:8px;padding:12px 22px;font-size:14px;font-weight:600;cursor:pointer">
+        <span style="display:grid;grid-template-columns:7px 7px;grid-template-rows:7px 7px;gap:2px">
+          <span style="background:#f25022"></span><span style="background:#7fba00"></span>
+          <span style="background:#00a4ef"></span><span style="background:#ffb900"></span>
+        </span>
+        Logg inn med Microsoft
+      </button>
+    </div>`;
+  document.body.appendChild(g);
+}
+function showLoginGate(){createLoginGate();const g=document.getElementById('login-gate');if(g)g.style.display='flex';}
+function hideLoginGate(){const g=document.getElementById('login-gate');if(g)g.style.display='none';}
 function updateUserUI(){
   const ui=document.getElementById('user-info');
   if(currentAccount){
@@ -4090,8 +4084,8 @@ function saveConfig(){
 function clearConfig(){
   GRAPH_CONFIG={clientId:'b56bfaf0-1c6f-4838-8dbf-10aa7e899201',tenantId:'4b888de9-7de1-48cf-9b65-510e19a686eb',siteId:'globalonsite.sharepoint.com,12e38dc1-72bf-482b-88e7-f4d15eaf9d4e,2c64a9cd-fcd1-4e23-b20d-8ee4286bed03',listId:'2bf35eed-e6c5-4e46-b147-8ad879320a6a'};
   localStorage.removeItem('goConfig');
-  graphMode=false;msalInstance=null;currentAccount=null;
-  updateUserUI();setSyncStatus('','Demo-modus');loadConfigUI();renderAll();showToast('Nullstilt til demo-data');
+  graphMode=false;msalInstance=null;currentAccount=null;projects=[];
+  updateUserUI();setSyncStatus('','Ikke innlogget');loadConfigUI();renderAll();showLoginGate();showToast('Konfigurasjon nullstilt');
 }
 
 /* ═══════════════════════════════════
@@ -7289,67 +7283,7 @@ function autoSearchEmail() {
 /* ═══════════════════════════════════
    CRM DATA
 ═══════════════════════════════════ */
-let customers = [
-  {
-    id:'c1', name:'Offshore AS', industry:'Offshore & Marine', country:'Norge',
-    website:'offshoregroup.no', notes:'Primærkunde siden 2019. Kontakt alltid Kari.',
-    color:'3b82f6',
-    contacts:[
-      {id:'ct1',name:'Kari Nordmann',title:'Prosjektleder',email:'kari@offshore.no',phone:'+47 900 00 001'},
-      {id:'ct2',name:'Ole Hansen',title:'Innkjøpssjef',email:'ole@offshore.no',phone:'+47 900 00 002'},
-    ],
-    leads:[
-      {id:'l1',name:'ROV-inspeksjon Q3',stage:'tilbud',value:4500000,date:'2025-09-01',owner:'Salg'},
-      {id:'l2',name:'Vedlikeholdskontrakt 2026',stage:'kontakt',value:12000000,date:'2025-10-15',owner:'Salg'},
-    ],
-    activities:[
-      {id:'a1',type:'📞',text:'Telefonmøte – diskuterte scope for ROV-inspeksjon',date:'2025-09-18T10:00:00',user:'Salg'},
-      {id:'a2',type:'📧',text:'Sendt tilbud på ROV-inspeksjon Q3',date:'2025-09-20T14:30:00',user:'Salg'},
-      {id:'a3',type:'🤝',text:'Møte på Stavanger-kontoret, gjennomgang av årskontrakt',date:'2025-09-25T09:00:00',user:'Key Account'},
-    ],
-    tasks:[
-      {id:'t1',text:'Følge opp tilbud ROV-inspeksjon – svar innen fredag',due:'2025-10-04',done:false,owner:'Salg'},
-      {id:'t2',text:'Send revidert tilbud vedlikeholdskontrakt',due:'2025-10-10',done:false,owner:'Salg'},
-      {id:'t3',text:'Booke kickoff-møte Q4',due:'2025-10-15',done:true,owner:'PM'},
-    ],
-  },
-  {
-    id:'c2', name:'Nordic Energy', industry:'Energi', country:'Norge',
-    website:'nordicenergy.no', notes:'Ny kunde 2025. Stor vekstpotensial.',
-    color:'16a34a',
-    contacts:[
-      {id:'ct3',name:'Per Ås',title:'CEO',email:'per@nordicenergy.no',phone:'+47 900 00 003'},
-    ],
-    leads:[
-      {id:'l3',name:'Offshoreprosjekt Bodø',stage:'lead',value:7800000,date:'2026-01-01',owner:'Salg'},
-    ],
-    activities:[
-      {id:'a4',type:'📧',text:'Første kontakt via sales@globalonsite.no',date:'2025-09-10T08:00:00',user:'Salg'},
-    ],
-    tasks:[
-      {id:'t4',text:'Send introduksjonsmail og company presentation',due:'2025-10-01',done:true,owner:'Salg'},
-      {id:'t5',text:'Book første møte med Per Ås',due:'2025-10-08',done:false,owner:'Salg'},
-    ],
-  },
-  {
-    id:'c3', name:'Oil Corp', industry:'Olje & Gass', country:'Norge',
-    website:'oilcorp.com', notes:'Pågående PO. Prioritet.',
-    color:'d97706',
-    contacts:[
-      {id:'ct4',name:'Lisa Berg',title:'Driftsleder',email:'lisa@oilcorp.com',phone:'+47 900 00 004'},
-      {id:'ct5',name:'Bjørn Dale',title:'Teknisk direktør',email:'bjorn@oilcorp.com',phone:'+47 900 00 005'},
-    ],
-    leads:[
-      {id:'l4',name:'Ekofisk-prosjekt',stage:'kontrakt',value:28000000,date:'2025-11-01',owner:'Key Account'},
-    ],
-    activities:[
-      {id:'a5',type:'📄',text:'Kontrakt signert – Ekofisk Fase 3',date:'2025-09-30T16:00:00',user:'Key Account'},
-    ],
-    tasks:[
-      {id:'t6',text:'Månedlig statusrapport til Lisa Berg',due:'2025-10-31',done:false,owner:'PM'},
-    ],
-  },
-];
+let customers = [];
 
 let selectedCustomerId = null;
 let activeCrmTab = 'contacts';
@@ -7859,13 +7793,7 @@ const TICKET_COLS = [
 const ticketColMap = {};
 TICKET_COLS.forEach(c => ticketColMap[c.id] = c);
 
-let tickets = [
-  { id:'TK-001', subject:'Forespørsel om ROV-inspeksjon Q4', from:'Lars Hansen <lars@petro.no>', fromEmail:'lars@petro.no', company:'Petro AS', received:'2025-10-01T08:15:00Z', status:'new', assignee:'', priority:'high', emailId:'di1', preview:'Hei, vi ønsker å få et tilbud på ROV-inspeksjon av vår installasjon i Q4 2025...', history:[{type:'email_in',from:'Lars Hansen',ts:'2025-10-01T08:15:00Z',body:'Hei, vi ønsker å få et tilbud på ROV-inspeksjon av vår installasjon i Q4 2025. Kan dere sende en presentasjon og prisestimat?'}] },
-  { id:'TK-002', subject:'RFQ – Hose Assembly Container', from:'Maria Berg <maria@energy.com>', fromEmail:'maria@energy.com', company:'Nordic Energy', received:'2025-09-30T14:30:00Z', status:'assigned', assignee:'Kari Nordmann', priority:'medium', emailId:'di2', preview:'Vi er interessert i å leie Hose Assembly Container for prosjekt i Las Palmas...', history:[{type:'email_in',from:'Maria Berg',ts:'2025-09-30T14:30:00Z',body:'Vi er interessert i å leie Hose Assembly Container for prosjekt i Las Palmas. Hva er tilgjengelighet og pris?'},{type:'note',from:'Kari Nordmann',ts:'2025-09-30T15:00:00Z',body:'Tildelt meg. Sjekker lager Las Palmas.'},{type:'email_out',from:'Kari Nordmann',ts:'2025-09-30T16:00:00Z',body:'Hei Maria, vi har ledig kapasitet. Sender formelt tilbud i morgen.'}] },
-  { id:'TK-003', subject:'Pressure testing – offshore installation', from:'John Smith <john@oilfield.com>', fromEmail:'john@oilfield.com', company:'Oilfield Ltd', received:'2025-09-29T09:00:00Z', status:'quoted', assignee:'Ole Hansen', priority:'high', emailId:'di3', preview:'Dear team, we would like to request a quote for pressure testing services...', history:[{type:'email_in',from:'John Smith',ts:'2025-09-29T09:00:00Z',body:'Dear team, we would like to request a quote for pressure testing services offshore Norway Q1 2026.'},{type:'email_out',from:'Ole Hansen',ts:'2025-09-29T14:00:00Z',body:'Dear John, thank you for reaching out. Please find our proposal attached. Valid 30 days.'}] },
-  { id:'TK-004', subject:'Interest in RAT services – Dubai project', from:'Fatima Al-Rashid <fatima@marine.ae>', fromEmail:'fatima@marine.ae', company:'Marine Gulf', received:'2025-09-28T06:00:00Z', status:'followup', assignee:'Ole Hansen', priority:'low', emailId:'di4', preview:'We are looking for RAT Supervisor and Multi Discipline personnel...', history:[{type:'email_in',from:'Fatima Al-Rashid',ts:'2025-09-28T06:00:00Z',body:'We are looking for RAT Supervisor and Multi Discipline personnel for a project in Dubai starting January 2026.'},{type:'note',from:'Ole Hansen',ts:'2025-09-29T09:00:00Z',body:'Sendt info. Venter på svar.'},{type:'email_out',from:'Ole Hansen',ts:'2025-09-29T10:00:00Z',body:'Dear Fatima, thank you for your interest. We have the capacity. Can we schedule a call?'}] },
-  { id:'TK-005', subject:'Aquaculture equipment inquiry', from:'Bjørn Lund <bjorn@aqua.no>', fromEmail:'bjorn@aqua.no', company:'AquaNor', received:'2025-09-27T10:00:00Z', status:'solved', assignee:'Kari Nordmann', priority:'medium', emailId:'', preview:'Hei, vi trenger utstyr til et oppdrettsprosjekt...', history:[{type:'email_in',from:'Bjørn Lund',ts:'2025-09-27T10:00:00Z',body:'Hei, vi trenger utstyr til et oppdrettsprosjekt. Har dere erfaring med Aquaculture-segmentet?'},{type:'email_out',from:'Kari Nordmann',ts:'2025-09-27T13:00:00Z',body:'Hei Bjørn! Ja, vi har en egen Aquaculture-avdeling. Kontaktet prosjektleder som tar kontakt.'},{type:'note',from:'System',ts:'2025-09-28T09:00:00Z',body:'Konvertert til prosjekt – Fase 0.'}] },
-];
+let tickets = [];
 let nextTicketId = 6;
 let ticketView = 'kanban'; // 'kanban' | 'list'
 let draggingTicketId = null;
@@ -8601,11 +8529,7 @@ function gsearchKeyNav(e) {
 /* ═══════════════════════════════════
    NOTIFICATIONS
 ═══════════════════════════════════ */
-let notifications = [
-  {id:'n1', icon:'🎫', title:'Ny ticket: ROV-inspeksjon Q4', time: new Date(Date.now()-3600000).toISOString(), unread:true, action:()=>switchView('tickets',null)},
-  {id:'n2', icon:'⏰', title:'Task forfaller i dag: Følg opp tilbud ROV', time: new Date(Date.now()-7200000).toISOString(), unread:true, action:()=>switchView('tasks',null)},
-  {id:'n3', icon:'📧', title:'3 nye e-poster i Sales Inbox', time: new Date(Date.now()-14400000).toISOString(), unread:false, action:()=>switchView('salesinbox',null)},
-];
+let notifications = [];
 
 function updateNotifBadge() {
   const unread = notifications.filter(n=>n.unread).length;
@@ -8757,12 +8681,7 @@ function exportProjectsPDF() {
 /* ═══════════════════════════════════
    CHANGE LOG / AUDIT TRAIL
 ═══════════════════════════════════ */
-let changeLog = [
-  {ts:new Date(Date.now()-86400000*2).toISOString(), user:'System', entity:'Prosjekt', field:'Opprettet', from:'–', to:'Prosjekt Eta', color:'16a34a'},
-  {ts:new Date(Date.now()-86400000).toISOString(),   user:'Kari Nordmann', entity:'Fase', field:'Fasedato satt', from:'–', to:'Fase 3 – '+new Date(Date.now()-86400000).toLocaleDateString('no-NO'), color:'2563eb'},
-  {ts:new Date(Date.now()-3600000*4).toISOString(),  user:'Ole Hansen', entity:'Ticket', field:'Status', from:'Ny', to:'Tildelt', color:'d97706'},
-  {ts:new Date(Date.now()-3600000).toISOString(),    user:'Kari Nordmann', entity:'Prosjekt', field:'Fase', from:'Fase 1', to:'Fase 2', color:'7c3aed'},
-];
+let changeLog = [];
 
 function logChange(user, entity, field, from, to, color) {
   changeLog.unshift({ ts:new Date().toISOString(), user:user||getCurrentUser(), entity, field, from:String(from), to:String(to), color:color||'3b82f6' });
@@ -9754,7 +9673,7 @@ function generateQuoteDoc(projId){
 
     <div class="terms" style="margin-top:24px">
       <h4>Trusted by industry leaders</h4>
-      Stena Drilling · Saipem · COSL · Valaris · Transocean · Odfjell · Noble · Archer · Akofs · Turkish Petroleum
+      Leading offshore, drilling and aquaculture operators worldwide
     </div>
     <div class="foot"><span>Global Onsite AS · Corp. Reg. No. 931119931 MVA</span><span>Quotation ${escHtml(q.quoteNr||'')}</span></div>
   </div></div>
@@ -12496,89 +12415,21 @@ function localAiFallback(userMsg) {
 ═══════════════════════════════════ */
 
 // Risk register
-let risks = [
-  { id:'r1', title:'Værforhold under offshore-operasjon', category:'Operasjonell', prob:3, impact:4,
-    owner:'Freddy Sunde', mitigation:'Værvindu planlagt, backup-dager i tidsplan',
-    projectId:'go-190825', status:'open', created:'2026-03-15T10:00:00', residualProb:2, residualImpact:3 },
-  { id:'r2', title:'Sertifikat-utløp BOSIET for personell', category:'Compliance', prob:2, impact:5,
-    owner:'Frank Dale', mitigation:'Månedlig sjekk i kompetansematrise, automatisk varsel 60d før utløp',
-    projectId:'', status:'mitigated', created:'2026-02-10T09:00:00', residualProb:1, residualImpact:5 },
-  { id:'r3', title:'Forsinkelse i utstyrslevering fra Las Palmas hub', category:'Logistikk', prob:3, impact:3,
-    owner:'Simen Jensen', mitigation:'Backup-container i Lillesand, fraktavtale med ekstra kapasitet',
-    projectId:'go-190820', status:'open', created:'2026-03-20T14:00:00', residualProb:2, residualImpact:2 },
-  { id:'r4', title:'Kunde reduserer scope etter PO', category:'Kommersiell', prob:2, impact:4,
-    owner:'Frank Dale', mitigation:'Detaljert scope-of-work i kontrakt, change order-prosedyre',
-    projectId:'go-andfjord', status:'open', created:'2026-04-01T11:00:00', residualProb:1, residualImpact:3 },
-  { id:'r5', title:'Personskade ved arbeid på merdene', category:'HMS', prob:1, impact:5,
-    owner:'Kjetil Moe', mitigation:'JSA før hver operasjon, full PVU, redningstrening',
-    projectId:'go-extra-5', status:'mitigated', created:'2026-04-10T08:00:00', residualProb:1, residualImpact:4 },
-];
+let risks = [];
 
 // Nonconformities & HMS incidents
-let nonconformities = [
-  { id:'nc1', title:'Trykktest feilet på første forsøk', type:'Kvalitetsavvik', severity:'medium',
-    status:'closed', reportedBy:'Freddy Sunde', reportDate:'2026-03-12T15:30:00',
-    projectId:'go-190825', description:'Hose-tilkobling lekket ved 350 bar. Ny pakning montert og test gjennomført OK.',
-    rootCause:'Slitt o-ring som ikke ble oppdaget i forhåndssjekken',
-    correctiveAction:'Lagt til o-ring sjekk i pre-test sjekkliste. Opplæring av team.',
-    closedDate:'2026-03-15T10:00:00', closedBy:'Frank Dale' },
-  { id:'nc2', title:'Nestenulykke – fall fra mellomdekk', type:'HMS-hendelse', severity:'high',
-    status:'progress', reportedBy:'Simen Jensen', reportDate:'2026-04-08T11:00:00',
-    projectId:'go-190820', description:'Tekniker mistet grep i trapp – greide å holde rekkverket. Ingen skade.',
-    rootCause:'Manglende anti-skli matter på trinn etter rengjøring',
-    correctiveAction:'Anti-skli installert. Toolbox talk om vått dekk gjennomført.',
-    closedDate:'', closedBy:'' },
-  { id:'nc3', title:'Mangler signatur på inspeksjonsrapport', type:'Dokumentavvik', severity:'low',
-    status:'open', reportedBy:'Kjetil Moe', reportDate:'2026-04-15T13:00:00',
-    projectId:'go-190824', description:'Inspeksjonsrapport ble levert uten signatur fra inspector.',
-    rootCause:'', correctiveAction:'', closedDate:'', closedBy:'' },
-];
+let nonconformities = [];
 let ncFilter = 'all';
 
 // Document control
-let docs = [
-  { id:'d1', name:'Prosedyre Offshore JSA', category:'procedure', version:'v3.2', owner:'HSE', updated:'2025-11-10', expiry:'2026-11-10', file:'PRO-OFF-001' },
-  { id:'d2', name:'BOSIET-sertifikat – Freddy Sunde', category:'certificate', version:'v1.0', owner:'Freddy Sunde', updated:'2024-03-15', expiry:'2028-03-15', file:'CERT-FS-001' },
-  { id:'d3', name:'BOSIET-sertifikat – Simen Jensen', category:'certificate', version:'v1.0', owner:'Simen Jensen', updated:'2023-06-10', expiry:'2027-06-10', file:'CERT-SJ-001' },
-  { id:'d4', name:'NOGEPA 0.5.6-sertifikat – Freddy Sunde', category:'certificate', version:'v1.0', owner:'Freddy Sunde', updated:'2023-10-01', expiry:'2026-08-15', file:'CERT-FS-002' },
-  { id:'d5', name:'Mal Tilbudsdokument Offshore', category:'template', version:'v4.1', owner:'Salg', updated:'2026-02-20', expiry:'', file:'TMP-OFF-002' },
-  { id:'d6', name:'Mal Tilbudsdokument Aquaculture', category:'template', version:'v2.0', owner:'Salg', updated:'2026-01-15', expiry:'', file:'TMP-AQU-001' },
-  { id:'d7', name:'HMS-policy Global Onsite', category:'policy', version:'v2.5', owner:'CEO', updated:'2026-01-05', expiry:'2027-01-05', file:'POL-HMS-001' },
-  { id:'d8', name:'Kvalitetsmanual ISO 9001', category:'policy', version:'v5.0', owner:'Kvalitetsleder', updated:'2026-03-01', expiry:'2027-03-01', file:'POL-KVA-001' },
-  { id:'d9', name:'Arbeidsinstruks Hose Assembly', category:'instruction', version:'v2.3', owner:'Operasjon', updated:'2025-12-10', expiry:'', file:'INS-HA-001' },
-];
+let docs = [];
 
 // Competence matrix
 const COMPETENCES = ['BOSIET','HUET','NOGEPA','OPITO','Medic','First Aid','Hot Work','Rigging','Confined Space','Aquaculture HMS'];
-let personnel = [
-  { name:'Freddy Sunde',     role:'Site Lead',     certs:{BOSIET:'2028-03-15','HUET':'2028-03-15','NOGEPA':'2026-08-15','Medic':'2027-05-20','First Aid':'2027-01-10'} },
-  { name:'Simen Jensen',     role:'Site Lead',     certs:{BOSIET:'2027-06-10','HUET':'2027-06-10','OPITO':'2027-09-01','First Aid':'2026-11-15','Hot Work':'2027-04-22'} },
-  { name:'Kjetil Moe',       role:'Site Lead',     certs:{'Aquaculture HMS':'2027-08-30','First Aid':'2026-12-01','Rigging':'2027-02-14'} },
-  { name:'Frank Dale',       role:'KAM',           certs:{'First Aid':'2026-09-15'} },
-  { name:'Jan Erik Pedersen',role:'KAM',           certs:{'First Aid':'2027-03-10','Aquaculture HMS':'2027-05-22'} },
-  { name:'Per Olsen',        role:'Formann',       certs:{BOSIET:'2027-11-01','HUET':'2027-11-01','Hot Work':'2026-05-15','Rigging':'2027-08-20','First Aid':'2026-10-05'} },
-  { name:'Anders Hansen',    role:'Hose Assembly', certs:{BOSIET:'2028-01-22','HUET':'2028-01-22','OPITO':'2028-02-10','Hot Work':'2027-06-30'} },
-  { name:'Marius Berg',      role:'RAT Personell', certs:{BOSIET:'2027-04-15','HUET':'2027-04-15','Confined Space':'2027-07-12','Rigging':'2027-09-08'} },
-];
+let personnel = [];
 
 // Vendors
-let vendors = [
-  { id:'v1', name:'Parker Hannifin Norway AS', category:'Slangeleverandør', country:'Norge',
-    rating:5, approvedSince:'2018-03-01', lastEval:'2026-01-15', nextEval:'2027-01-15',
-    contact:'sales@parker.no', notes:'Hovedleverandør hydraulikkslanger. Konsistent leveringsevne.' },
-  { id:'v2', name:'Eaton Industries AS', category:'Hydraulikkomponenter', country:'Norge',
-    rating:4, approvedSince:'2020-06-10', lastEval:'2025-12-01', nextEval:'2026-12-01',
-    contact:'no.support@eaton.com', notes:'Backup-leverandør. Litt lengre leveringstid.' },
-  { id:'v3', name:'Helitrans AS', category:'Transport (helikopter)', country:'Norge',
-    rating:5, approvedSince:'2019-01-15', lastEval:'2026-02-20', nextEval:'2027-02-20',
-    contact:'ops@helitrans.no', notes:'Eksklusiv avtale for offshore-transport.' },
-  { id:'v4', name:'DNV', category:'Sertifisering & Audit', country:'Norge',
-    rating:5, approvedSince:'2015-09-01', lastEval:'2026-03-10', nextEval:'2027-03-10',
-    contact:'norway@dnv.com', notes:'ISO 9001/14001/45001 sertifisering.' },
-  { id:'v5', name:'Ramboll Survey AS', category:'Inspeksjon', country:'Norge',
-    rating:4, approvedSince:'2021-04-20', lastEval:'2025-11-05', nextEval:'2026-11-05',
-    contact:'survey@ramboll.no', notes:'Subsea-inspeksjon og ROV-leverandør.' },
-];
+let vendors = [];
 
 /* ═══════════════════════════════════
    RISK REGISTER
@@ -13526,16 +13377,7 @@ let persWeekOffset = 0;  // 0 = current week as first column
 // (personnel is defined earlier in competence section)
 // Add additional fields if missing
 (function enrichEmployees(){
-  const enrichmentData = {
-    'Freddy Sunde':      {dept:'offshore', hub:'lillesand', email:'freddy.sunde@globalonsite.no',     phone:'+47 906 12 345', status:'active', startDate:'2018-04-15'},
-    'Simen Jensen':      {dept:'offshore', hub:'laspalmas', email:'simen.jensen@globalonsite.no',     phone:'+47 906 23 456', status:'active', startDate:'2019-08-20'},
-    'Kjetil Moe':        {dept:'aqua',     hub:'lillesand', email:'kjetil.moe@globalonsite.no',      phone:'+47 906 34 567', status:'active', startDate:'2020-02-10'},
-    'Frank Dale':        {dept:'',         hub:'lillesand', email:'frank.dale@globalonsite.no',       phone:'+47 906 45 678', status:'active', startDate:'2015-06-01'},
-    'Jan Erik Pedersen': {dept:'aqua',     hub:'lillesand', email:'jan.erik.pedersen@globalonsite.no',phone:'+47 906 56 789', status:'active', startDate:'2021-09-15'},
-    'Per Olsen':         {dept:'offshore', hub:'lillesand', email:'per.olsen@globalonsite.no',        phone:'+47 906 67 890', status:'active', startDate:'2017-03-12'},
-    'Anders Hansen':     {dept:'offshore', hub:'laspalmas', email:'anders.hansen@globalonsite.no',    phone:'+47 906 78 901', status:'active', startDate:'2019-11-05'},
-    'Marius Berg':       {dept:'offshore', hub:'lillesand', email:'marius.berg@globalonsite.no',      phone:'+47 906 89 012', status:'active', startDate:'2022-01-20'},
-  };
+  const enrichmentData = {};
   personnel.forEach(p => {
     const extra = enrichmentData[p.name] || {dept:'', hub:'lillesand', email:'', phone:'', status:'active', startDate:''};
     Object.keys(extra).forEach(k => { if (p[k] === undefined) p[k] = extra[k]; });
@@ -13955,7 +13797,7 @@ function openAddEmployeeModal() {
     <div class="modal-title">Ny ansatt</div>
     <div style="height:14px"></div>
     <div class="modal-grid">
-      <div class="f"><label>Fullt navn</label><input id="ne-name" placeholder="Per Olsen"></div>
+      <div class="f"><label>Fullt navn</label><input id="ne-name" placeholder="Fornavn Etternavn"></div>
       <div class="f"><label>Rolle</label>
         <select id="ne-role">
           <option>Site Lead</option><option>Formann</option><option>Arbeider</option>
@@ -14685,47 +14527,17 @@ const PROD_PHASES = [
 const PROD_PHASE_MAP = Object.fromEntries(PROD_PHASES.map(p => [p.id, p]));
 
 // Supply Chain Manager – only this role can approve
-const SUPPLY_CHAIN_MANAGER = 'Frank Dale';
+const SUPPLY_CHAIN_MANAGER = '';
 function isSupplyChainManager() {
   const u = getCurrentUser();
   // In production, check against real role/email. For demo: SCM name or admin
   return u === SUPPLY_CHAIN_MANAGER || u === 'Demo Bruker' || (typeof userPerms !== 'undefined' && userPerms.canWrite);
 }
 
-let prodJobs = [
-  { id:'pj1', title:'Sammenstilling hydraulikkslanger – 6x 1" R2', customer:'Stena Drilling LTD',
-    description:'Produsere og trykkteste 6 stk høytrykksslanger for Stena Forth. 350 bar test.',
-    phase:'inprogress', priority:'hoy', estHours:12, requestedBy:'Simen Jensen', assignedTo:'Anders Hansen',
-    projectId:'go-9190810', deadline:'2026-05-28', created:'2026-05-10T09:00:00', approvedBy:'Frank Dale', approvedDate:'2026-05-11T10:00:00' },
-  { id:'pj2', title:'RAT-enhet service og resertifisering', customer:'Cosl Offshore Management AS',
-    description:'Full service av RAT-enhet før utsendelse til COSL Prospector. Inkl. funksjonstest.',
-    phase:'queue', priority:'hoy', estHours:20, requestedBy:'Freddy Sunde', assignedTo:'',
-    projectId:'go-190825', deadline:'2026-06-05', created:'2026-05-12T11:00:00', approvedBy:'Frank Dale', approvedDate:'2026-05-13T08:30:00' },
-  { id:'pj3', title:'Pressure test container – klargjøring', customer:'',
-    description:'Klargjøre og kalibrere trykktestcontainer for utleie.',
-    phase:'approved', priority:'normal', estHours:6, requestedBy:'Per Olsen', assignedTo:'',
-    projectId:'', deadline:'2026-06-10', created:'2026-05-14T14:00:00', approvedBy:'Frank Dale', approvedDate:'2026-05-15T09:00:00' },
-  { id:'pj4', title:'Sveising av rørspoler – AISI 316', customer:'Eyvi AS',
-    description:'15 rørspoler i syrefast stål til HIMA Rjukan. WPS-dokumentasjon kreves.',
-    phase:'request', priority:'normal', estHours:30, requestedBy:'Kjetil Moe', assignedTo:'',
-    projectId:'go-9190804', deadline:'2026-06-20', created:'2026-05-18T08:00:00', approvedBy:'', approvedDate:'' },
-  { id:'pj5', title:'Reparasjon av defekt slange-presse', customer:'',
-    description:'Hydraulikkpressen i verkstedet lekker. Bytte tetninger og teste.',
-    phase:'request', priority:'hoy', estHours:4, requestedBy:'Anders Hansen', assignedTo:'',
-    projectId:'', deadline:'2026-05-25', created:'2026-05-19T07:30:00', approvedBy:'', approvedDate:'' },
-  { id:'pj6', title:'Merking og pakking av utstyr – Trinidad', customer:'ENSCO Incorporated',
-    description:'Pakke og merke alt utstyr for Rig 249 Trinidad iht. pakkliste.',
-    phase:'done', priority:'normal', estHours:8, requestedBy:'Simen Jensen', assignedTo:'Marius Berg',
-    projectId:'go-190823', deadline:'2026-05-15', created:'2026-05-05T10:00:00', approvedBy:'Frank Dale', approvedDate:'2026-05-06T09:00:00' },
-];
+let prodJobs = [];
 
 // Pick-up tasks (forfallende/ledige oppgaver)
-let pickupTasks = [
-  { id:'pt1', title:'Sortere og rydde slangelager', description:'Lageret trenger opprydding. Sorter slanger etter dimensjon og merk hyller.', estHours:3, priority:'lav', takenBy:'', created:'2026-05-15T10:00:00' },
-  { id:'pt2', title:'Kalibrere momentnøkler', description:'Årlig kalibrering av alle momentnøkler i verkstedet. Dokumenter i sertifikatmappe.', estHours:2, priority:'normal', takenBy:'', created:'2026-05-16T11:00:00' },
-  { id:'pt3', title:'Vedlikehold truck', description:'Periodisk vedlikehold av gaffeltruck – sjekk olje, batteri og gafler.', estHours:2, priority:'normal', takenBy:'Per Olsen', created:'2026-05-12T09:00:00' },
-  { id:'pt4', title:'Oppdatere verktøyregister', description:'Gå gjennom verktøyskap og oppdater register med hva som mangler.', estHours:4, priority:'lav', takenBy:'', created:'2026-05-17T14:00:00' },
-];
+let pickupTasks = [];
 
 let prodTab = 'plan';
 let prodDragId = null;
@@ -15552,8 +15364,9 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 initKeyboardShortcuts();
 updateNotifBadge();
+showLoginGate();
 initMsal();
-if(!graphMode)setSyncStatus('','Demo-modus');
+if(!graphMode)setSyncStatus('','Ikke innlogget');
 // Inject PMOTION branding
 (function(){
   const el = document.getElementById('topbar-sub-wrap');
@@ -15606,24 +15419,6 @@ try {
   });
 } catch(e){ console.warn('checklist migration', e); }
 
-setTimeout(function(){
-  try {
-    const himaP = projects.find(p => p.id === 'go-190824');
-    if (himaP && !himaP.execution && typeof ensureExecData === 'function') {
-      ensureExecData(himaP);
-      const s1 = himaP.execution.stages['startup'];
-      EXEC_STAGES[0].tasks.forEach(t => {
-        s1.tasks[t.id] = { checked:true, comment:'', checkedBy:'Kjetil Moe', checkedDate:'2026-04-16T09:00:00' };
-      });
-      s1.completed = true; s1.completedDate = '2026-04-17T10:00:00';
-      const s2 = himaP.execution.stages['planning'];
-      s2.tasks['s2t1'] = { checked:true, comment:'Arbeidsplan godkjent av kunde', checkedBy:'Kjetil Moe', checkedDate:'2026-04-18T11:00:00' };
-      s2.tasks['s2t2'] = { checked:true, comment:'', checkedBy:'Kjetil Moe', checkedDate:'2026-04-18T14:00:00' };
-      s2.tasks['s2t3'] = { checked:true, comment:'JSA gjennomført med hele teamet', checkedBy:'Per Olsen', checkedDate:'2026-04-19T08:00:00' };
-      himaP.execution.currentStage = 1;
-    }
-  } catch(e) { console.warn('Exec seed skipped', e); }
-}, 500);
 
 </script>
 </body>
