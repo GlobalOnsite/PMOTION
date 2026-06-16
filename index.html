@@ -3742,14 +3742,27 @@ async function ensureListColumns(){
 }
 function hasCol(n){ return !!(listColumnNames && listColumnNames.has(n)); }
 
+/* Debouncet lagring av ett prosjekt til SharePoint (samler raske endringer, f.eks. avhuking). */
+let _projSaveTimers = {};
+function queueProjectSave(p){
+  if(!p || !graphMode) return;
+  const id = p.id;
+  if(_projSaveTimers[id]) clearTimeout(_projSaveTimers[id]);
+  _projSaveTimers[id] = setTimeout(()=>{ delete _projSaveTimers[id]; saveToLists(p); }, 1200);
+}
+/* Sentral lagringskrok som kalles etter endringer (sjekklister, gantt, arkivering). */
+function saveState(p){ if(p) queueProjectSave(p); }
+
 function toFields(p){
   const f = {
     Title:p.name, Fase:p.phase, ProsjektNr:p.projectNr||'', Sannsynlighet:p.prob,
     Kunde:p.customer, Lokasjon:p.location, Rigg:p.rig, Startdato:p.startDate||null,
-    Varighet:p.durationMonths, EstimertVerdi:p.value, Personell:'', Utstyr:'',
+    EstimertVerdi:p.value, Personell:'', Utstyr:'',
     Hub:p.hub, Avdeling:p.dept||'', PM:p.pm||'', KAM:p.kam||'',
     PhaseLog:JSON.stringify(p.phaseLog||{}), EquipBookings:JSON.stringify(p.equipBookings||[]),
   };
+  // Varighet (måneder) – gammel kolonne, skrives nå kun hvis den fortsatt finnes (valgfri)
+  if(hasCol('Varighet')) f.Varighet = p.durationMonths;
   // Eksakt varighet (dager/uker/måneder) – skrives kun hvis kolonnene finnes i lista
   if(hasCol('VarighetVerdi')) f.VarighetVerdi = p.durationValue||0;
   if(hasCol('VarighetEnhet')) f.VarighetEnhet = p.durationUnit||'';
@@ -3758,6 +3771,9 @@ function toFields(p){
   if(hasCol('Riggtype'))    f.Riggtype    = p.rigType||'';
   if(hasCol('MMSI'))        f.MMSI        = p.mmsi||'';
   if(hasCol('Beskrivelse')) f.Beskrivelse = p.description||'';
+  // Sjekkliste-tilstand (avhukinger) – lagres som JSON kun hvis kolonnene finnes
+  if(hasCol('Checklists')) f.Checklists = JSON.stringify(p.checklists||{});
+  if(hasCol('Execution'))  f.Execution  = JSON.stringify(p.execution||{});
   return { fields:f };
 }
 
@@ -3775,11 +3791,14 @@ function fromItem(item){
     prob:parseInt(f.Sannsynlighet)||0, customer:f.Kunde||'', location:f.Lokasjon||'',
     rig:f.Rigg||'', startDate:f.Startdato?f.Startdato.split('T')[0]:'',
     rigType:f.Riggtype||'', mmsi:f.MMSI||'',
-    durationMonths:months, value:parseFloat(f.EstimertVerdi)||0, description:f.Beskrivelse||'',
+    durationMonths:(durDays>0 ? Math.round(durDays/30.44) : months), value:parseFloat(f.EstimertVerdi)||0, description:f.Beskrivelse||'',
     personnel:[], equipment:[], hub:f.Hub||'lillesand', dept:f.Avdeling||'',
     pm:f.PM||'', kam:f.KAM||'', phaseLog:pl, equipBookings:eb,
   };
   if(durDays>0){ o.durationDays=durDays; o.durationUnit=durUnit; o.durationValue=durVal; }
+  // Sjekkliste-tilstand fra SharePoint (kun hvis kolonnen finnes – ellers behold minne-tilstand)
+  if(f.Checklists!=null){ try{ o.checklists = JSON.parse(f.Checklists||'{}'); }catch(e){ o.checklists={}; } }
+  if(f.Execution!=null){ try{ const ex=JSON.parse(f.Execution||'{}'); if(ex && Object.keys(ex).length) o.execution = ex; }catch(e){} }
   return o;
 }
 async function loadFromLists(){
@@ -3812,7 +3831,7 @@ async function saveToLists(p){
     } else {
       r = await gPost(listBase(), toFields(p));
     }
-    const u = fromItem(r);
+    const u = { ...p, ...fromItem(r) }; // behold kjøretids-felter (logg, bookinger), ta persisterte felter fra SharePoint
     const idx = projects.findIndex(x => x.id === p.id);
     if (idx >= 0) projects[idx] = u; else projects.push(u);
     setSyncStatus('ok','Lagret');
@@ -3853,14 +3872,14 @@ async function deleteFromLists(id){
 // ═══════════════════════════════════════════════════════
 const USER_ROLES = [
   { id:'pmo',       name:'PMO',              mandate:'Superbruker på prosjekter',            color:'#0891b2', superOf:['projects','gantt','checklistadmin','process','tasks','resources'], clRoles:['pmo'], home:'projects' },
-  { id:'scm',       name:'SCM',              mandate:'Superbruker på innkjøp, lager og produksjon', color:'#2563eb', superOf:['production','equipment','vendors','resources'], clRoles:[], home:'production' },
+  { id:'scm',       name:'SCM',              mandate:'Superbruker på innkjøp, lager og produksjon', color:'#2563eb', superOf:['production','equipment','vendors','resources'], clRoles:['scm'], home:'production' },
   { id:'kam',       name:'KAM',              mandate:'Superbruker på CRM/salg',              color:'#7c3aed', superOf:['crm','salesinbox','tickets'], clRoles:['kam'], home:'crm' },
-  { id:'hr',        name:'HR',               mandate:'Superbruker på personelldokumentasjon',color:'#db2777', superOf:['personnel','competence','docs'], clRoles:[], home:'personnel' },
+  { id:'hr',        name:'HR',               mandate:'Superbruker på personelldokumentasjon',color:'#db2777', superOf:['personnel','competence','docs'], clRoles:['hr'], home:'personnel' },
   { id:'hseq',      name:'HSEQ',             mandate:'Superbruker på sikkerhet og kvalitet', color:'#dc2626', superOf:['risk','nonconform','docs','reports','competence'], clRoles:['hse'], home:'nonconform' },
   { id:'sitelead',  name:'Site Lead/Formann',mandate:'Bruker av site-relevante funksjoner',  color:'#16a34a', superOf:[], clRoles:['pm','foreman'], home:'projects' },
   { id:'ceo',       name:'CEO',              mandate:'Superbruker på økonomisiden',          color:'#d97706', superOf:['reports','crm','projects'], clRoles:['finance'], home:'dashboard', econ:true },
   { id:'bdm',       name:'BDM',              mandate:'Superbruker av CRM',                   color:'#9333ea', superOf:['crm','salesinbox'], clRoles:['kam'], home:'crm' },
-  { id:'operation', name:'Operation',        mandate:'Superbruker på personellkoordinering', color:'#0d9488', superOf:['resources','personnel','tasks','equipment'], clRoles:[], home:'resources' },
+  { id:'operation', name:'Operation',        mandate:'Superbruker på personellkoordinering', color:'#0d9488', superOf:['resources','personnel','tasks','equipment'], clRoles:['operation'], home:'resources' },
 ];
 const userRoleMap = {};
 USER_ROLES.forEach(r => userRoleMap[r.id] = r);
@@ -5035,7 +5054,7 @@ function initGanttDrag(){
       logChange(getCurrentUser(),'Prosjekt', d.action==='move'?'Flyttet i tid':'Justert varighet',
         fmtShort(d.origStart)+'→'+fmtShort(d.origEnd), fmtShort(d._ns)+'→'+fmtShort(d._ne), '0891b2');
     }
-    if(typeof saveState==='function') saveState();
+    if(typeof saveState==='function') saveState(p);
     renderGantt();
   }
 
@@ -8925,6 +8944,9 @@ const CL_ROLES = [
   { id:'pmo',     name:'PMO',         color:'#0891b2', bg:'rgba(8,145,178,.2)' },
   { id:'hse',     name:'HSE',         color:'#dc2626', bg:'rgba(220,38,38,.2)' },
   { id:'finance', name:'Økonomi',     color:'#d97706', bg:'rgba(217,119,6,.2)' },
+  { id:'scm',       name:'SCM',       color:'#0369a1', bg:'rgba(3,105,161,.2)' },
+  { id:'hr',        name:'HR',        color:'#db2777', bg:'rgba(219,39,119,.2)' },
+  { id:'operation', name:'Operation', color:'#0d9488', bg:'rgba(13,148,136,.2)' },
 ];
 const clRoleMap = {};
 CL_ROLES.forEach(r => clRoleMap[r.id] = r);
@@ -9065,7 +9087,7 @@ function toggleChecklistItem(projectId, phaseKey, idx){
   if(content && typeof renderProjTabContent==='function'){
     content.innerHTML = renderProjTabContent(p, 'checklist');
   }
-  if(typeof saveState==='function') saveState();
+  if(typeof saveState==='function') saveState(p);
 }
 
 function runItemAction(projectId, phaseKey, idx){
@@ -9841,6 +9863,15 @@ const CHECKLIST_TEMPLATES_EXTENDED = {
     { text:'Sjekk offshore insurance og indemnity clauses',          role:'finance' },
     { text:'Briefing til personell om scope og sikkerhet',           role:'hse' },
     { text:'Informer hub om prosjektoppstart',                       role:'pmo' },
+    // ── Fra Prosjektgjennomføring-malen: HR / SCM / Operation ──
+    { text:'CV, fagbrev, sertifikater og referanser kontrollert',    role:'hr' },
+    { text:'HMS-kurs, verneutstyr og sikkerhetsinstruks bekreftet',  role:'hr' },
+    { text:'Helsesertifikat og påkrevde vaksiner kontrollert',       role:'hr' },
+    { text:'Arbeids-/oppdragsavtale og betingelser signert',         role:'hr' },
+    { text:'Kundens adgangskrav, ID-kort og site-registrering fullført', role:'hr' },
+    { text:'Bestill nødvendige deler og utstyr fra leverandør',      role:'scm' },
+    { text:'Sett opp rotasjonsplan, roller og ansvar',               role:'operation' },
+    { text:'Bestill reise, transport og overnatting',                role:'operation' },
   ]},
   fase3_aqua: { dept:'aqua', name:'Fase 3 – PO / Kontrakt (Aquaculture)', deadline: PHASE_DEADLINES.fase3_aqua, items: [
     { text:'Motta og gjennomgå PO / kontrakt',                       role:'kam' },
@@ -9853,6 +9884,15 @@ const CHECKLIST_TEMPLATES_EXTENDED = {
     { text:'Risikovurdering for merd-operasjon',                     role:'hse' },
     { text:'Sjekk dyrevelferd og miljøkrav',                         role:'hse' },
     { text:'Informer hub om prosjektoppstart',                       role:'pmo' },
+    // ── Fra Prosjektgjennomføring-malen: HR / SCM / Operation ──
+    { text:'CV, fagbrev, sertifikater og referanser kontrollert',    role:'hr' },
+    { text:'HMS-kurs, verneutstyr og sikkerhetsinstruks bekreftet',  role:'hr' },
+    { text:'Helsesertifikat og påkrevde vaksiner kontrollert',       role:'hr' },
+    { text:'Arbeids-/oppdragsavtale og betingelser signert',         role:'hr' },
+    { text:'Kundens adgangskrav, ID-kort og site-registrering fullført', role:'hr' },
+    { text:'Bestill nødvendige deler og utstyr fra leverandør',      role:'scm' },
+    { text:'Sett opp rotasjonsplan, roller og ansvar',               role:'operation' },
+    { text:'Bestill reise, transport og overnatting',                role:'operation' },
   ]},
   fase4_offshore: { dept:'offshore', name:'Fase 4 – Gjennomføring (Offshore)', deadline: PHASE_DEADLINES.fase4_offshore, items: [
     { text:'Last opp mobiliseringsinfo fra kunde (HMS-krav m.m.)',   role:'pm', type:'attachment', evidence:'Kunde-mobiliseringsinfo' },
@@ -9867,6 +9907,11 @@ const CHECKLIST_TEMPLATES_EXTENDED = {
     { text:'Avvik og HMS-hendelser loggført',                        role:'hse' },
     { text:'Vedlikehold og inspeksjon av utstyr i felt',             role:'foreman' },
     { text:'Eventuelle scope-endringer (MOC) dokumentert',           role:'pm' },
+    // ── Fra Prosjektgjennomføring-malen: SCM / Operation ──
+    { text:'Kontroll av deler og utstyr før sending',               role:'scm' },
+    { text:'Alt utstyr og deler pakket og klart for sending',       role:'scm', type:'attachment', evidence:'Pakkliste' },
+    { text:'Verifiser flushing-/trykktestutstyr (testpumpe, kalibrerte manometre, flenser, høytrykkslanger, oppsamling)', role:'scm' },
+    { text:'Bekreft bemanning og kapasitet mot plan',               role:'operation' },
   ]},
   fase4_aqua: { dept:'aqua', name:'Fase 4 – Gjennomføring (Aquaculture)', deadline: PHASE_DEADLINES.fase4_aqua, items: [
     { text:'Mobilisering av Aquaculture-team bekreftet',              role:'pm' },
@@ -9877,6 +9922,10 @@ const CHECKLIST_TEMPLATES_EXTENDED = {
     { text:'Registrere timer daglig i systemet',                     role:'foreman' },
     { text:'Avvik og HMS-hendelser loggført',                        role:'hse' },
     { text:'Eventuelle scope-endringer dokumentert',                 role:'pm' },
+    // ── Fra Prosjektgjennomføring-malen: SCM / Operation ──
+    { text:'Kontroll av deler og utstyr før sending',               role:'scm' },
+    { text:'Alt utstyr og deler pakket og klart for sending',       role:'scm', type:'attachment', evidence:'Pakkliste' },
+    { text:'Bekreft bemanning og kapasitet mot plan',               role:'operation' },
   ]},
   aftermarket: { dept:'all', name:'Fase 5 – Ettermarked & service', deadline: PHASE_DEADLINES.aftermarket, items: [
     { text:'Etabler kontakt med kunde om videre samarbeid',           role:'kam' },
@@ -11065,7 +11114,7 @@ function archiveProject(projId){
   p.archivedAt = new Date().toISOString();
   p.archivedBy = getCurrentUser();
   if(typeof logChange==='function') logChange(getCurrentUser(),'Prosjekt','Arkivert',p.name,'','64748b');
-  if(typeof saveState==='function') saveState();
+  if(typeof saveState==='function') saveState(p);
   closeModal();
   renderAll();
   showToast(`📦 ${p.name} er arkivert`);
@@ -11077,7 +11126,7 @@ function unarchiveProject(projId){
   p.archived = false;
   p.archivedAt = null; p.archivedBy = null;
   if(typeof logChange==='function') logChange(getCurrentUser(),'Prosjekt','Gjenåpnet fra arkiv',p.name,'','16a34a');
-  if(typeof saveState==='function') saveState();
+  if(typeof saveState==='function') saveState(p);
   renderAll();
   showToast(`📂 ${p.name} er gjenåpnet`);
 }
@@ -15193,6 +15242,7 @@ function toggleExecTask(projId, stageId, taskId) {
   } else {
     td.checkedBy = ''; td.checkedDate = '';
   }
+  queueProjectSave(p);
   refreshExecTab(projId);
 }
 
@@ -15229,6 +15279,7 @@ function logExecRepeat(projId, stageId, taskId, repeat) {
     td.lastLoggedDate = new Date().toISOString();
     showToast('Logget ✓');
   }
+  queueProjectSave(p);
   refreshExecTab(projId);
 }
 
@@ -15240,6 +15291,7 @@ function toggleExecComment(projId, stageId, taskId) {
   const val = prompt('Kommentar til oppgaven:', current);
   if (val !== null) {
     td.comment = val.trim();
+    queueProjectSave(p);
     refreshExecTab(projId);
   }
 }
@@ -15261,6 +15313,7 @@ function completeExecStage(projId, stageId) {
 
   sd.completed = true;
   sd.completedDate = new Date().toISOString();
+  queueProjectSave(p);
 
   logChange(getCurrentUser(), 'Gjennomføring', 'Steg fullført', p.name, stage.title, '16a34a');
 
