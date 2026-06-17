@@ -3347,6 +3347,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
       <div style="height:16px"></div>
       <button class="modal-btn" onclick="saveConfig()" style="width:100%">Lagre og koble til</button>
       <button class="modal-btn ghost" onclick="seedChecklistTemplates()" style="width:100%;margin-top:8px">📋 Importer / oppdater sjekkliste-maler i SharePoint</button>
+      <button class="modal-btn ghost" onclick="seedEquipment()" style="width:100%;margin-top:8px">🔧 Importer utstyrskatalog til SharePoint (engangs)</button>
       <button class="modal-btn ghost" onclick="addMeAsAdmin()" style="width:100%;margin-top:8px">➕ Legg meg til som PMO-administrator</button>
       <button class="modal-btn ghost" onclick="clearConfig()" style="width:100%;margin-top:8px">Nullstill konfigurasjon</button>
     </div>
@@ -3984,6 +3985,7 @@ async function loadFromLists(){
     await ensureListColumns();
     await loadRoleAssignment();              // hent rolletildeling (styrer hvilken rolle innlogget bruker får)
     await loadChecklistTemplatesFromSP();   // hent sjekkliste-maler fra SharePoint (fallback: hardkodet)
+    await loadEquipmentFromSP();             // hent utstyrskatalog fra SharePoint (fallback: hardkodet)
     const d = await gGet(listBase()+'?expand=fields&$top=500');
     projects = d.value.map(fromItem);
     // Generér sjekklister for alle prosjekter (merger – bevarer avhukinger fra SharePoint).
@@ -5572,10 +5574,109 @@ function renderWorldMap() {
    EQUIPMENT CALENDAR
 ═══════════════════════════════════ */
 let equipCalOffset=0;
+
+/* ── UTSTYRSKATALOG i SharePoint (lista PMOTIONUtstyr) ──
+   Master-inventaret bor nå i SharePoint og kan redigeres der/i appen. Lastes ved oppstart
+   og overstyrer den hardkodede INVENTORY; faller tilbake til hardkodet hvis lista mangler/er tom.
+   Hvert utstyr får en stabil id (SharePoint-radens id) som bookinger refererer til (invId). */
+const EQUIP_LIST_TITLE='PMOTIONUtstyr';
+let equipListId=null, equipCm=null;
+async function resolveEquipmentList(){
+  if(equipListId) return equipListId;
+  try{ const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists?$filter=displayName eq '${EQUIP_LIST_TITLE}'&$select=id`); equipListId=((d.value||[])[0]||{}).id||null; }
+  catch(e){ equipListId=null; }
+  return equipListId;
+}
+async function equipmentColMap(lid){
+  let cols=[]; try{ const c=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/columns?$select=name,displayName`); cols=c.value||[]; }catch(e){}
+  const byNorm={}; cols.forEach(col=>{ byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name; });
+  const map={_found:cols.map(c=>c.name)};
+  ['title','hub','antall','farge','rekkefolge','aktiv'].forEach(k=>{ map[k]=byNorm[k]||null; });
+  if(!map.title) map.title='Title';
+  return map;
+}
+async function _equipCtx(){ const lid=await resolveEquipmentList(); if(!lid) return null; if(!equipCm) equipCm=await equipmentColMap(lid); return {lid,cm:equipCm}; }
+async function loadEquipmentFromSP(){
+  try{
+    const lid=await resolveEquipmentList(); if(!lid) return false; // ingen liste → behold hardkodet
+    const cm=await equipmentColMap(lid); equipCm=cm;
+    const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?expand=fields&$top=999`);
+    const raw=(d.value||[]).filter(it=>it.fields && it.fields[cm.title] && (!cm.aktiv || it.fields[cm.aktiv]!==false));
+    if(!raw.length) return false; // tom liste → behold hardkodet
+    raw.sort((a,b)=> ((parseInt(cm.rekkefolge?a.fields[cm.rekkefolge]:0)||0)-(parseInt(cm.rekkefolge?b.fields[cm.rekkefolge]:0)||0)) || (parseInt(a.id)-parseInt(b.id)));
+    const items=raw.map(it=>({ id:it.id, name:it.fields[cm.title]||'', hub:(cm.hub?it.fields[cm.hub]:'')||'', qty:parseInt(cm.antall?it.fields[cm.antall]:0)||0, color:(cm.farge?it.fields[cm.farge]:'')||'#3b82f6' }));
+    INVENTORY.length=0; items.forEach(i=>INVENTORY.push(i)); // muter på plass (INVENTORY er const-array)
+    return true;
+  }catch(e){ console.warn('loadEquipmentFromSP',e); return false; }
+}
+async function seedEquipment(){
+  if(!graphMode){ showToast('Logg inn med Microsoft først', true); return; }
+  const ctx=await _equipCtx(); if(!ctx){ showToast('Opprett lista «'+EQUIP_LIST_TITLE+'» først', true); return; }
+  const cm=ctx.cm;
+  const missing=['hub','antall'].filter(k=>!cm[k]);
+  if(missing.length){ showToast('Mangler kolonner: '+missing.join(', ')+'. Fant: '+(cm._found||[]).join(', '), true); return; }
+  let existing; try{ existing=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items?$top=1`); }catch(e){ showToast('Kunne ikke lese lista: '+e.message,true); return; }
+  if((existing.value||[]).length>0){ showToast('Utstyrslista er ikke tom – import avbrutt (unngår dubletter)', true); return; }
+  showToast(`Importerer ${INVENTORY.length} utstyr til SharePoint...`);
+  let ok=0,fail=0;
+  for(let i=0;i<INVENTORY.length;i++){ const it=INVENTORY[i];
+    const fields={ [cm.title]:it.name||'' };
+    if(cm.hub) fields[cm.hub]=it.hub||'';
+    if(cm.antall) fields[cm.antall]=it.qty||0;
+    if(cm.farge) fields[cm.farge]=it.color||'';
+    if(cm.rekkefolge) fields[cm.rekkefolge]=i+1;
+    if(cm.aktiv) fields[cm.aktiv]=true;
+    try{ await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items`,{fields}); ok++; }catch(e){ fail++; console.warn('seed utstyr feilet',it,e); }
+  }
+  showToast(`✅ Importert ${ok} utstyr${fail?', '+fail+' feilet (se konsoll)':''}`);
+  await loadEquipmentFromSP(); if(typeof renderEquipment==='function') renderEquipment();
+}
+async function addEquipmentItem(){
+  if(!graphMode){ showToast('Logg inn med Microsoft først', true); return; }
+  const ctx=await _equipCtx(); if(!ctx){ showToast('Opprett lista «'+EQUIP_LIST_TITLE+'» først', true); return; }
+  const cm=ctx.cm;
+  const name=(document.getElementById('eq-add-name')?.value||'').trim();
+  const hub=(document.getElementById('eq-add-hub')?.value||'').trim();
+  const qty=parseInt(document.getElementById('eq-add-qty')?.value)||1;
+  const color=(document.getElementById('eq-add-color')?.value||'#3b82f6');
+  if(!name){ showToast('Skriv inn et navn', true); return; }
+  const fields={ [cm.title]:name };
+  if(cm.hub) fields[cm.hub]=hub;
+  if(cm.antall) fields[cm.antall]=qty;
+  if(cm.farge) fields[cm.farge]=color;
+  if(cm.rekkefolge) fields[cm.rekkefolge]=INVENTORY.length+1;
+  if(cm.aktiv) fields[cm.aktiv]=true;
+  try{ const r=await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items`,{fields});
+    INVENTORY.push({ id:r&&r.id, name, hub, qty, color });
+    renderEquipment(); showToast('Utstyr lagt til ✓');
+  }catch(e){ showToast('Kunne ikke lagre: '+e.message, true); }
+}
+async function editEquipmentQty(idx, val){
+  const item=INVENTORY[idx]; if(!item) return;
+  item.qty=parseInt(val)||0;
+  if(graphMode && item.id){ const ctx=await _equipCtx(); if(ctx && ctx.cm.antall){ gPatch(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${item.id}/fields`,{[ctx.cm.antall]:item.qty}); } }
+  renderEquipment();
+}
+async function deleteEquipmentItem(idx){
+  const item=INVENTORY[idx]; if(!item) return;
+  if(!confirm(`Slett «${item.name}»? Eksisterende bookinger mot dette utstyret kan bli påvirket.`)) return;
+  if(graphMode && item.id){ const ctx=await _equipCtx(); if(ctx){ try{ await gDelete(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${item.id}`);}catch(e){ showToast('Sletting feilet: '+e.message,true); return; } } }
+  INVENTORY.splice(idx,1);
+  renderEquipment(); showToast('Utstyr slettet');
+}
+/* Slår opp utstyr for en booking: foretrekker stabil invId, faller tilbake på indeks (bakoverkompat). */
+function _invByBooking(b){
+  if(b && b.invId!=null){ const it=INVENTORY.find(i=>String(i.id)===String(b.invId)); if(it) return it; }
+  return INVENTORY[b && b.inv];
+}
 function getEquipBookings(invIdx,projectId){
+  const item=INVENTORY[invIdx];
   return projects.flatMap(p=>
     (p.equipBookings||[])
-      .filter(b=>b.inv===invIdx&&(projectId?p.id===projectId:true))
+      .filter(b=>{
+        const match=(b.invId!=null && item)? String(b.invId)===String(item.id) : b.inv===invIdx;
+        return match && (projectId?p.id===projectId:true);
+      })
       .map(b=>{return{...b,projectId:p.id,projectName:p.name,projectPhase:p.phase}})
   );
 }
@@ -5597,7 +5698,19 @@ function renderEquipment(){
     <div class="equip-kpi"><div class="equip-kpi-label">Ledige nå</div><div class="equip-kpi-value" style="color:#16a34a">${totalUnits-totalBooked}</div></div>
     <div class="equip-kpi"><div class="equip-kpi-label">Hubber</div><div class="equip-kpi-value">${HUBS.length}</div></div>`;
   // Equipment list
-  document.getElementById('equip-list').innerHTML=INVENTORY.map((item,idx)=>{
+  const canEditEquip = (typeof roleCan==='function') && roleCan('equipment');
+  const hubOpts = HUBS.map(h=>`<option value="${h.id}">${h.flag} ${h.name}</option>`).join('');
+  const adminForm = canEditEquip ? `<div style="padding:12px 14px;border:1px dashed var(--border);border-radius:10px;margin-bottom:14px">
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Legg til utstyr</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <input id="eq-add-name" placeholder="Navn" style="flex:1;min-width:160px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);font-size:13px">
+        <select id="eq-add-hub" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);font-size:13px">${hubOpts}</select>
+        <input id="eq-add-qty" type="number" min="1" value="1" title="Antall" style="width:70px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);font-size:13px">
+        <input id="eq-add-color" type="color" value="#3b82f6" title="Farge" style="width:40px;height:34px;border:1px solid var(--border);border-radius:7px;background:var(--bg);cursor:pointer">
+        <button class="modal-btn" onclick="addEquipmentItem()">Legg til</button>
+      </div>
+    </div>` : '';
+  document.getElementById('equip-list').innerHTML = adminForm + INVENTORY.map((item,idx)=>{
     const bks=getEquipBookings(idx);
     const activeNow=bks.filter(b=>new Date(b.from)<=now&&new Date(b.to)>=now).length;
     const avail=item.qty-activeNow;
@@ -5605,12 +5718,14 @@ function renderEquipment(){
     return`<div class="equip-item">
       <div style="flex:1">
         <div class="equip-name">${item.name}</div>
-        <div style="display:flex;gap:8px;margin-top:2px">
+        <div style="display:flex;gap:8px;margin-top:2px;align-items:center">
           <span class="equip-hub">${hub?hub.flag+' '+hub.name:''}</span>
           <span style="color:var(--muted);font-size:10px">Antall: ${item.qty}</span>
         </div>
       </div>
       <span class="equip-status ${avail>0?'available':'booked'}">${avail>0?avail+' ledig':'Alle utleid'}</span>
+      ${canEditEquip?`<input type="number" min="0" value="${item.qty}" onchange="editEquipmentQty(${idx},this.value)" title="Endre antall" style="width:56px;margin-left:10px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px">
+      <button onclick="deleteEquipmentItem(${idx})" title="Slett" style="background:none;border:none;color:#ef4444;font-size:15px;cursor:pointer;margin-left:6px">🗑</button>`:''}
     </div>`;
   }).join('');
   renderEquipCalendar();
@@ -5771,7 +5886,7 @@ function renderProjectEquip(p){
   if(myBookings.length>0){
     html+=`<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px">Bookede utstyr</div>`;
     myBookings.forEach((b,bi)=>{
-      const item=INVENTORY[b.inv];
+      const item=_invByBooking(b);
       const hub=item?HUBS.find(h=>h.id===item.hub):null;
       html+=`<div class="pipe-row" style="margin-bottom:6px">
         <div style="flex:1"><div style="font-size:13px;font-weight:500">${item?item.name:'Ukjent'}</div>
@@ -5840,7 +5955,8 @@ async function addEquipBookingToProject(projectId){
   const invIdx=INVENTORY.findIndex(i=>i.name===name&&i.hub===hubId);
   if(invIdx<0){showToast('Fant ikke utstyr',true);return;}
   if(!p.equipBookings)p.equipBookings=[];
-  p.equipBookings.push({inv:invIdx,qty,from,to});
+  const _it=INVENTORY[invIdx];
+  p.equipBookings.push({inv:invIdx,invId:_it?_it.id:undefined,qty,from,to});
   if(graphMode)await saveToLists(p);
   openEditModal(projectId,'equipment');
   showToast('Utstyr booket ✓');
@@ -12234,7 +12350,7 @@ function printProjectDatasheet(projectId) {
 
   // Equipment bookings
   const eqRows = (p.equipBookings||[]).map(b=>{
-    const inv = INVENTORY[b.inv];
+    const inv = _invByBooking(b);
     const hub2 = inv ? hubMap[inv.hub] : null;
     return `<tr><td style="padding:5px 10px;font-size:11px">${inv?.name||'Ukjent'}</td>
       <td style="padding:5px 10px;font-size:11px">${hub2?hub2.flag+' '+hub2.name:'–'}</td>
