@@ -2953,6 +2953,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
         <div class="equip-cal-header" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
           <span class="equip-cal-title" id="equip-cal-month-title" style="font-weight:600;font-size:13px"></span>
           <div style="flex:1"></div>
+          <select id="eq-cal-hub" onchange="setEquipCalHub(this.value)" title="Filtrer på hub" style="padding:6px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text);font-size:12px;margin-right:6px"></select>
           <button class="equip-zoom-btn" id="eq-onlybooked" onclick="toggleEquipOnlyBooked()" title="Vis bare utstyr som er booket i perioden">Kun utleid</button>
           <div style="display:flex;gap:4px;margin:0 6px">
             <button class="equip-zoom-btn" id="eqz-day" onclick="setEquipZoom('day')">Dag</button>
@@ -5593,6 +5594,8 @@ function renderWorldMap() {
 ═══════════════════════════════════ */
 let equipCalOffset=0;
 let equipOnlyBooked=true;   // utleiekalender: skjul utstyr uten bookinger i visningen
+let equipFilterHub='all', equipFilterType='all', equipSortBy='name';  // inventarliste filtre/sortering
+let equipCalHub='all';      // utleiekalender: hub-filter
 
 /* ── UTSTYRSKATALOG i SharePoint (lista PMOTIONUtstyr) ──
    Master-inventaret bor nå i SharePoint og kan redigeres der/i appen. Lastes ved oppstart
@@ -5729,7 +5732,36 @@ function renderEquipment(){
         <button class="modal-btn" onclick="addEquipmentItem()">Legg til</button>
       </div>
     </div>` : '';
-  document.getElementById('equip-list').innerHTML = adminForm + INVENTORY.map((item,idx)=>{
+  // Filtrerings-/sorteringslinje for inventarlisten
+  const types=[...new Set(INVENTORY.map(i=>i.name))].sort((a,b)=>a.localeCompare(b,'nb'));
+  const sel='padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);font-size:12px';
+  const filterBar=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+      <span style="font-size:11px;color:var(--muted);font-weight:600">Filtrer:</span>
+      <select onchange="setEquipListFilter('hub',this.value)" style="${sel}">
+        <option value="all">Alle hubber</option>
+        ${HUBS.map(h=>`<option value="${h.id}" ${equipFilterHub===h.id?'selected':''}>${h.flag} ${h.name}</option>`).join('')}
+      </select>
+      <select onchange="setEquipListFilter('type',this.value)" style="${sel}">
+        <option value="all">Alle utstyrstyper</option>
+        ${types.map(t=>`<option value="${escAttr(t)}" ${equipFilterType===t?'selected':''}>${escHtml(t)}</option>`).join('')}
+      </select>
+      <div style="flex:1"></div>
+      <span style="font-size:11px;color:var(--muted);font-weight:600">Sortér:</span>
+      <select onchange="setEquipListFilter('sort',this.value)" style="${sel}">
+        <option value="name" ${equipSortBy==='name'?'selected':''}>Navn (A–Å)</option>
+        <option value="hub" ${equipSortBy==='hub'?'selected':''}>Hub</option>
+        <option value="qty" ${equipSortBy==='qty'?'selected':''}>Antall (høy–lav)</option>
+      </select>
+    </div>`;
+  let listItems=INVENTORY.map((item,idx)=>({item,idx}))
+    .filter(({item})=>(equipFilterHub==='all'||item.hub===equipFilterHub) && (equipFilterType==='all'||item.name===equipFilterType));
+  const hubName=h=>{const x=HUBS.find(z=>z.id===h);return x?x.name:h;};
+  listItems.sort((a,b)=>{
+    if(equipSortBy==='qty') return (b.item.qty-a.item.qty) || a.item.name.localeCompare(b.item.name,'nb');
+    if(equipSortBy==='hub') return hubName(a.item.hub).localeCompare(hubName(b.item.hub),'nb') || a.item.name.localeCompare(b.item.name,'nb');
+    return a.item.name.localeCompare(b.item.name,'nb') || hubName(a.item.hub).localeCompare(hubName(b.item.hub),'nb');
+  });
+  const listRows = listItems.map(({item,idx})=>{
     const bks=getEquipBookings(idx);
     const activeNow=bks.filter(b=>new Date(b.from)<=now&&new Date(b.to)>=now).length;
     const avail=item.qty-activeNow;
@@ -5746,7 +5778,8 @@ function renderEquipment(){
       ${canEditEquip?`<input type="number" min="0" value="${item.qty}" onchange="editEquipmentQty(${idx},this.value)" title="Endre antall" style="width:56px;margin-left:10px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px">
       <button onclick="deleteEquipmentItem(${idx})" title="Slett" style="background:none;border:none;color:#ef4444;font-size:15px;cursor:pointer;margin-left:6px">🗑</button>`:''}
     </div>`;
-  }).join('');
+  }).join('') || '<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Ingen utstyr matcher filteret.</div>';
+  document.getElementById('equip-list').innerHTML = adminForm + filterBar + listRows;
   renderEquipCalendar();
 }
 function setEquipView(v){
@@ -5762,6 +5795,8 @@ function setEquipView(v){
 }
 function equipCalToday(){ equipCalOffset=0; renderEquipCalendar(); }
 function toggleEquipOnlyBooked(){ equipOnlyBooked=!equipOnlyBooked; renderEquipCalendar(); }
+function setEquipListFilter(kind,val){ if(kind==='hub')equipFilterHub=val; else if(kind==='type')equipFilterType=val; else if(kind==='sort')equipSortBy=val; renderEquipment(); }
+function setEquipCalHub(val){ equipCalHub=val; renderEquipCalendar(); }
 function setEquipZoom(z){
   window.equipZoom=z; equipCalOffset=0;
   ['day','week','month'].forEach(k=>{ const b=document.getElementById('eqz-'+k); if(b) b.classList.toggle('active', k===z); });
@@ -5800,30 +5835,47 @@ function renderEquipCalendar(){
   const colHtml=cols.map(c=>`<div class="gantt-month ${c.cur?'current':''}" style="width:${colPx}px;flex:none;${c.weekend?'background:rgba(255,255,255,.03);':''}padding:8px 2px;line-height:1.3">${c.label}<br><span style="opacity:.55;font-size:9px">${c.sub}</span></div>`).join('');
   const todayX=(now>=gs&&now<ge)?((now-gs)/totalMs*totalW):-1;
   const ob=document.getElementById('eq-onlybooked'); if(ob) ob.classList.toggle('active', equipOnlyBooked);
+  const hubSel=document.getElementById('eq-cal-hub');
+  if(hubSel){ if(!hubSel.dataset.init){ hubSel.innerHTML='<option value="all">Alle hubber</option>'+HUBS.map(h=>`<option value="${h.id}">${h.flag} ${h.name}</option>`).join(''); hubSel.dataset.init='1'; } hubSel.value=equipCalHub; }
   // Bygg rad-data: bookinger i vinduet + tidligste start (for trappesortering)
   let rowsData=INVENTORY.map((item,idx)=>{
     const bks=getEquipBookings(idx).filter(b=>{ const bs=new Date(b.from),be=new Date(b.to); return !(be<gs||bs>=ge); });
     const firstStart=bks.length?Math.min(...bks.map(b=>new Date(b.from).getTime())):Infinity;
     return {item,idx,bks,firstStart};
   });
+  if(equipCalHub!=='all') rowsData=rowsData.filter(r=>r.item.hub===equipCalHub);
   if(equipOnlyBooked) rowsData=rowsData.filter(r=>r.bks.length>0);
   rowsData.sort((a,b)=> a.firstStart-b.firstStart || a.idx-b.idx);  // trappevisning: tidligste utleie øverst
   const rows=rowsData.map(({item,bks})=>{
     const hub=HUBS.find(h=>h.id===item.hub);
+    // Tildel baner: overlappende bookinger havner på hver sin linje (interval-partisjonering)
+    const sorted=[...bks].sort((a,b)=>new Date(a.from)-new Date(b.from));
+    const laneEnds=[];
+    const placed=sorted.map(b=>{
+      const s=new Date(b.from).getTime(), e=new Date(b.to).getTime();
+      let lane=laneEnds.findIndex(end=>end<=s);
+      if(lane===-1){ lane=laneEnds.length; laneEnds.push(e); } else laneEnds[lane]=e;
+      return {b,lane};
+    });
+    const lanes=Math.max(1,laneEnds.length);
+    const laneH=28, barH=22;
+    const rowH=Math.max(42, lanes*laneH+6);
+    const padTop=(rowH-(lanes*laneH-(laneH-barH)))/2;
     let bars='';
-    bks.forEach(b=>{
+    placed.forEach(({b,lane})=>{
       const bs=new Date(b.from), be=new Date(b.to);
       const cs=Math.max(bs,gs), ce=Math.min(be,ge);
       const left=(cs-gs)/totalMs*totalW, width=Math.max(8,(ce-cs)/totalMs*totalW);
       const ph=phaseMap[b.projectPhase]||PHASES[0];
-      bars+=`<div class="gantt-bar" style="left:${left}px;width:${width}px;background:${ph.color};cursor:pointer" title="${escAttr(b.projectName)} · ${fmtD(b.from)}–${fmtD(b.to)} · ×${b.qty}" onclick="openEditModal('${b.projectId}','equipment')">${escHtml(b.projectName)}</div>`;
+      const top=padTop+lane*laneH;
+      bars+=`<div class="gantt-bar" style="left:${left}px;top:${top}px;height:${barH}px;width:${width}px;background:${ph.color};cursor:pointer" title="${escAttr(b.projectName)} · ${fmtD(b.from)}–${fmtD(b.to)} · ×${b.qty}" onclick="openEditModal('${b.projectId}','equipment')">${escHtml(b.projectName)}</div>`;
     });
-    return `<div class="gantt-row">
-      <div style="width:${labelW}px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:0 18px;box-sizing:border-box;height:42px">
+    return `<div class="gantt-row" style="min-height:${rowH}px">
+      <div style="width:${labelW}px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:0 18px;box-sizing:border-box;height:${rowH}px">
         <span style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(item.name)}</span>
-        <span style="font-size:10px;color:var(--muted)">${hub?hub.flag+' '+hub.name:''} · ×${item.qty}</span>
+        <span style="font-size:10px;color:var(--muted)">${hub?hub.flag+' '+hub.name:''}</span>
       </div>
-      <div style="flex:1;position:relative;height:42px;min-width:${totalW}px">
+      <div style="flex:1;position:relative;height:${rowH}px;min-width:${totalW}px">
         ${todayX>=0?`<div style="position:absolute;top:0;bottom:0;left:${todayX}px;width:2px;background:#ef4444;opacity:.5;z-index:4"></div>`:''}
         ${bars}
       </div>
