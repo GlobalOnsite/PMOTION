@@ -3186,6 +3186,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
           <button class="pers-view-tab" id="pv-list" onclick="setPersView('list',this)">👥 Personellliste</button>
         </div>
         <button class="pers-add-btn" onclick="refreshEmployees()" style="background:rgba(59,130,246,.15);color:#60a5fa">🔄 Hent fra Microsoft 365</button>
+        <button class="pers-add-btn" id="pers-show-hidden" onclick="toggleShowHiddenEmp()" style="background:rgba(255,255,255,.05);color:var(--muted)">👁 Vis skjulte</button>
         <button class="pers-add-btn" onclick="openStaffBookingModal()">+ Registrer prosjekt/fravær</button>
         <button class="pers-add-btn" onclick="openAddEmployeeModal()">+ Ny ansatt</button>
       </div>
@@ -14198,6 +14199,7 @@ setTimeout(() => {
 ═══════════════════════════════════ */
 let persView = 'plan';   // 'plan' | 'list'
 let selectedEmployee = null;
+let showHiddenEmp = false;   // vis skjulte ansatte i lista (for å vise dem igjen)
 let persWeekOffset = 0;  // 0 = current week as first column
 
 // Enrich existing 'personnel' array with full employee data
@@ -14309,6 +14311,7 @@ async function loadEmployeesFromGraph(){
     }).sort((a,b)=>a.name.localeCompare(b.name,'nb'));
     const manual=personnel.filter(p=>p.source!=='graph');   // behold manuelt lagt til (f.eks. innleide/INN)
     personnel.length=0; mapped.forEach(m=>personnel.push(m)); manual.forEach(m=>personnel.push(m));
+    await loadEmpOverrides(); applyEmpOverrides();   // legg skjul + rolle/hub-overstyringer oppå
     return true;
   }catch(e){ console.warn('loadEmployeesFromGraph',e); return false; }
 }
@@ -14371,6 +14374,74 @@ async function addStaffBooking(rec){
   return r&&r.id;
 }
 async function deleteStaffBookingRow(id){ const ctx=await _staffCtx(); if(!ctx) return; await gDelete(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${id}`); }
+
+/* ── Personell-overstyringer i SharePoint (PMOTIONPersonell): skjul + rolle/hub/avd/telefon ──
+   Graph leverer ansatte ved hver synk; disse overstyringene legges oppå så endringer/skjuling overlever. */
+const EMP_LIST_TITLE='PMOTIONPersonell';
+let empListId=null, empCm=null, empOverrides={};
+async function resolveEmpList(){ if(empListId) return empListId;
+  try{ const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists?$filter=displayName eq '${EMP_LIST_TITLE}'&$select=id`); empListId=((d.value||[])[0]||{}).id||null; }catch(e){ empListId=null; }
+  return empListId; }
+async function empColMap(lid){
+  let cols=[]; try{ const c=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/columns?$select=name,displayName`); cols=c.value||[]; }catch(e){}
+  const byNorm={}; cols.forEach(col=>{ byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name; });
+  const map={_found:cols.map(c=>c.name)};
+  const want={ epost:['epost','email','ansatt','upn','bruker'], skjult:['skjult','skjul','hidden','inaktiv'], rolle:['rolle','stilling','tittel','funksjon'], hub:['hub','hjemmehub','lokasjon'], avdeling:['avdeling','avd','dept','department'], telefon:['telefon','tlf','phone'] };
+  Object.keys(want).forEach(k=>{ for(const c of want[k]){ if(byNorm[c]){ map[k]=byNorm[c]; break; } } map[k]=map[k]||null; });
+  map.title=byNorm['title']||'Title';
+  return map;
+}
+async function _empCtx(){ const lid=await resolveEmpList(); if(!lid) return null; if(!empCm) empCm=await empColMap(lid); return {lid,cm:empCm}; }
+async function loadEmpOverrides(){
+  empOverrides={};
+  try{
+    const lid=await resolveEmpList(); if(!lid) return false;
+    const cm=await empColMap(lid); empCm=cm;
+    const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?expand=fields&$top=999`);
+    (d.value||[]).forEach(it=>{ const f=it.fields||{}; const key=((cm.epost?f[cm.epost]:'')||'').toLowerCase(); if(!key) return;
+      const sv=cm.skjult?f[cm.skjult]:false;
+      empOverrides[key]={ rowId:it.id, skjult:(sv===true||String(sv).toLowerCase()==='ja'||String(sv).toLowerCase()==='true'),
+        rolle:cm.rolle?(f[cm.rolle]||''):'', hub:cm.hub?(f[cm.hub]||''):'', avdeling:cm.avdeling?(f[cm.avdeling]||''):'', telefon:cm.telefon?(f[cm.telefon]||''):'' };
+    });
+    return true;
+  }catch(e){ console.warn('loadEmpOverrides',e); return false; }
+}
+function applyEmpOverrides(){
+  personnel.forEach(p=>{ const o=empOverrides[(p.upn||p.email||'').toLowerCase()]; if(!o) return;
+    p.hidden=!!o.skjult;
+    if(o.rolle) p.role=o.rolle;
+    if(o.hub) p.hub=o.hub;
+    if(o.avdeling) p.dept=o.avdeling;
+    if(o.telefon) p.phone=o.telefon;
+  });
+}
+async function saveEmpOverride(emp, patch){
+  const ctx=await _empCtx(); if(!ctx) throw new Error('Opprett lista «'+EMP_LIST_TITLE+'» først');
+  const cm=ctx.cm; const key=(emp.upn||emp.email||'').toLowerCase();
+  if(!key) throw new Error('Mangler e-post på ansatt');
+  const cur=empOverrides[key]||{};
+  const m={ skjult:('skjult' in patch)?patch.skjult:!!cur.skjult, rolle:('rolle' in patch)?patch.rolle:(cur.rolle||''),
+    hub:('hub' in patch)?patch.hub:(cur.hub||''), avdeling:('avdeling' in patch)?patch.avdeling:(cur.avdeling||''), telefon:('telefon' in patch)?patch.telefon:(cur.telefon||'') };
+  const fields={ [cm.title]: emp.name||key };
+  if(cm.epost) fields[cm.epost]=key;
+  if(cm.skjult) fields[cm.skjult]=!!m.skjult;
+  if(cm.rolle) fields[cm.rolle]=m.rolle||'';
+  if(cm.hub) fields[cm.hub]=m.hub||'';
+  if(cm.avdeling) fields[cm.avdeling]=m.avdeling||'';
+  if(cm.telefon) fields[cm.telefon]=m.telefon||'';
+  if(cur.rowId){ await gPatch(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${cur.rowId}/fields`, fields); empOverrides[key]={...m,rowId:cur.rowId}; }
+  else { const r=await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items`,{fields}); empOverrides[key]={...m,rowId:r&&r.id}; }
+}
+async function toggleHideEmployee(eid){
+  const emp=personnel.find(p=>p.id===eid); if(!emp) return;
+  const willHide=!emp.hidden;
+  if(willHide && !confirm(`Skjul «${emp.name}» fra PMOTION? Personen forblir skjult også etter ny synk fra Microsoft, men kan vises igjen via «Vis skjulte».`)) return;
+  if(!graphMode){ showToast('Logg inn med Microsoft først', true); return; }
+  try{ await saveEmpOverride(emp,{skjult:willHide}); emp.hidden=willHide;
+    if(willHide && selectedEmployee===eid) selectedEmployee=null;
+    renderPersonnel(); showToast(willHide?'Skjult ✓':'Vises igjen ✓');
+  }catch(e){ showToast('Kunne ikke lagre: '+e.message, true); }
+}
 
 /* Bemanning-bookinger (prosjekt/ferie/avspasering) for én ansatt, klar til Gantt */
 function getStaffBookings(emp){
@@ -14437,23 +14508,24 @@ async function saveStaffBooking(){
 function renderPersonnel() {
   // Update badge
   const badge = document.getElementById('pers-badge');
-  if (badge) badge.textContent = personnel.length;
+  const vis = personnel.filter(p=>!p.hidden);
+  if (badge) badge.textContent = vis.length;
 
   // KPIs
   const now = new Date();
-  const totalCerts = personnel.reduce((s,p) => s + Object.keys(p.certs||{}).length, 0);
-  const expSoon = personnel.reduce((s,p) => s + Object.values(p.certs||{}).filter(d => {
+  const totalCerts = vis.reduce((s,p) => s + Object.keys(p.certs||{}).length, 0);
+  const expSoon = vis.reduce((s,p) => s + Object.values(p.certs||{}).filter(d => {
     const days = (new Date(d) - now) / 86400000;
     return days > 0 && days <= 90;
   }).length, 0);
-  const busyNow = personnel.filter(p => getEmployeeStatus(p.name) === 'busy').length;
+  const busyNow = vis.filter(p => getEmployeeStatus(p.name) === 'busy').length;
   let totalConflicts = 0;
-  personnel.forEach(p => { totalConflicts += detectConflicts(p.name).length; });
+  vis.forEach(p => { totalConflicts += detectConflicts(p.name).length; });
 
   document.getElementById('pers-kpis').innerHTML = `
-    <div class="iso-stat-card"><div class="iso-stat-icon">👥</div><div class="iso-stat-val">${personnel.length}</div><div class="iso-stat-lbl">Ansatte</div></div>
+    <div class="iso-stat-card"><div class="iso-stat-icon">👥</div><div class="iso-stat-val">${vis.length}</div><div class="iso-stat-lbl">Ansatte</div></div>
     <div class="iso-stat-card"><div class="iso-stat-icon" style="color:#d97706">🔧</div><div class="iso-stat-val" style="color:#d97706">${busyNow}</div><div class="iso-stat-lbl">På prosjekt nå</div></div>
-    <div class="iso-stat-card"><div class="iso-stat-icon" style="color:#22c55e">✓</div><div class="iso-stat-val" style="color:#22c55e">${personnel.length - busyNow}</div><div class="iso-stat-lbl">Tilgjengelige</div></div>
+    <div class="iso-stat-card"><div class="iso-stat-icon" style="color:#22c55e">✓</div><div class="iso-stat-val" style="color:#22c55e">${vis.length - busyNow}</div><div class="iso-stat-lbl">Tilgjengelige</div></div>
     <div class="iso-stat-card"><div class="iso-stat-icon">🎓</div><div class="iso-stat-val">${totalCerts}</div><div class="iso-stat-lbl">Sertifikater totalt</div></div>
     <div class="iso-stat-card"><div class="iso-stat-icon" style="color:${expSoon>0?'#d97706':'#22c55e'}">⏰</div><div class="iso-stat-val" style="color:${expSoon>0?'#d97706':'#22c55e'}">${expSoon}</div><div class="iso-stat-lbl">Utløper &lt;3 mnd</div></div>
     ${totalConflicts > 0 ? `<div class="iso-stat-card" style="border-color:rgba(220,38,38,.4)"><div class="iso-stat-icon" style="color:#ef4444">⚠️</div><div class="iso-stat-val" style="color:#ef4444">${totalConflicts}</div><div class="iso-stat-lbl">Konflikter</div></div>` : ''}
@@ -14474,6 +14546,7 @@ function setPersView(v, btn) {
 /* ── Week plan (Gantt) ──────────────────────────────── */
 function renderPersonnelPlan() {
   const weeksToShow = 12;
+  const vis = personnel.filter(p=>!p.hidden);
   const startMonday = getMondayOfWeek(new Date());
   startMonday.setDate(startMonday.getDate() + persWeekOffset * 7);
 
@@ -14508,7 +14581,7 @@ function renderPersonnelPlan() {
       </div>
     </div>
     <div class="pers-gantt-scroll">
-      <div class="pers-gantt-grid" style="grid-template-rows:auto repeat(${personnel.length}, 50px)">
+      <div class="pers-gantt-grid" style="grid-template-rows:auto repeat(${vis.length}, 50px)">
         <!-- Header row -->
         <div class="pers-gantt-row header">
           <div class="pers-gantt-name-cell" style="font-weight:600;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px">Ansatt</div>
@@ -14521,7 +14594,7 @@ function renderPersonnelPlan() {
         </div>`;
 
   // Build rows for each employee
-  personnel.forEach(emp => {
+  vis.forEach(emp => {
     const initials = emp.name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
     const bookings = getEmployeeBookings(emp.name);
     const conflicts = detectConflicts(emp.name);
@@ -14592,6 +14665,14 @@ function renderPersonnelPlan() {
 
 function persWeekNav(weeks) { persWeekOffset += weeks; renderPersonnel(); }
 function persWeekReset()    { persWeekOffset = 0; renderPersonnel(); }
+function toggleShowHiddenEmp(){
+  showHiddenEmp=!showHiddenEmp;
+  const b=document.getElementById('pers-show-hidden');
+  if(b){ b.style.background=showHiddenEmp?'rgba(59,130,246,.2)':'rgba(255,255,255,.05)'; b.style.color=showHiddenEmp?'#60a5fa':'var(--muted)'; }
+  if(showHiddenEmp && persView!=='list'){ setPersView('list', document.getElementById('pv-list')); }
+  else renderPersonnel();
+  if(showHiddenEmp) showToast('Skjulte vises nå i lista – åpne en og trykk «Vis igjen»');
+}
 
 /* ── List view (sidebar + detail) ──────────────────── */
 function renderPersonnelList() {
@@ -14622,7 +14703,8 @@ function renderPersonnelSidebar() {
   const list = document.getElementById('pers-list-inner');
   if (!list) return;
 
-  const filtered = personnel.filter(p =>
+  const base = showHiddenEmp ? personnel : personnel.filter(p=>!p.hidden);
+  const filtered = base.filter(p =>
     !q || p.name.toLowerCase().includes(q) || (p.role||'').toLowerCase().includes(q)
   );
 
@@ -14630,10 +14712,10 @@ function renderPersonnelSidebar() {
     const initials = p.name.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
     const status = getEmployeeStatus(p.name);
     const isActive = selectedEmployee === p.id;
-    return `<div class="pers-item ${isActive?'active':''}" onclick="selectEmployee('${p.id}')">
+    return `<div class="pers-item ${isActive?'active':''}" onclick="selectEmployee('${p.id}')" style="${p.hidden?'opacity:.5':''}">
       <div class="pers-avatar">${initials}</div>
       <div class="pers-info">
-        <div class="pers-name">${escHtml(p.name)}</div>
+        <div class="pers-name">${escHtml(p.name)} ${p.hidden?'<span style="font-size:9px;color:#ef4444;border:1px solid rgba(239,68,68,.4);border-radius:4px;padding:0 4px;margin-left:4px">skjult</span>':''}</div>
         <div class="pers-role">${escHtml(p.role)}</div>
       </div>
       <div class="pers-status-dot pers-status-${status}" title="${status==='busy'?'På prosjekt':'Tilgjengelig'}"></div>
@@ -14680,7 +14762,10 @@ function renderEmployeeDetail(eid) {
           ${emp.startDate?`<span>📅 Ansatt: ${fmtD(emp.startDate)}</span>`:''}
         </div>
       </div>
-      <button class="export-btn" onclick="openEditEmployeeModal('${emp.id}')">✎ Rediger</button>
+      <div style="display:flex;gap:8px">
+        <button class="export-btn" onclick="openEditEmployeeModal('${emp.id}')">✎ Rediger</button>
+        <button class="export-btn" onclick="toggleHideEmployee('${emp.id}')" style="${emp.hidden?'color:#22c55e;border-color:rgba(34,197,94,.4)':'color:#ef4444;border-color:rgba(239,68,68,.4)'}">${emp.hidden?'👁 Vis igjen':'🚫 Skjul'}</button>
+      </div>
     </div>
 
     <div class="pers-detail-stats">
@@ -14836,10 +14921,8 @@ function openEditEmployeeModal(eid) {
     <div style="height:14px"></div>
     <div class="modal-grid">
       <div class="f"><label>Fullt navn</label><input id="ee-name" value="${escHtml(emp.name)}"></div>
-      <div class="f"><label>Rolle</label>
-        <select id="ee-role">
-          ${['Site Lead','Formann','Arbeider','Hose Assembly','RAT Supervisor','RAT Personell','KAM','HSE','PMO','Administrasjon'].map(r => `<option ${r===emp.role?'selected':''}>${r}</option>`).join('')}
-        </select>
+      <div class="f"><label>Rolle / stilling</label>
+        <input id="ee-role" value="${escAttr(emp.role||'')}" placeholder="f.eks. Site Lead, Hose Assembly, SCM">
       </div>
       <div class="f"><label>Avdeling</label>
         <select id="ee-dept">
@@ -14873,7 +14956,7 @@ function openEditEmployeeModal(eid) {
   document.getElementById('modal-overlay').classList.add('open');
 }
 
-function saveEmployee(eid) {
+async function saveEmployee(eid) {
   const emp = personnel.find(p => p.id === eid);
   if (!emp) return;
   emp.name = document.getElementById('ee-name').value;
@@ -14884,6 +14967,8 @@ function saveEmployee(eid) {
   emp.phone = document.getElementById('ee-phone').value;
   emp.startDate = document.getElementById('ee-start').value;
   emp.status = document.getElementById('ee-status').value;
+  try{ if(graphMode) await saveEmpOverride(emp,{rolle:emp.role,hub:emp.hub,avdeling:emp.dept,telefon:emp.phone}); }
+  catch(e){ showToast('Endret lokalt, men ikke lagret i SharePoint: '+e.message, true); }
   closeModal();
   renderPersonnel();
   showToast('Ansatt oppdatert ✓');
