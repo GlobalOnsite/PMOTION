@@ -221,6 +221,12 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
 .equip-day-slot.weekend{background:rgba(255,255,255,.015)}
 .equip-booking{position:absolute;top:6px;height:32px;border-radius:4px;display:flex;align-items:center;padding:0 6px;font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;cursor:pointer;z-index:3;color:white}
 .equip-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px}
+.equip-subtab{background:var(--surface);border:1px solid var(--border);color:var(--muted);padding:8px 16px;border-radius:9px;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;transition:all .15s}
+.equip-subtab:hover{color:var(--text)}
+.equip-subtab.active{background:#2563eb;color:#fff;border-color:#2563eb}
+.equip-zoom-btn{background:var(--surface);border:1px solid var(--border);color:var(--muted);padding:5px 11px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit}
+.equip-zoom-btn:hover{color:var(--text)}
+.equip-zoom-btn.active{background:#2563eb;color:#fff;border-color:#2563eb}
 .equip-kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px}
 .equip-kpi-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px}
 .equip-kpi-value{font-family:'Syne',sans-serif;font-size:22px;font-weight:700}
@@ -2927,25 +2933,33 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
   <div class="view" id="view-equipment">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
       <div class="view-title" style="margin:0">Utstyr & Utleiekalender</div>
-      <button class="add-btn" style="margin:0" onclick="openAddEquipModal()">+ Legg til utstyr</button>
     </div>
     <div class="equip-kpis" id="equip-kpis"></div>
-    <div class="equip-layout">
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button id="equip-tab-inv" class="equip-subtab active" onclick="setEquipView('inventory')">📦 Inventarliste</button>
+      <button id="equip-tab-cal" class="equip-subtab" onclick="setEquipView('calendar')">📅 Utleiekalender</button>
+    </div>
+    <div id="equip-pane-inventory">
       <div class="equip-list-panel">
         <div class="equip-list-header"><span class="equip-list-title">Inventarliste</span></div>
         <div id="equip-list"></div>
       </div>
+    </div>
+    <div id="equip-pane-calendar" style="display:none">
       <div class="equip-cal-panel">
-        <div class="equip-cal-header">
-          <span class="equip-cal-title" id="equip-cal-month-title"></span>
+        <div class="equip-cal-header" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+          <span class="equip-cal-title" id="equip-cal-month-title" style="font-weight:600;font-size:13px"></span>
+          <div style="flex:1"></div>
+          <div style="display:flex;gap:4px;margin-right:6px">
+            <button class="equip-zoom-btn" id="eqz-day" onclick="setEquipZoom('day')">Dag</button>
+            <button class="equip-zoom-btn" id="eqz-week" onclick="setEquipZoom('week')">Uke</button>
+            <button class="equip-zoom-btn active" id="eqz-month" onclick="setEquipZoom('month')">Måned</button>
+          </div>
           <button class="cal-nav-btn" onclick="equipCalNav(-1)">&#8592;</button>
+          <button class="cal-nav-btn" onclick="equipCalToday()" style="font-size:12px;padding:0 10px">I dag</button>
           <button class="cal-nav-btn" onclick="equipCalNav(1)">&#8594;</button>
-          <button class="add-btn" style="margin:0 0 0 8px;padding:6px 12px;font-size:12px" onclick="openAddBookingModal()">+ Book</button>
         </div>
-        <div class="equip-cal-grid">
-          <div class="equip-cal-names" id="equip-cal-names"></div>
-          <div class="equip-timeline" id="equip-timeline"></div>
-        </div>
+        <div id="equip-gantt"></div>
       </div>
     </div>
   </div>
@@ -5730,33 +5744,84 @@ function renderEquipment(){
   }).join('');
   renderEquipCalendar();
 }
+function setEquipView(v){
+  const inv=document.getElementById('equip-pane-inventory'), cal=document.getElementById('equip-pane-calendar');
+  const ti=document.getElementById('equip-tab-inv'), tc=document.getElementById('equip-tab-cal');
+  if(!inv||!cal) return;
+  const calendar = v==='calendar';
+  inv.style.display = calendar?'none':'block';
+  cal.style.display = calendar?'block':'none';
+  if(ti) ti.classList.toggle('active', !calendar);
+  if(tc) tc.classList.toggle('active', calendar);
+  if(calendar) renderEquipCalendar();
+}
+function equipCalToday(){ equipCalOffset=0; renderEquipCalendar(); }
+function setEquipZoom(z){
+  window.equipZoom=z; equipCalOffset=0;
+  ['day','week','month'].forEach(k=>{ const b=document.getElementById('eqz-'+k); if(b) b.classList.toggle('active', k===z); });
+  renderEquipCalendar();
+}
 function renderEquipCalendar(){
-  const now=new Date(),base=new Date(now.getFullYear(),now.getMonth()+equipCalOffset,1);
-  const year=base.getFullYear(),month=base.getMonth();
-  const days=new Date(year,month+1,0).getDate();
-  const MN=['Januar','Februar','Mars','April','Mai','Juni','Juli','August','September','Oktober','November','Desember'];
-  document.getElementById('equip-cal-month-title').textContent=MN[month]+' '+year;
-  let dh='<div class="equip-day-cell"></div>';
-  for(let d=1;d<=days;d++){const dt=new Date(year,month,d),isTd=dt.toDateString()===now.toDateString(),isWk=dt.getDay()===0||dt.getDay()===6;dh+=`<div class="equip-day-cell ${isTd?'today':''} ${isWk?'weekend':''}">${d}</div>`;}
-  let names='<div class="equip-cal-name-header">Utstyr</div>';
-  names+=INVENTORY.map(item=>{const hub=HUBS.find(h=>h.id===item.hub);return`<div class="equip-cal-name-row"><span style="font-size:12px;font-weight:500">${item.name}</span><span style="font-size:10px;color:var(--muted)">${hub?hub.flag+' '+hub.name:''} · ×${item.qty}</span></div>`;}).join('');
-  let tl=`<div class="equip-day-headers" style="min-width:${days*26}px">${dh}</div>`;
-  const ms=new Date(year,month,1),me=new Date(year,month,days,23,59,59);
-  INVENTORY.forEach((item,idx)=>{
-    let row=`<div class="equip-row" style="min-width:${days*26}px;position:relative">`;
-    for(let d=1;d<=days;d++){const dt=new Date(year,month,d),isWk=dt.getDay()===0||dt.getDay()===6;row+=`<div class="equip-day-slot ${isWk?'weekend':''}" onclick="openBookingDayEquip(${idx},'${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}')"></div>`;}
-    const bks=getEquipBookings(idx);
-    bks.forEach(b=>{
-      const bs=new Date(b.from),be=new Date(b.to);
-      if(be<ms||bs>me)return;
-      const sd=Math.max(1,bs<ms?1:bs.getDate()),ed=Math.min(days,be>me?days:be.getDate());
+  const el=document.getElementById('equip-gantt'); if(!el) return;
+  if(typeof equipZoom==='undefined') window.equipZoom='month';
+  const MN=['Jan','Feb','Mar','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Des'];
+  const DOW=['Søn','Man','Tir','Ons','Tor','Fre','Lør'];
+  const DAY=86400000, now=new Date(), labelW=200;
+  const startOfDay=d=>{const x=new Date(d);x.setHours(0,0,0,0);return x;};
+  let gs, ge, cols=[], colPx;
+  if(equipZoom==='day'){
+    colPx=34;
+    gs=startOfDay(now); gs.setDate(gs.getDate()-10+equipCalOffset);
+    ge=new Date(gs); ge.setDate(ge.getDate()+90);
+    for(let d=new Date(gs); d<ge; d.setDate(d.getDate()+1)){ const dd=new Date(d);
+      cols.push({label:dd.getDate(), sub:DOW[dd.getDay()], weekend:(dd.getDay()===0||dd.getDay()===6), cur:dd.toDateString()===now.toDateString()}); }
+  } else if(equipZoom==='week'){
+    colPx=48;
+    gs=startOfDay(now); gs.setDate(gs.getDate()-gs.getDay()+1-7*4+equipCalOffset*7);
+    ge=new Date(gs); ge.setDate(ge.getDate()+7*22);
+    for(let d=new Date(gs); d<ge; d.setDate(d.getDate()+7)){ const dd=new Date(d);
+      cols.push({label:'u'+isoWeekNo(dd), sub:MN[dd.getMonth()], weekend:false, cur:false}); }
+  } else {
+    colPx=92;
+    gs=new Date(now.getFullYear(), now.getMonth()+equipCalOffset, 1);
+    ge=new Date(gs.getFullYear(), gs.getMonth()+8, 1);
+    for(let d=new Date(gs); d<ge; d.setMonth(d.getMonth()+1)){ const dd=new Date(d);
+      cols.push({label:MN[dd.getMonth()], sub:String(dd.getFullYear()).slice(2), weekend:false, cur:(dd.getFullYear()===now.getFullYear()&&dd.getMonth()===now.getMonth())}); }
+  }
+  const totalMs=ge-gs, totalW=cols.length*colPx;
+  const title=document.getElementById('equip-cal-month-title');
+  if(title) title.textContent=`${gs.toLocaleDateString('nb-NO',{day:'numeric',month:'short',year:'numeric'})} – ${new Date(ge-DAY).toLocaleDateString('nb-NO',{day:'numeric',month:'short',year:'numeric'})}`;
+  const colHtml=cols.map(c=>`<div class="gantt-month ${c.cur?'current':''}" style="width:${colPx}px;flex:none;${c.weekend?'background:rgba(255,255,255,.03);':''}padding:8px 2px;line-height:1.3">${c.label}<br><span style="opacity:.55;font-size:9px">${c.sub}</span></div>`).join('');
+  const todayX=(now>=gs&&now<ge)?((now-gs)/totalMs*totalW):-1;
+  const rows=INVENTORY.map((item,idx)=>{
+    const hub=HUBS.find(h=>h.id===item.hub);
+    let bars='';
+    getEquipBookings(idx).forEach(b=>{
+      const bs=new Date(b.from), be=new Date(b.to);
+      if(be<gs||bs>=ge) return;
+      const cs=Math.max(bs,gs), ce=Math.min(be,ge);
+      const left=(cs-gs)/totalMs*totalW, width=Math.max(8,(ce-cs)/totalMs*totalW);
       const ph=phaseMap[b.projectPhase]||PHASES[0];
-      row+=`<div class="equip-booking" style="left:${(sd-1)*26}px;width:${(ed-sd+1)*26-2}px;background:${ph.color};opacity:.85" title="${b.projectName}" onclick="event.stopPropagation()">${b.projectName}</div>`;
+      bars+=`<div class="gantt-bar" style="left:${left}px;width:${width}px;background:${ph.color};cursor:pointer" title="${escAttr(b.projectName)} · ${fmtD(b.from)}–${fmtD(b.to)} · ×${b.qty}" onclick="openEditModal('${b.projectId}','equipment')">${escHtml(b.projectName)}</div>`;
     });
-    row+='</div>';tl+=row;
-  });
-  document.getElementById('equip-cal-names').innerHTML=names;
-  document.getElementById('equip-timeline').innerHTML=tl;
+    return `<div class="gantt-row">
+      <div style="width:${labelW}px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:0 18px;box-sizing:border-box;height:42px">
+        <span style="font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(item.name)}</span>
+        <span style="font-size:10px;color:var(--muted)">${hub?hub.flag+' '+hub.name:''} · ×${item.qty}</span>
+      </div>
+      <div style="flex:1;position:relative;height:42px;min-width:${totalW}px">
+        ${todayX>=0?`<div style="position:absolute;top:0;bottom:0;left:${todayX}px;width:2px;background:#ef4444;opacity:.5;z-index:4"></div>`:''}
+        ${bars}
+      </div>
+    </div>`;
+  }).join('');
+  el.innerHTML=`<div class="gantt-wrap"><div class="gantt-inner" style="min-width:${labelW+totalW}px">
+    <div class="gantt-header">
+      <div class="gantt-label-col" style="width:${labelW}px">Utstyr</div>
+      <div class="gantt-months" style="flex:none;width:${totalW}px">${colHtml}</div>
+    </div>
+    ${rows||'<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">Ingen utstyr i katalogen.</div>'}
+  </div></div>`;
 }
 function equipCalNav(dir){equipCalOffset+=dir;renderEquipCalendar();}
 function openAddEquipModal(){showToast('Inventar administreres via Hubber-fanen');}
