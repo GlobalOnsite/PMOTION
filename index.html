@@ -11172,7 +11172,6 @@ function renderProjectDashboard(p, activeTab) {
   const navMain = [
     {id:'overview',  icon:'📊', label:'Oversikt'},
     {id:'info',      icon:'✏️', label:'Rediger'},
-    {id:'orders',    icon:'🔗', label:'Ordre/tilbud'},
   ];
   const navWork = [
     ...(p.phase === 'fase4' ? [{id:'execution', icon:'🚀', label:'Gjennomføring'}] : []),
@@ -11633,7 +11632,6 @@ function renderProjectEconomy(p){
 function renderProjTabContent(p, tab) {
   if (tab === 'overview')   return renderProjOverview(p);
   if (tab === 'info')       return renderProjInfoForm(p);
-  if (tab === 'orders')     return renderProjectOrders(p);
   if (tab === 'quote')      return renderQuoteProcess(p);
   if (tab === 'execution')  return renderProjExecution(p);
   if (tab === 'log')        return renderProjectLog(p);
@@ -11729,6 +11727,8 @@ function renderQuoteProcess(p){
     <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:22px"><div style="height:100%;width:${pct}%;background:#16a34a;transition:width .3s"></div></div>
     ${allDone?`<div style="margin-bottom:18px;padding:10px 14px;background:rgba(22,163,74,.12);border:1px solid #16a34a;border-radius:8px;color:#16a34a;font-size:13px;font-weight:600">✓ Tilbudsprosessen er fullført – tilbudet er sendt til kunde.</div>`:''}
     ${steps}
+    <div style="height:1px;background:var(--border);margin:8px 0 22px"></div>
+    ${renderQuoteAttachments(p)}
   </div>`;
 }
 function setQuoteValue(projId){
@@ -11759,32 +11759,84 @@ function undoQuoteStep(projId, stepId){
   showToast('Steg tilbakestilt');
 }
 
-/* ── ORDRE/TILBUD-FANE (lenker fra Telaris, flere per prosjekt) ── */
-function renderProjectOrders(p){
+/* ── TILBUDSDOKUMENTER: Telaris-lenker + opplastede filer (vises i Tilbud-fanen) ── */
+function renderQuoteAttachments(p){
   if(!Array.isArray(p.orders)) p.orders = [];
   const rows = p.orders.map((o,i)=>{
     const url = (o&&o.url)||'';
     const safe = /^https?:\/\//i.test(url) ? url : ('https://'+url);
     const label = (o&&o.label)||'';
+    const isFile = !!(o&&o.file);
     return `<div style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;margin-bottom:10px;background:rgba(255,255,255,.02)">
-      <span style="font-size:18px;line-height:1.2">🔗</span>
+      <span style="font-size:18px;line-height:1.2">${isFile?'📎':'🔗'}</span>
       <div style="flex:1;min-width:0">
         <a href="${escAttr(safe)}" target="_blank" rel="noopener noreferrer" style="color:#60a5fa;font-weight:600;word-break:break-all;text-decoration:none">${escHtml(label||url)}</a>
-        ${label?`<div style="font-size:11px;color:var(--muted);word-break:break-all;margin-top:2px">${escHtml(url)}</div>`:''}
+        <div style="font-size:11px;color:var(--muted);word-break:break-all;margin-top:2px">${isFile?'Opplastet til SharePoint':escHtml(url)}</div>
       </div>
       <button onclick="removeProjectOrder('${p.id}',${i})" title="Fjern" style="background:none;border:none;color:#ef4444;font-size:18px;cursor:pointer;line-height:1">×</button>
     </div>`;
   }).join('');
-  return `<div style="max-width:760px">
-    <div style="font-size:13px;color:var(--muted);margin-bottom:16px">Ordre og tilbud knyttet til prosjektet. Lim inn lenken fra Telaris og gi den en kort forklaring – du kan legge til flere.</div>
-    ${p.orders.length ? rows : '<div style="font-size:12px;color:var(--muted);text-align:center;padding:18px 0">Ingen ordre/tilbud lagt til ennå.</div>'}
-    <div style="margin-top:16px;padding:14px;border:1px dashed var(--border);border-radius:10px">
-      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">Legg til ordre/tilbud</div>
+  return `<div>
+    <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px">Tilbudsdokumenter og ordre</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Last opp selve tilbudet, eller lim inn lenken til ordren/tilbudet i Telaris. Du kan legge til flere.</div>
+    ${p.orders.length ? rows : '<div style="font-size:12px;color:var(--muted);text-align:center;padding:14px 0">Ingen dokumenter eller lenker lagt til ennå.</div>'}
+    <div style="margin-top:14px;padding:14px;border:1px dashed var(--border);border-radius:10px">
+      <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px">📎 Last opp tilbud (PDF e.l.)</div>
+      <input id="quote-file" type="file" style="font-size:12px;color:var(--text);margin-bottom:8px;max-width:100%">
+      <button class="pg-btn" onclick="uploadQuoteFile('${p.id}')">Last opp</button>
+      <div style="height:1px;background:var(--border);margin:14px 0"></div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:8px">🔗 Lim inn Telaris-lenke</div>
       <input id="ord-new-url" placeholder="Telaris-URL (f.eks. https://...)" style="width:100%;margin-bottom:8px;padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:13px">
       <input id="ord-new-label" placeholder="Kort forklaring (f.eks. «Tilbud 19365 – pumpe»)" style="width:100%;margin-bottom:10px;padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:13px" onkeydown="if(event.key==='Enter')addProjectOrder('${p.id}')">
-      <button class="pg-btn" onclick="addProjectOrder('${p.id}')">+ Legg til</button>
+      <button class="pg-btn" onclick="addProjectOrder('${p.id}')">+ Legg til lenke</button>
     </div>
   </div>`;
+}
+async function uploadQuoteFile(projId){
+  const p=projects.find(x=>String(x.id)===String(projId)); if(!p) return;
+  if(!graphMode){ showToast('Logg inn med Microsoft først', true); return; }
+  const input=document.getElementById('quote-file');
+  const file=input&&input.files&&input.files[0];
+  if(!file){ showToast('Velg en fil først', true); return; }
+  showToast('Laster opp '+file.name+'...');
+  try{
+    const token=await getToken();
+    if(!token) throw new Error('Ingen tilgang');
+    const safeName=file.name.replace(/[#%*<>?:/\\{|}"]/g,'_');
+    const path=`PMOTION/Tilbud/${p.id}/${Date.now()}_${safeName}`;
+    let item;
+    if(file.size <= 4*1024*1024){
+      const r=await fetch(`https://graph.microsoft.com/v1.0/sites/${GRAPH_CONFIG.siteId}/drive/root:/${encodeURI(path)}:/content`,{
+        method:'PUT', headers:{Authorization:'Bearer '+token,'Content-Type':file.type||'application/octet-stream'}, body:file });
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      item=await r.json();
+    } else {
+      item=await _uploadLargeFile(token, path, file);
+    }
+    if(!item||!item.webUrl) throw new Error('Mangler retur-URL');
+    if(!Array.isArray(p.orders)) p.orders=[];
+    p.orders.push({ url:item.webUrl, label:file.name, file:true });
+    if(typeof saveToLists==='function') saveToLists(p);
+    if(input) input.value='';
+    switchProjTab('quote',null,p.id);
+    showToast('✅ Tilbud lastet opp');
+  }catch(e){ console.warn('uploadQuoteFile',e); showToast('Opplasting feilet: '+e.message, true); }
+}
+async function _uploadLargeFile(token, path, file){
+  const sess=await fetch(`https://graph.microsoft.com/v1.0/sites/${GRAPH_CONFIG.siteId}/drive/root:/${encodeURI(path)}:/createUploadSession`,{
+    method:'POST', headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},
+    body:JSON.stringify({item:{'@microsoft.graph.conflictBehavior':'rename'}}) }).then(r=>r.json());
+  if(!sess.uploadUrl) throw new Error('Kunne ikke starte opplasting');
+  const chunk=5*1024*1024; let start=0, result=null;
+  while(start<file.size){
+    const end=Math.min(start+chunk,file.size);
+    const r=await fetch(sess.uploadUrl,{method:'PUT',
+      headers:{'Content-Length':String(end-start),'Content-Range':`bytes ${start}-${end-1}/${file.size}`}, body:file.slice(start,end)});
+    if(r.status===200||r.status===201){ result=await r.json(); }
+    else if(r.status!==202){ throw new Error('HTTP '+r.status); }
+    start=end;
+  }
+  return result;
 }
 function addProjectOrder(projId){
   const p = projects.find(x=>String(x.id)===String(projId)); if(!p) return;
@@ -11794,16 +11846,16 @@ function addProjectOrder(projId){
   if(!url){ showToast('Lim inn en URL først', true); return; }
   p.orders.push({ url, label });
   if(graphMode && typeof saveToLists==='function') saveToLists(p);
-  switchProjTab('orders', null, p.id);
-  showToast('Ordre/tilbud lagt til ✓');
+  switchProjTab('quote', null, p.id);
+  showToast('Lenke lagt til ✓');
 }
 function removeProjectOrder(projId, idx){
   const p = projects.find(x=>String(x.id)===String(projId)); if(!p || !Array.isArray(p.orders)) return;
   const o = p.orders[idx];
-  if(!confirm(`Fjern «${(o&&(o.label||o.url))||'denne lenken'}»?`)) return;
+  if(!confirm(`Fjern «${(o&&(o.label||o.url))||'denne'}»? ${(o&&o.file)?'(Filen blir liggende i SharePoint.)':''}`)) return;
   p.orders.splice(idx,1);
   if(graphMode && typeof saveToLists==='function') saveToLists(p);
-  switchProjTab('orders', null, p.id);
+  switchProjTab('quote', null, p.id);
   showToast('Fjernet');
 }
 
