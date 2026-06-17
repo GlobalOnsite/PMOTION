@@ -3185,6 +3185,8 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
           <button class="pers-view-tab active" id="pv-plan" onclick="setPersView('plan',this)">📅 Ukeplan</button>
           <button class="pers-view-tab" id="pv-list" onclick="setPersView('list',this)">👥 Personellliste</button>
         </div>
+        <button class="pers-add-btn" onclick="refreshEmployees()" style="background:rgba(59,130,246,.15);color:#60a5fa">🔄 Hent fra Microsoft 365</button>
+        <button class="pers-add-btn" onclick="openStaffBookingModal()">+ Registrer prosjekt/fravær</button>
         <button class="pers-add-btn" onclick="openAddEmployeeModal()">+ Ny ansatt</button>
       </div>
     </div>
@@ -4005,6 +4007,8 @@ async function loadFromLists(){
     await loadRoleAssignment();              // hent rolletildeling (styrer hvilken rolle innlogget bruker får)
     await loadChecklistTemplatesFromSP();   // hent sjekkliste-maler fra SharePoint (fallback: hardkodet)
     await loadEquipmentFromSP();             // hent utstyrskatalog fra SharePoint (fallback: hardkodet)
+    await loadEmployeesFromGraph();          // hent alle ansatte fra Microsoft 365 (Graph)
+    await loadStaffBookings();               // hent bemanning (prosjekt/ferie/avspasering) fra SharePoint
     const d = await gGet(listBase()+'?expand=fields&$top=500');
     projects = d.value.map(fromItem);
     // Generér sjekklister for alle prosjekter (merger – bevarer avhukinger fra SharePoint).
@@ -14287,6 +14291,148 @@ function getMondayOfWeek(date) {
   return d;
 }
 
+/* ═══════════════════════════════════════════════════════
+   BEMANNING: ansatte fra Microsoft 365 (Graph) + prosjekt/ferie/avspasering i SharePoint
+   ═══════════════════════════════════════════════════════ */
+async function loadEmployeesFromGraph(){
+  if(!graphMode) return false;
+  try{
+    let data;
+    try{ data=await gGet(`/users?$select=id,displayName,givenName,surname,mail,userPrincipalName,jobTitle,department,officeLocation&$top=999`); }
+    catch(e){ data=await gGet(`/users?$select=id,displayName,givenName,surname,mail,userPrincipalName&$top=999`); }
+    const users=(data.value||[]).filter(u=>u.displayName && (u.mail||u.userPrincipalName) && !String(u.userPrincipalName||'').includes('#EXT#'));
+    const mapped=users.map(u=>{
+      const upn=(u.userPrincipalName||u.mail||'').toLowerCase();
+      return { id:'aad-'+(u.id||upn), aadId:u.id||'', name:u.displayName, upn,
+        email:(u.mail||u.userPrincipalName||''), role:u.jobTitle||'', dept:u.department||'',
+        hub:_hubFromOffice(u.officeLocation), certs:{}, status:'active', source:'graph' };
+    }).sort((a,b)=>a.name.localeCompare(b.name,'nb'));
+    const manual=personnel.filter(p=>p.source!=='graph');   // behold manuelt lagt til (f.eks. innleide/INN)
+    personnel.length=0; mapped.forEach(m=>personnel.push(m)); manual.forEach(m=>personnel.push(m));
+    return true;
+  }catch(e){ console.warn('loadEmployeesFromGraph',e); return false; }
+}
+function _hubFromOffice(office){ if(!office) return 'lillesand'; const o=String(office).toLowerCase();
+  if(o.includes('palmas')||o.includes('canary')||o.includes('kanari')) return 'laspalmas';
+  if(o.includes('maca')||o.includes('brazil')||o.includes('brasil')) return 'macae'; return 'lillesand'; }
+async function refreshEmployees(){
+  if(!graphMode){ showToast('Logg inn med Microsoft først', true); return; }
+  showToast('Henter ansatte fra Microsoft 365...');
+  const ok=await loadEmployeesFromGraph(); await loadStaffBookings();
+  renderPersonnel();
+  showToast(ok?`✅ Hentet ${personnel.filter(p=>p.source==='graph').length} ansatte`:'Kunne ikke hente ansatte', !ok);
+}
+
+const STAFF_LIST_TITLE='PMOTIONBemanning';
+let staffListId=null, staffCm=null, staffBookings=[];
+async function resolveStaffList(){
+  if(staffListId) return staffListId;
+  try{ const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists?$filter=displayName eq '${STAFF_LIST_TITLE}'&$select=id`); staffListId=((d.value||[])[0]||{}).id||null; }catch(e){ staffListId=null; }
+  return staffListId;
+}
+async function staffColMap(lid){
+  let cols=[]; try{ const c=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/columns?$select=name,displayName`); cols=c.value||[]; }catch(e){}
+  const byNorm={}; cols.forEach(col=>{ byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name; });
+  const map={_found:cols.map(c=>c.name)};
+  const want={ ansatt:['ansatt','epost','email','upn','bruker'], navn:['navn','ansattnavn','name'], type:['type','kategori','bemanningstype','registreringstype','fravaerstype'],
+    prosjekt:['prosjekt','prosjektid','project'], fra:['fradato','fra','start','startdato'],
+    til:['tildato','til','slutt','sluttdato'], rolle:['rolle','funksjon'], notat:['notat','kommentar'] };
+  Object.keys(want).forEach(k=>{ for(const c of want[k]){ if(byNorm[c]){ map[k]=byNorm[c]; break; } } map[k]=map[k]||null; });
+  map.title=byNorm['title']||'Title';
+  return map;
+}
+async function _staffCtx(){ const lid=await resolveStaffList(); if(!lid) return null; if(!staffCm) staffCm=await staffColMap(lid); return {lid,cm:staffCm}; }
+async function loadStaffBookings(){
+  try{
+    const lid=await resolveStaffList(); if(!lid){ staffBookings=[]; return false; }
+    const cm=await staffColMap(lid); staffCm=cm;
+    const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?expand=fields&$top=999`);
+    staffBookings=(d.value||[]).map(it=>{ const f=it.fields||{}; return {
+      id:it.id, upn:((cm.ansatt?f[cm.ansatt]:'')||'').toLowerCase(), navn:(cm.navn?f[cm.navn]:'')||'',
+      type:String((cm.type?f[cm.type]:'')||'prosjekt').toLowerCase(),
+      projectId:(cm.prosjekt?f[cm.prosjekt]:'')||'', from:((cm.fra?f[cm.fra]:'')||'').slice(0,10),
+      to:((cm.til?f[cm.til]:'')||'').slice(0,10), rolle:(cm.rolle?f[cm.rolle]:'')||'', notat:(cm.notat?f[cm.notat]:'')||'' };
+    }).filter(b=>b.upn && b.from && b.to);
+    return true;
+  }catch(e){ console.warn('loadStaffBookings',e); staffBookings=[]; return false; }
+}
+async function addStaffBooking(rec){
+  const ctx=await _staffCtx(); if(!ctx) throw new Error('Opprett lista «'+STAFF_LIST_TITLE+'» først');
+  const cm=ctx.cm; const fields={ [cm.title]: rec.navn||rec.upn };
+  if(cm.ansatt) fields[cm.ansatt]=rec.upn;
+  if(cm.navn) fields[cm.navn]=rec.navn||'';
+  if(cm.type) fields[cm.type]=rec.type;
+  if(cm.prosjekt) fields[cm.prosjekt]=rec.projectId||'';
+  if(cm.fra) fields[cm.fra]=rec.from;
+  if(cm.til) fields[cm.til]=rec.to;
+  if(cm.rolle) fields[cm.rolle]=rec.rolle||'';
+  if(cm.notat) fields[cm.notat]=rec.notat||'';
+  const r=await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items`,{fields});
+  return r&&r.id;
+}
+async function deleteStaffBookingRow(id){ const ctx=await _staffCtx(); if(!ctx) return; await gDelete(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${id}`); }
+
+/* Bemanning-bookinger (prosjekt/ferie/avspasering) for én ansatt, klar til Gantt */
+function getStaffBookings(emp){
+  if(!emp) return [];
+  const key=(emp.upn||emp.email||'').toLowerCase(), byName=emp.name;
+  return staffBookings.filter(b=> (b.upn && b.upn===key) || (!b.upn && b.navn===byName)).map(b=>{
+    const proj=projects.find(p=>String(p.id)===String(b.projectId));
+    let color,label,kindLabel;
+    if(b.type==='ferie'){ color='#22c55e'; label='Ferie'; kindLabel='Ferie'; }
+    else if(b.type==='avspasering'||b.type==='avspassering'){ color='#7c3aed'; label='Avspasering'; kindLabel='Avspasering'; }
+    else { color=proj?(phaseMap[proj.phase]?.color||'#2563eb'):'#2563eb'; label=proj?proj.name:(b.projectId||'Prosjekt'); kindLabel='Prosjekt'; }
+    return { sbId:b.id, type:b.type, projectId:b.projectId, from:b.from, to:b.to, color, label, kindLabel, rolle:b.rolle, notat:b.notat };
+  });
+}
+async function confirmDeleteStaffBooking(id){
+  const b=staffBookings.find(x=>String(x.id)===String(id)); if(!b) return;
+  if(!confirm(`Slette registreringen (${b.type} ${fmtD(b.from)}–${fmtD(b.to)})?`)) return;
+  try{ await deleteStaffBookingRow(id); staffBookings=staffBookings.filter(x=>String(x.id)!==String(id)); renderPersonnel(); showToast('Slettet'); }
+  catch(e){ showToast('Sletting feilet: '+e.message, true); }
+}
+
+/* Modal: registrer prosjekt / ferie / avspasering */
+function openStaffBookingModal(preUpn){
+  if(!personnel.length){ showToast('Hent ansatte fra Microsoft 365 først', true); return; }
+  const empOpts=personnel.map(p=>`<option value="${escAttr(p.upn||p.email||p.name)}" ${preUpn&&p.upn===preUpn?'selected':''}>${escHtml(p.name)}</option>`).join('');
+  const projOpts=projects.filter(p=>p.phase!=='joblost').map(p=>`<option value="${p.id}">${escHtml(p.name)}</option>`).join('');
+  document.getElementById('modal-content').innerHTML=`<div style="padding:24px">
+    <div class="modal-title">Registrer prosjekt / ferie / avspasering</div>
+    <div style="height:14px"></div>
+    <div class="modal-grid">
+      <div class="f"><label>Ansatt</label><select id="sb-emp">${empOpts}</select></div>
+      <div class="f"><label>Type</label><select id="sb-type" onchange="_sbTypeChange()">
+        <option value="prosjekt">Prosjekt</option><option value="ferie">Ferie</option><option value="avspasering">Avspasering</option></select></div>
+      <div class="f" id="sb-proj-wrap"><label>Prosjekt</label><select id="sb-proj">${projOpts}</select></div>
+      <div class="f"><label>Fra dato</label><input id="sb-from" type="date"></div>
+      <div class="f"><label>Til dato</label><input id="sb-to" type="date"></div>
+      <div class="f"><label>Rolle/funksjon (valgfritt)</label><input id="sb-rolle" placeholder="f.eks. Site Lead"></div>
+      <div class="f"><label>Notat (valgfritt)</label><input id="sb-notat"></div>
+    </div>
+    <div style="height:14px"></div>
+    <button class="modal-btn" onclick="saveStaffBooking()" style="width:100%">Lagre</button>
+  </div>`;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function _sbTypeChange(){ const t=document.getElementById('sb-type')?.value; const w=document.getElementById('sb-proj-wrap'); if(w) w.style.display=(t==='prosjekt')?'':'none'; }
+async function saveStaffBooking(){
+  const upn=document.getElementById('sb-emp').value;
+  const emp=personnel.find(p=>(p.upn||p.email||p.name)===upn);
+  const type=document.getElementById('sb-type').value;
+  const projectId=type==='prosjekt'?document.getElementById('sb-proj').value:'';
+  const from=document.getElementById('sb-from').value, to=document.getElementById('sb-to').value;
+  const rolle=document.getElementById('sb-rolle').value.trim(), notat=document.getElementById('sb-notat').value.trim();
+  if(!from||!to){ showToast('Velg datoer', true); return; }
+  if(new Date(to)<new Date(from)){ showToast('Sluttdato må være etter startdato', true); return; }
+  try{
+    const rec={ upn:(upn||'').toLowerCase(), navn:emp?emp.name:'', type, projectId, from, to, rolle, notat };
+    const id=await addStaffBooking(rec);
+    staffBookings.push({ id, ...rec });
+    closeModal(); renderPersonnel(); showToast('Registrert ✓');
+  }catch(e){ showToast('Kunne ikke lagre: '+e.message, true); }
+}
+
 /* ── Main render ─────────────────────────────────────── */
 function renderPersonnel() {
   // Update badge
@@ -14416,6 +14562,14 @@ function renderPersonnelPlan() {
             onclick="event.stopPropagation();openEditModal('${b.projectId}')"
             title="${escHtml(b.projectName)} (${role?role.name:b.roleId}) | ${fmtD(b.from)} – ${fmtD(b.to)}${isConflict?' ⚠️ KONFLIKT':''}">${label}</div>`;
         }).join('')}
+        ${getStaffBookings(emp).map(sb => {
+          const bStart=new Date(sb.from), bEnd=new Date(sb.to);
+          if (bEnd < ganStart || bStart > ganEnd) return '';
+          const x1=toX(sb.from), x2=toX(sb.to), w=Math.max(x2-x1,1);
+          const lbl = w>8 ? escHtml(sb.label) : '';
+          const click = (sb.type==='prosjekt' && sb.projectId) ? `openEditModal('${sb.projectId}')` : `confirmDeleteStaffBooking('${sb.sbId}')`;
+          return `<div class="pers-gantt-bar" style="left:${x1}%;width:${w}%;background:${sb.color}" onclick="event.stopPropagation();${click}" title="${escAttr(sb.kindLabel)}: ${escAttr(sb.label)} | ${fmtD(sb.from)} – ${fmtD(sb.to)}${sb.rolle?' | '+escAttr(sb.rolle):''}${sb.notat?' | '+escAttr(sb.notat):''}">${lbl}</div>`;
+        }).join('')}
       </div>
     </div>`;
   });
@@ -14428,6 +14582,8 @@ function renderPersonnelPlan() {
     <span><span style="display:inline-block;width:14px;height:10px;border-radius:3px;background:#0891b2;vertical-align:middle"></span> Fase 4 (Gjennomføring)</span>
     <span><span style="display:inline-block;width:14px;height:10px;border-radius:3px;background:#2563eb;vertical-align:middle"></span> Fase 2 (Tilbud)</span>
     <span><span style="display:inline-block;width:14px;height:10px;border-radius:3px;background:#d97706;vertical-align:middle"></span> Fase 1 (Forespørsel)</span>
+    <span><span style="display:inline-block;width:14px;height:10px;border-radius:3px;background:#22c55e;vertical-align:middle"></span> Ferie</span>
+    <span><span style="display:inline-block;width:14px;height:10px;border-radius:3px;background:#7c3aed;vertical-align:middle"></span> Avspasering</span>
     <span style="margin-left:auto;color:#ef4444">⚠️ Konflikt = dobbeltbooking</span>
   </div>`;
 
