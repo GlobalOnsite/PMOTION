@@ -3948,6 +3948,7 @@ function toFields(p){
   if(hasCol('Checklists')) f.Checklists = JSON.stringify(p.checklists||{});
   if(hasCol('Execution'))  f.Execution  = JSON.stringify(p.execution||{});
   if(hasCol('Ordrelenker')) f.Ordrelenker = JSON.stringify(p.orders||[]);
+  if(hasCol('Tilbudsprosess')) f.Tilbudsprosess = JSON.stringify(p.quoteProcess||{});
   return { fields:f };
 }
 
@@ -3974,6 +3975,7 @@ function fromItem(item){
   if(f.Checklists!=null){ o.checklists = parseSPJson(f.Checklists, {}); }
   if(f.Execution!=null){ const ex=parseSPJson(f.Execution, {}); if(ex && Object.keys(ex).length) o.execution = ex; }
   if(f.Ordrelenker!=null){ o.orders = parseSPJson(f.Ordrelenker, []); }
+  if(f.Tilbudsprosess!=null){ o.quoteProcess = parseSPJson(f.Tilbudsprosess, {}); }
   return o;
 }
 async function loadFromLists(){
@@ -11178,6 +11180,7 @@ function renderProjectDashboard(p, activeTab) {
     {id:'resources', icon:'👷', label:'Ressurser', badge: resCount || null},
     {id:'equipment', icon:'🔧', label:'Utstyr', badge: eqCount || null},
     {id:'economy',   icon:'💰', label:'Økonomi'},
+    {id:'quote',     icon:'💼', label:'Tilbud'},
   ];
   const navComm = [
     {id:'log',       icon:'📝', label:'Logg', badge: logCount || null},
@@ -11631,6 +11634,7 @@ function renderProjTabContent(p, tab) {
   if (tab === 'overview')   return renderProjOverview(p);
   if (tab === 'info')       return renderProjInfoForm(p);
   if (tab === 'orders')     return renderProjectOrders(p);
+  if (tab === 'quote')      return renderQuoteProcess(p);
   if (tab === 'execution')  return renderProjExecution(p);
   if (tab === 'log')        return renderProjectLog(p);
   if (tab === 'checklist')  return renderProjectChecklist(p);
@@ -11641,6 +11645,118 @@ function renderProjTabContent(p, tab) {
   if (tab === 'email')      return renderProjectEmail(p);
   if (tab === 'economy')    return renderProjectEconomy(p);
   return '';
+}
+
+/* ── TILBUDSPROSESS (RFQ → tilbud → godkjenning → sendt) ──
+   Stegvis, rollebasert flyt per prosjekt. CEO-godkjenning er betinget av tilbudsverdi. */
+const CEO_APPROVAL_THRESHOLD = 500000; // kr – CEO må godkjenne tilbud over dette beløpet (juster ved behov)
+const QUOTE_STEPS = [
+  { id:'rfq',        title:'Forespørsel mottatt (RFQ)', role:'kam', roleLabel:'Salg', action:'Marker mottatt',  desc:'Salg registrerer mottatt forespørsel fra kunde.' },
+  { id:'rfqmeeting', title:'RFQ-møte',                  role:'kam', roleLabel:'Salg', action:'Møte gjennomført', desc:'Salg, PMO og SCM kartlegger behovet sammen.' },
+  { id:'draft',      title:'Tilbud utarbeidet',         role:'kam', roleLabel:'Salg', action:'Tilbud klart',     desc:'Salg utarbeider tilbudet.' },
+  { id:'pmoapprove', title:'PMO godkjenner innhold',    role:'pmo', roleLabel:'PMO',  action:'Godkjenn',         desc:'PMO gjennomgår og godkjenner tilbudets innhold.' },
+  { id:'ceoapprove', title:'CEO godkjenner',            role:'ceo', roleLabel:'CEO',  action:'Godkjenn',         conditional:true, desc:'Påkrevd når tilbudsverdien er over terskelen.' },
+  { id:'sent',       title:'Tilbud sendt til kunde',    role:'kam', roleLabel:'Salg', action:'Marker sendt',     desc:'Salg sender tilbudet til kunden.' },
+];
+function _quoteProc(p){ if(!p.quoteProcess) p.quoteProcess={value:0,steps:{}}; if(!p.quoteProcess.steps) p.quoteProcess.steps={}; return p.quoteProcess; }
+function _quoteEffectiveSteps(p){
+  const need=(Number(_quoteProc(p).value)||0)>=CEO_APPROVAL_THRESHOLD;
+  return QUOTE_STEPS.filter(s=> s.id!=='ceoapprove' || need);
+}
+function _quoteRoleAllowed(step){
+  const role=getCurrentRole();
+  if(role==='pmo') return true;                          // PMO administrerer prosessen
+  if(step.role==='kam') return role==='kam'||role==='bdm';
+  return role===step.role;
+}
+function _qDate(iso){ try{ return new Date(iso).toLocaleString('nb-NO',{dateStyle:'short',timeStyle:'short'}); }catch(e){ return ''; } }
+function renderQuoteProcess(p){
+  const qp=_quoteProc(p);
+  const val=Number(qp.value)||0;
+  const needCeo=val>=CEO_APPROVAL_THRESHOLD;
+  const eff=_quoteEffectiveSteps(p);
+  const activeIdx=eff.findIndex(s=>!(qp.steps[s.id]&&qp.steps[s.id].done));
+  const doneCount=eff.filter(s=>qp.steps[s.id]&&qp.steps[s.id].done).length;
+  const pct=eff.length?Math.round(doneCount/eff.length*100):0;
+  const allDone=activeIdx===-1;
+  const steps=eff.map((s,i)=>{
+    const st=qp.steps[s.id]||{};
+    const done=!!st.done;
+    const isActive=i===activeIdx;
+    const role=userRoleMap[s.role]||{name:s.roleLabel,color:'#64748b'};
+    const can=_quoteRoleAllowed(s);
+    const circle = done
+      ? `background:#16a34a;color:#fff`
+      : isActive ? `background:${role.color}22;color:${role.color};border:2px solid ${role.color}`
+      : `background:transparent;color:var(--muted);border:1px solid var(--border)`;
+    const icon = done ? '✓' : String(i+1);
+    let action='';
+    if(isActive){
+      action = can
+        ? `<div style="margin-top:10px">
+             <input id="quote-note" placeholder="Kommentar (valgfritt)" style="width:100%;max-width:440px;display:block;margin-bottom:8px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);font-size:12px">
+             <button class="pg-btn" onclick="completeQuoteStep('${p.id}','${s.id}')">${s.action}</button>
+           </div>`
+        : `<div style="margin-top:8px;font-size:12px;color:#f59e0b">⏳ Venter på ${s.roleLabel}</div>`;
+    }
+    const undo = (done && getCurrentRole()==='pmo')
+      ? ` <button onclick="undoQuoteStep('${p.id}','${s.id}')" style="background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;text-decoration:underline;margin-left:6px">angre</button>` : '';
+    return `<div style="display:flex;gap:14px">
+      <div style="display:flex;flex-direction:column;align-items:center">
+        <div style="width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;${circle}">${icon}</div>
+        ${i<eff.length-1?`<div style="width:2px;flex:1;min-height:26px;background:${done?'#16a34a':'var(--border)'}"></div>`:''}
+      </div>
+      <div style="flex:1;padding-bottom:20px;${(!done&&!isActive)?'opacity:.55':''}">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-weight:600;font-size:14px">${s.title}</span>
+          <span style="background:${role.color}22;color:${role.color};border:1px solid ${role.color}55;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600">${s.roleLabel}</span>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:3px">${s.desc}</div>
+        ${done?`<div style="font-size:11px;color:#16a34a;margin-top:6px">✓ ${escHtml(st.by||'—')} · ${_qDate(st.at)}${st.note?` · «${escHtml(st.note)}»`:''}${undo}</div>`:''}
+        ${action}
+      </div>
+    </div>`;
+  }).join('');
+  return `<div style="max-width:720px">
+    <div style="font-size:13px;color:var(--muted);margin-bottom:14px">Tilbudsprosess for forespørselen. Hvert steg har en ansvarlig rolle, og fullføres i rekkefølge. ${needCeo?'<strong style="color:#f59e0b">CEO-godkjenning er påkrevd</strong> – tilbudsverdien er over terskelen.':'CEO-godkjenning er ikke påkrevd (verdi under terskel).'}</div>
+    <div style="display:flex;gap:16px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap">
+      <div>
+        <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Tilbudsverdi (kr)</label>
+        <input id="quote-value" value="${val?val.toLocaleString('nb-NO'):''}" placeholder="0" onchange="setQuoteValue('${p.id}')" style="width:170px;padding:8px 11px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:13px">
+      </div>
+      <div style="font-size:11px;color:var(--muted);padding-bottom:9px">CEO-godkjenning kreves over <strong>${CEO_APPROVAL_THRESHOLD.toLocaleString('nb-NO')} kr</strong></div>
+    </div>
+    <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:22px"><div style="height:100%;width:${pct}%;background:#16a34a;transition:width .3s"></div></div>
+    ${allDone?`<div style="margin-bottom:18px;padding:10px 14px;background:rgba(22,163,74,.12);border:1px solid #16a34a;border-radius:8px;color:#16a34a;font-size:13px;font-weight:600">✓ Tilbudsprosessen er fullført – tilbudet er sendt til kunde.</div>`:''}
+    ${steps}
+  </div>`;
+}
+function setQuoteValue(projId){
+  const p=projects.find(x=>String(x.id)===String(projId)); if(!p) return;
+  const raw=(document.getElementById('quote-value')?.value||'').replace(/[^\d]/g,'');
+  _quoteProc(p).value=Number(raw)||0;
+  if(graphMode && typeof saveToLists==='function') saveToLists(p);
+  switchProjTab('quote',null,p.id);
+}
+function completeQuoteStep(projId, stepId){
+  const p=projects.find(x=>String(x.id)===String(projId)); if(!p) return;
+  const step=QUOTE_STEPS.find(s=>s.id===stepId); if(!step) return;
+  if(!_quoteRoleAllowed(step)){ showToast('Dette steget utføres av '+step.roleLabel, true); return; }
+  const note=(document.getElementById('quote-note')?.value||'').trim();
+  _quoteProc(p).steps[stepId]={ done:true, by:((currentAccount||{}).name||(currentAccount||{}).username||'—'), at:new Date().toISOString(), note };
+  if(graphMode && typeof saveToLists==='function') saveToLists(p);
+  switchProjTab('quote',null,p.id);
+  showToast('✓ '+step.title);
+}
+function undoQuoteStep(projId, stepId){
+  const p=projects.find(x=>String(x.id)===String(projId)); if(!p) return;
+  if(getCurrentRole()!=='pmo'){ showToast('Kun PMO kan angre et steg', true); return; }
+  const qp=_quoteProc(p);
+  const order=QUOTE_STEPS.map(s=>s.id);
+  order.slice(order.indexOf(stepId)).forEach(id=>{ delete qp.steps[id]; }); // angrer dette + senere steg
+  if(graphMode && typeof saveToLists==='function') saveToLists(p);
+  switchProjTab('quote',null,p.id);
+  showToast('Steg tilbakestilt');
 }
 
 /* ── ORDRE/TILBUD-FANE (lenker fra Telaris, flere per prosjekt) ── */
