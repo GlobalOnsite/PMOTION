@@ -4005,6 +4005,9 @@ function toFields(p){
   if(hasCol('Execution'))  f.Execution  = JSON.stringify(p.execution||{});
   if(hasCol('Ordrelenker')) f.Ordrelenker = JSON.stringify(p.orders||[]);
   if(hasCol('Tilbudsprosess')) f.Tilbudsprosess = JSON.stringify(p.quoteProcess||{});
+  // Per-prosjekt endringslogg + manuell logg – lagres som JSON kun hvis kolonnene finnes
+  if(hasCol('Endringslogg')) f.Endringslogg = JSON.stringify(p.projChangeLog||[]);
+  if(hasCol('Logg')) f.Logg = JSON.stringify(p.log||[]);
   return { fields:f };
 }
 
@@ -4032,6 +4035,8 @@ function fromItem(item){
   if(f.Execution!=null){ const ex=parseSPJson(f.Execution, {}); if(ex && Object.keys(ex).length) o.execution = ex; }
   if(f.Ordrelenker!=null){ o.orders = parseSPJson(f.Ordrelenker, []); }
   if(f.Tilbudsprosess!=null){ o.quoteProcess = parseSPJson(f.Tilbudsprosess, {}); }
+  if(f.Endringslogg!=null){ o.projChangeLog = parseSPJson(f.Endringslogg, []); }
+  if(f.Logg!=null){ o.log = parseSPJson(f.Logg, []); }
   return o;
 }
 async function loadFromLists(){
