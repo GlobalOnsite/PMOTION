@@ -4010,6 +4010,7 @@ async function loadFromLists(){
     await loadEquipmentFromSP();             // hent utstyrskatalog fra SharePoint (fallback: hardkodet)
     await loadEmployeesFromGraph();          // hent alle ansatte fra Microsoft 365 (Graph)
     await loadStaffBookings();               // hent bemanning (prosjekt/ferie/avspasering) fra SharePoint
+    await loadChangeLog();                    // hent endringslogg fra SharePoint (overlever oppdatering)
     const d = await gGet(listBase()+'?expand=fields&$top=500');
     projects = d.value.map(fromItem);
     // Generér sjekklister for alle prosjekter (merger – bevarer avhukinger fra SharePoint).
@@ -9220,8 +9221,63 @@ function exportProjectsPDF() {
 let changeLog = [];
 
 function logChange(user, entity, field, from, to, color) {
-  changeLog.unshift({ ts:new Date().toISOString(), user:user||getCurrentUser(), entity, field, from:String(from), to:String(to), color:color||'3b82f6' });
-  if (changeLog.length > 200) changeLog.pop(); // max 200 entries
+  const entry={ ts:new Date().toISOString(), user:user||getCurrentUser(), entity, field, from:String(from), to:String(to), color:(color||'3b82f6').replace('#','') };
+  changeLog.unshift(entry);
+  if (changeLog.length > 200) changeLog.pop(); // max 200 i minnet
+  if (typeof persistLogEntry==='function') persistLogEntry(entry); // lagre til SharePoint (fire-and-forget)
+}
+
+/* ── Endringslogg i SharePoint (PMOTIONEndringslogg): overlever oppdatering ── */
+const LOG_LIST_TITLE='PMOTIONEndringslogg';
+let logListId=null, logCm=null, logListMissing=false;
+async function resolveLogList(){
+  if(logListId) return logListId;
+  if(logListMissing) return null;
+  try{ const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists?$filter=displayName eq '${LOG_LIST_TITLE}'&$select=id`); logListId=((d.value||[])[0]||{}).id||null; }
+  catch(e){ logListId=null; }
+  if(!logListId) logListMissing=true;   // ikke prøv om igjen hver logging hvis lista mangler
+  return logListId;
+}
+async function logColMap(lid){
+  let cols=[]; try{ const c=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/columns?$select=name,displayName`); cols=c.value||[]; }catch(e){}
+  const byNorm={}; cols.forEach(col=>{ byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name; });
+  const map={_found:cols.map(c=>c.name)};
+  const want={ tidspunkt:['tidspunkt','dato','tid','when','ts','klokkeslett'], bruker:['bruker','user','navn','utfortav'], entitet:['entitet','entity','type','omrade'], felt:['felt','field','beskrivelse','handling','endring'], fra:['fra','from','gammel','gammelverdi'], til:['til','to','ny','nyverdi'], farge:['farge','color'] };
+  Object.keys(want).forEach(k=>{ for(const c of want[k]){ if(byNorm[c]){ map[k]=byNorm[c]; break; } } map[k]=map[k]||null; });
+  map.title=byNorm['title']||'Title';
+  return map;
+}
+async function loadChangeLog(){
+  try{
+    const lid=await resolveLogList(); if(!lid) return false;
+    const cm=await logColMap(lid); logCm=cm;
+    const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?expand=fields&$top=999`);
+    const items=(d.value||[]).map(it=>{ const f=it.fields||{}; return {
+      ts: cm.tidspunkt?(f[cm.tidspunkt]||''):'', user: cm.bruker?(f[cm.bruker]||''):'', entity: cm.entitet?(f[cm.entitet]||''):'',
+      field: cm.felt?(f[cm.felt]||''):'', from: cm.fra?(String(f[cm.fra]||'–')):'–', to: cm.til?(String(f[cm.til]||'')):'', color:(cm.farge?(f[cm.farge]||'3b82f6'):'3b82f6').replace('#','') };
+    });
+    items.sort((a,b)=> String(b.ts||'').localeCompare(String(a.ts||'')));  // nyeste først
+    changeLog = items.slice(0,200);
+    if(typeof renderChangelog==='function' && document.getElementById('changelog-list')) renderChangelog();
+    return true;
+  }catch(e){ console.warn('loadChangeLog',e); return false; }
+}
+async function persistLogEntry(entry){
+  if(!graphMode) return;
+  try{
+    const lid=await resolveLogList(); if(!lid) return;   // ingen liste → bare i minnet (som før)
+    if(!logCm) logCm=await logColMap(lid);
+    const cm=logCm;
+    const fields={ [cm.title]: (entry.entity||'Endring') };
+    if(cm.tidspunkt) fields[cm.tidspunkt]=entry.ts;
+    if(cm.bruker)    fields[cm.bruker]=entry.user||'';
+    if(cm.entitet)   fields[cm.entitet]=entry.entity||'';
+    if(cm.felt)      fields[cm.felt]=entry.field||'';
+    if(cm.fra)       fields[cm.fra]=entry.from||'';
+    if(cm.til)       fields[cm.til]=entry.to||'';
+    if(cm.farge)     fields[cm.farge]=(entry.color||'').replace('#','');
+    await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items`,{fields});
+  }catch(e){ console.warn('persistLogEntry',e); }
 }
 
 function renderChangelog() {
