@@ -1031,6 +1031,25 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
 .changelog-field { font-size:12px; font-weight:600; color:var(--accent2); margin-bottom:3px; }
 .changelog-desc { font-size:13px; }
 .changelog-meta { font-size:11px; color:var(--muted); font-family:'DM Mono',monospace; margin-top:3px; }
+.fk-board{display:flex;gap:14px;overflow-x:auto;padding-bottom:12px;align-items:flex-start}
+.fk-col{flex:0 0 270px;min-width:270px;background:var(--surface);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;max-height:calc(100vh - 240px)}
+.fk-col.over{border-color:#3b82f6;background:rgba(59,130,246,.06)}
+.fk-col-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;font-size:13px;font-weight:600;border-bottom:1px solid var(--border)}
+.fk-count{font-size:11px;color:var(--muted);background:var(--bg);border-radius:10px;padding:1px 8px}
+.fk-col-body{padding:10px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;min-height:60px}
+.fk-empty{font-size:11px;color:var(--muted);text-align:center;padding:18px 0;border:1px dashed var(--border);border-radius:8px}
+.fk-card{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:11px 12px;cursor:grab;transition:border-color .15s}
+.fk-card:hover{border-color:#3b82f6}
+.fk-card.dragging{opacity:.45}
+.fk-card-top{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+.fk-pri{font-size:10px;font-weight:600;padding:1px 7px;border-radius:5px}
+.fk-cat{font-size:10px;color:var(--muted);background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:5px;padding:1px 7px}
+.fk-card-title{font-size:13px;font-weight:600;margin-bottom:4px;line-height:1.3}
+.fk-card-desc{font-size:11px;color:var(--muted);line-height:1.4;margin-bottom:8px}
+.fk-card-foot{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.fk-vote{background:none;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;padding:2px 8px;cursor:pointer}
+.fk-vote:hover{border-color:#22c55e;color:#22c55e}
+.fk-by{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace}
 
 /* ── KEYBOARD SHORTCUTS ──────────────────────────────── */
 .shortcut-overlay {
@@ -2807,6 +2826,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
   <div class="nav-item" data-module="vendors" onclick="switchView('vendors',this)"><span>🏭</span> Leverandører</div>
   <div class="sidebar-section" style="margin-top:8px">System</div>
   <div class="nav-item" onclick="switchView('changelog',this)"><span>📜</span> Endringslogg</div>
+  <div class="nav-item" onclick="switchView('forslag',this)"><span>💡</span> Forslagskasse</div>
   <div class="nav-item" data-module="reports" onclick="switchView('reports',this)"><span>📈</span> Rapporter</div>
   <div class="nav-item" onclick="switchView('help',this)"><span>❓</span> Hjelp</div>
   <div class="nav-item" onclick="switchView('config',this)"><span>⚙️</span> Konfigurasjon</div>
@@ -3327,6 +3347,19 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
   <div class="view" id="view-changelog">
     <div class="view-title">📜 Endringslogg</div>
     <div class="changelog-wrap" id="changelog-list"></div>
+  </div>
+
+  <!-- FORSLAGSKASSE -->
+  <div class="view" id="view-forslag">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:10px">
+      <div class="view-title" style="margin:0">💡 Forslagskasse</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="forslag-cat-filter" onchange="setForslagCat(this.value)" style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text);font-size:12px"></select>
+        <button class="add-btn" style="margin:0" onclick="openForslagModal()">+ Nytt forslag</button>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Foreslå forbedringer i PMOTION. Dra kortene mellom kolonnene for å oppdatere status, gi tommel opp for å prioritere, og klikk et kort for detaljer.</div>
+    <div class="fk-board" id="forslag-board"></div>
   </div>
 
     <div class="view" id="view-config">
@@ -4011,6 +4044,7 @@ async function loadFromLists(){
     await loadEmployeesFromGraph();          // hent alle ansatte fra Microsoft 365 (Graph)
     await loadStaffBookings();               // hent bemanning (prosjekt/ferie/avspasering) fra SharePoint
     await loadChangeLog();                    // hent endringslogg fra SharePoint (overlever oppdatering)
+    await loadForslag();                      // hent forslagskasse fra SharePoint
     const d = await gGet(listBase()+'?expand=fields&$top=500');
     projects = d.value.map(fromItem);
     // Generér sjekklister for alle prosjekter (merger – bevarer avhukinger fra SharePoint).
@@ -4457,6 +4491,7 @@ function switchView(id,el){
   if(id==='salesinbox')loadSalesInbox(false);
   if(id==='hubs')      renderHubs();
   if(id==='changelog') renderChangelog();
+  if(id==='forslag')   renderForslag();
   if(id==='personnel') renderPersonnel();
   if(id==='production') renderProduction();
   if(id==='risk')      renderRisk();
@@ -9278,6 +9313,208 @@ async function persistLogEntry(entry){
     if(cm.farge)     fields[cm.farge]=(entry.color||'').replace('#','');
     await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items`,{fields});
   }catch(e){ console.warn('persistLogEntry',e); }
+}
+
+/* ═══════════════════════════════════
+   FORSLAGSKASSE (kanban, lagres i PMOTIONForslag)
+═══════════════════════════════════ */
+let forslag=[], forslagDragId=null, forslagFilterCat='all';
+const FORSLAG_STATUS=[
+  {id:'ny',        label:'💡 Nye'},
+  {id:'vurdering', label:'🔍 Under vurdering'},
+  {id:'planlagt',  label:'📋 Planlagt'},
+  {id:'pagar',     label:'🔨 Pågår'},
+  {id:'fullfort',  label:'✅ Fullført'},
+  {id:'avvist',    label:'❌ Avvist'}
+];
+const FORSLAG_PRI=[
+  {id:'kritisk', label:'Kritisk', color:'#ef4444'},
+  {id:'hoy',     label:'Høy',     color:'#f59e0b'},
+  {id:'middels', label:'Middels', color:'#3b82f6'},
+  {id:'lav',     label:'Lav',     color:'#6b7280'}
+];
+const FORSLAG_KAT=['Brukergrensesnitt','Funksjon','Feil/bug','Integrasjon','Data','Rapport','Annet'];
+const _priRank=p=>{ const i=FORSLAG_PRI.findIndex(x=>x.id===p); return i<0?99:i; };
+
+function setForslagCat(v){ forslagFilterCat=v; renderForslag(); }
+function renderForslag(){
+  const board=document.getElementById('forslag-board'); if(!board) return;
+  const catSel=document.getElementById('forslag-cat-filter');
+  if(catSel){ catSel.innerHTML='<option value="all">Alle kategorier</option>'+FORSLAG_KAT.map(k=>`<option value="${escAttr(k)}" ${forslagFilterCat===k?'selected':''}>${escHtml(k)}</option>`).join(''); catSel.value=forslagFilterCat; }
+  board.innerHTML=FORSLAG_STATUS.map(col=>{
+    let cards=forslag.filter(f=>(f.status||'ny')===col.id && (forslagFilterCat==='all'||f.kategori===forslagFilterCat));
+    cards.sort((a,b)=> _priRank(a.prioritet)-_priRank(b.prioritet) || (b.stemmer||0)-(a.stemmer||0));
+    return `<div class="fk-col" ondragover="forslagDragOver(event)" ondragleave="forslagDragLeave(event)" ondrop="forslagDrop(event,'${col.id}')">
+      <div class="fk-col-head"><span>${col.label}</span><span class="fk-count">${cards.length}</span></div>
+      <div class="fk-col-body">${cards.map(forslagCard).join('')||'<div class="fk-empty">Dra kort hit</div>'}</div>
+    </div>`;
+  }).join('');
+}
+function forslagCard(f){
+  const pri=FORSLAG_PRI.find(p=>p.id===f.prioritet)||FORSLAG_PRI[2];
+  const desc=(f.beskrivelse||'').trim();
+  return `<div class="fk-card" draggable="true" ondragstart="forslagDragStart(event,'${f.id}')" ondragend="forslagDragEnd(event)" onclick="openForslagDetail('${f.id}')">
+    <div class="fk-card-top">
+      <span class="fk-pri" style="background:${pri.color}1f;color:${pri.color};border:1px solid ${pri.color}66">${pri.label}</span>
+      ${f.kategori?`<span class="fk-cat">${escHtml(f.kategori)}</span>`:''}
+    </div>
+    <div class="fk-card-title">${escHtml(f.tittel||'(uten tittel)')}</div>
+    ${desc?`<div class="fk-card-desc">${escHtml(desc.slice(0,120))}${desc.length>120?'…':''}</div>`:''}
+    <div class="fk-card-foot">
+      <button class="fk-vote" onclick="event.stopPropagation();voteForslag('${f.id}')" title="Gi tommel opp for å prioritere">👍 ${f.stemmer||0}</button>
+      ${f.foreslattav?`<span class="fk-by">${escHtml(f.foreslattav)}</span>`:''}
+    </div>
+  </div>`;
+}
+function forslagDragStart(ev,id){ forslagDragId=id; ev.dataTransfer.effectAllowed='move'; try{ev.dataTransfer.setData('text/plain',id);}catch(e){} ev.currentTarget.classList.add('dragging'); }
+function forslagDragEnd(ev){ ev.currentTarget.classList.remove('dragging'); document.querySelectorAll('.fk-col.over').forEach(c=>c.classList.remove('over')); }
+function forslagDragOver(ev){ ev.preventDefault(); ev.dataTransfer.dropEffect='move'; ev.currentTarget.classList.add('over'); }
+function forslagDragLeave(ev){ if(ev.currentTarget===ev.target) ev.currentTarget.classList.remove('over'); }
+async function forslagDrop(ev,status){
+  ev.preventDefault();
+  document.querySelectorAll('.fk-col.over').forEach(c=>c.classList.remove('over'));
+  const id=forslagDragId||(ev.dataTransfer&&ev.dataTransfer.getData('text/plain')); forslagDragId=null;
+  const f=forslag.find(x=>String(x.id)===String(id)); if(!f||f.status===status) return;
+  const old=f.status; f.status=status; renderForslag();
+  try{ await updateForslagField(f,{status}); if(typeof logChange==='function') logChange(getCurrentUser(),'Forslag',`${f.tittel}: status`, old||'ny', status, '0891b2'); }
+  catch(e){ f.status=old; renderForslag(); showToast('Kunne ikke lagre status: '+e.message,true); }
+}
+async function voteForslag(id){
+  const f=forslag.find(x=>String(x.id)===String(id)); if(!f) return;
+  f.stemmer=(f.stemmer||0)+1; renderForslag();
+  try{ await updateForslagField(f,{stemmer:f.stemmer}); }catch(e){ showToast('Kunne ikke lagre stemme: '+e.message,true); }
+}
+function openForslagModal(){
+  const m=document.getElementById('modal-content');
+  m.innerHTML=`<div style="padding:24px">
+    <div class="modal-title">💡 Nytt forslag</div>
+    <div style="height:14px"></div>
+    <div class="f"><label>Tittel</label><input id="fk-title" placeholder="Kort beskrivelse av forbedringen"></div>
+    <div style="height:10px"></div>
+    <div class="f"><label>Beskrivelse</label><textarea id="fk-desc" rows="4" placeholder="Hva ønsker du, og hvorfor?" style="width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:13px;font-family:inherit;resize:vertical"></textarea></div>
+    <div style="height:10px"></div>
+    <div class="modal-grid">
+      <div class="f"><label>Kategori</label><select id="fk-cat">${FORSLAG_KAT.map(k=>`<option>${k}</option>`).join('')}</select></div>
+      <div class="f"><label>Prioritet</label><select id="fk-pri">${FORSLAG_PRI.map(p=>`<option value="${p.id}" ${p.id==='middels'?'selected':''}>${p.label}</option>`).join('')}</select></div>
+    </div>
+    <div style="height:16px"></div>
+    <div style="display:flex;gap:10px">
+      <button class="modal-btn" style="flex:1" onclick="saveNewForslag()">Legg til</button>
+      <button class="modal-btn ghost" style="flex:1" onclick="closeModal()">Avbryt</button>
+    </div>
+  </div>`;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+async function saveNewForslag(){
+  const tittel=(document.getElementById('fk-title').value||'').trim();
+  if(!tittel){ showToast('Skriv inn en tittel', true); return; }
+  const rec={ tittel, beskrivelse:(document.getElementById('fk-desc').value||'').trim(),
+    kategori:document.getElementById('fk-cat').value, prioritet:document.getElementById('fk-pri').value,
+    status:'ny', foreslattav:getCurrentUser(), stemmer:0 };
+  try{
+    const id=await addForslagItem(rec);
+    forslag.unshift({...rec, id: id||('tmp'+Date.now())});
+    closeModal(); renderForslag(); showToast('Forslag lagt til ✓');
+    if(typeof logChange==='function') logChange(getCurrentUser(),'Forslag',`${tittel}: opprettet`,'–',tittel,'16a34a');
+  }catch(e){ showToast('Kunne ikke lagre: '+e.message, true); }
+}
+function openForslagDetail(id){
+  const f=forslag.find(x=>String(x.id)===String(id)); if(!f) return;
+  const m=document.getElementById('modal-content');
+  m.innerHTML=`<div style="padding:24px">
+    <div class="modal-title">Rediger forslag</div>
+    <div style="height:14px"></div>
+    <div class="f"><label>Tittel</label><input id="fk-title" value="${escAttr(f.tittel||'')}"></div>
+    <div style="height:10px"></div>
+    <div class="f"><label>Beskrivelse</label><textarea id="fk-desc" rows="4" style="width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:13px;font-family:inherit;resize:vertical">${escHtml(f.beskrivelse||'')}</textarea></div>
+    <div style="height:10px"></div>
+    <div class="modal-grid">
+      <div class="f"><label>Kategori</label><select id="fk-cat">${FORSLAG_KAT.map(k=>`<option ${k===f.kategori?'selected':''}>${k}</option>`).join('')}</select></div>
+      <div class="f"><label>Prioritet</label><select id="fk-pri">${FORSLAG_PRI.map(p=>`<option value="${p.id}" ${p.id===f.prioritet?'selected':''}>${p.label}</option>`).join('')}</select></div>
+      <div class="f"><label>Status</label><select id="fk-status">${FORSLAG_STATUS.map(s=>`<option value="${s.id}" ${s.id===(f.status||'ny')?'selected':''}>${s.label}</option>`).join('')}</select></div>
+    </div>
+    <div style="height:8px"></div>
+    <div style="font-size:11px;color:var(--muted)">👍 ${f.stemmer||0} stemmer${f.foreslattav?' · foreslått av '+escHtml(f.foreslattav):''}</div>
+    <div style="height:16px"></div>
+    <div style="display:flex;gap:10px">
+      <button class="modal-btn" style="flex:1" onclick="saveForslagDetail('${f.id}')">Lagre</button>
+      <button class="modal-btn danger" style="flex:1" onclick="deleteForslagItem('${f.id}')">Slett</button>
+    </div>
+  </div>`;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+async function saveForslagDetail(id){
+  const f=forslag.find(x=>String(x.id)===String(id)); if(!f) return;
+  const patch={ tittel:(document.getElementById('fk-title').value||'').trim(), beskrivelse:(document.getElementById('fk-desc').value||'').trim(),
+    kategori:document.getElementById('fk-cat').value, prioritet:document.getElementById('fk-pri').value, status:document.getElementById('fk-status').value };
+  Object.assign(f,patch);
+  try{ await updateForslagField(f,patch); closeModal(); renderForslag(); showToast('Lagret ✓'); }
+  catch(e){ showToast('Kunne ikke lagre: '+e.message, true); }
+}
+async function deleteForslagItem(id){
+  const f=forslag.find(x=>String(x.id)===String(id)); if(!f) return;
+  if(!confirm(`Slett forslaget «${f.tittel}»?`)) return;
+  try{ if(graphMode && f.id && !String(f.id).startsWith('tmp')){ const ctx=await _forslagCtx(); if(ctx) await gDelete(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${f.id}`); }
+    forslag=forslag.filter(x=>x!==f); closeModal(); renderForslag(); showToast('Slettet');
+  }catch(e){ showToast('Sletting feilet: '+e.message, true); }
+}
+
+/* ── SharePoint: PMOTIONForslag ── */
+const FORSLAG_LIST_TITLE='PMOTIONForslag';
+let forslagListId=null, forslagCm=null;
+async function resolveForslagList(){ if(forslagListId) return forslagListId;
+  try{ const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists?$filter=displayName eq '${FORSLAG_LIST_TITLE}'&$select=id`); forslagListId=((d.value||[])[0]||{}).id||null; }catch(e){ forslagListId=null; }
+  return forslagListId; }
+async function forslagColMap(lid){
+  let cols=[]; try{ const c=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/columns?$select=name,displayName`); cols=c.value||[]; }catch(e){}
+  const byNorm={}; cols.forEach(col=>{ byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name; });
+  const map={_found:cols.map(c=>c.name)};
+  const want={ beskrivelse:['beskrivelse','beskriv','description','detaljer'], kategori:['kategori','category'], prioritet:['prioritet','priority','prio'], status:['status'], foreslattav:['foreslattav','foreslatt','bruker','navn','submittedby'], stemmer:['stemmer','votes','antallstemmer'], rekkefolge:['rekkefolge','order','sortering'] };
+  Object.keys(want).forEach(k=>{ for(const c of want[k]){ if(byNorm[c]){ map[k]=byNorm[c]; break; } } map[k]=map[k]||null; });
+  map.title=byNorm['title']||'Title';
+  return map;
+}
+async function _forslagCtx(){ const lid=await resolveForslagList(); if(!lid) return null; if(!forslagCm) forslagCm=await forslagColMap(lid); return {lid,cm:forslagCm}; }
+async function loadForslag(){
+  try{
+    const lid=await resolveForslagList(); if(!lid) return false;
+    const cm=await forslagColMap(lid); forslagCm=cm;
+    const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?expand=fields&$top=999`);
+    forslag=(d.value||[]).map(it=>{ const f=it.fields||{}; return {
+      id:it.id, tittel:f[cm.title]||'', beskrivelse:cm.beskrivelse?(f[cm.beskrivelse]||''):'',
+      kategori:cm.kategori?(f[cm.kategori]||''):'', prioritet:(cm.prioritet?(f[cm.prioritet]||'middels'):'middels')||'middels',
+      status:(cm.status?(f[cm.status]||'ny'):'ny')||'ny', foreslattav:cm.foreslattav?(f[cm.foreslattav]||''):'',
+      stemmer:cm.stemmer?(parseInt(f[cm.stemmer])||0):0 };
+    });
+    if(typeof renderForslag==='function' && document.getElementById('forslag-board')) renderForslag();
+    return true;
+  }catch(e){ console.warn('loadForslag',e); return false; }
+}
+async function addForslagItem(rec){
+  if(!graphMode) return null;
+  const ctx=await _forslagCtx(); if(!ctx) throw new Error('Opprett lista «'+FORSLAG_LIST_TITLE+'» først');
+  const cm=ctx.cm; const fields={ [cm.title]:rec.tittel||'' };
+  if(cm.beskrivelse) fields[cm.beskrivelse]=rec.beskrivelse||'';
+  if(cm.kategori) fields[cm.kategori]=rec.kategori||'';
+  if(cm.prioritet) fields[cm.prioritet]=rec.prioritet||'middels';
+  if(cm.status) fields[cm.status]=rec.status||'ny';
+  if(cm.foreslattav) fields[cm.foreslattav]=rec.foreslattav||'';
+  if(cm.stemmer) fields[cm.stemmer]=rec.stemmer||0;
+  const r=await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items`,{fields});
+  return r&&r.id;
+}
+async function updateForslagField(f, patch){
+  if(!graphMode || !f.id || String(f.id).startsWith('tmp')) return;
+  const ctx=await _forslagCtx(); if(!ctx) throw new Error('Opprett lista «'+FORSLAG_LIST_TITLE+'» først');
+  const cm=ctx.cm; const fields={};
+  if('tittel' in patch && cm.title) fields[cm.title]=patch.tittel;
+  if('beskrivelse' in patch && cm.beskrivelse) fields[cm.beskrivelse]=patch.beskrivelse;
+  if('kategori' in patch && cm.kategori) fields[cm.kategori]=patch.kategori;
+  if('prioritet' in patch && cm.prioritet) fields[cm.prioritet]=patch.prioritet;
+  if('status' in patch && cm.status) fields[cm.status]=patch.status;
+  if('stemmer' in patch && cm.stemmer) fields[cm.stemmer]=patch.stemmer;
+  if(!Object.keys(fields).length) return;
+  await gPatch(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${f.id}/fields`, fields);
 }
 
 function renderChangelog() {
