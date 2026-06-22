@@ -1050,6 +1050,11 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
 .fk-vote{background:none;border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:11px;padding:2px 8px;cursor:pointer}
 .fk-vote:hover{border-color:#22c55e;color:#22c55e}
 .fk-by{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace}
+/* Lese-modus: skjul «legg til»-knapper og marker tydelig */
+body.pmotion-readonly .add-btn,
+body.pmotion-readonly .pers-add-btn,
+body.pmotion-readonly #pers-show-hidden { display:none !important; }
+#readonly-badge{position:fixed;left:14px;bottom:14px;z-index:9999;background:#7c3aed;color:#fff;font-size:12px;font-weight:600;padding:7px 13px;border-radius:9px;box-shadow:0 4px 14px rgba(0,0,0,.35);pointer-events:none;letter-spacing:.3px}
 
 /* ── KEYBOARD SHORTCUTS ──────────────────────────────── */
 .shortcut-overlay {
@@ -3781,9 +3786,16 @@ async function graphFetch(path, opts = {}) {
 }
 
 async function gGet(path)        { return graphFetch(path); }
-async function gPost(path, body) { return graphFetch(path, { method:'POST',  body }); }
-async function gPatch(path,body) { return graphFetch(path, { method:'PATCH', body }); }
-async function gDelete(path)     { return graphFetch(path, { method:'DELETE' }); }
+let readOnly = false;   // lese-modus: bruker med rollen «leser» (eller KunLesing) kan se, men ikke endre
+let _roToastTs = 0;
+function _blockWrite(){
+  const now=Date.now(); if(now-_roToastTs>1500){ _roToastTs=now; if(typeof showToast==='function') showToast('🔒 Du har kun lesetilgang i PMOTION', true); }
+  throw new Error('Kun lesetilgang');
+}
+async function gPost(path, body) { if(readOnly) _blockWrite(); return graphFetch(path, { method:'POST',  body }); }
+async function gPatch(path,body) { if(readOnly) _blockWrite(); return graphFetch(path, { method:'PATCH', body }); }
+async function gDelete(path)     { if(readOnly) _blockWrite(); return graphFetch(path, { method:'DELETE' }); }
+if(typeof window!=='undefined'){ window.addEventListener('unhandledrejection', e=>{ if(e && e.reason && /Kun lesetilgang/.test((e.reason.message)||'')) e.preventDefault(); }); }
 function listBase(){return`/sites/${GRAPH_CONFIG.siteId}/lists/${GRAPH_CONFIG.listId}/items`;}
 
 /* Hvilke kolonner finnes i lista (interne navn). Lastes én gang.
@@ -4184,26 +4196,44 @@ async function roleColMap(lid){
   const byNorm={}; cols.forEach(col=>{ byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name; });
   const map={_found:cols.map(c=>c.name)};
   ['title','epost','rolle','aktiv'].forEach(k=>{ map[k]=byNorm[k]||null; });
+  map.kunlesing = byNorm['kunlesing']||byNorm['lesetilgang']||byNorm['skrivebeskyttet']||byNorm['readonly']||byNorm['kunlese']||null;
   if(!map.title) map.title='Title';
   return map;
 }
 let roleColMapCache = null;
 async function loadRoleAssignment(){
-  assignedRole=null; roleAssignmentActive=false;
+  assignedRole=null; roleAssignmentActive=false; readOnly=false;
   try{
-    const lid=await resolveRoleList(); if(!lid) return;          // ingen liste → åpen modus (bootstrap)
+    const lid=await resolveRoleList(); if(!lid){ applyReadOnlyUI(); return; }   // ingen liste → åpen modus (bootstrap)
     const cm=await roleColMap(lid); roleColMapCache=cm;
     const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?expand=fields&$top=999`);
     const rows=(d.value||[]).map(it=>it.fields).filter(f=>f && (!cm.aktiv || f[cm.aktiv]!==false));
-    if(!rows.length) return;                                      // tom liste → åpen modus (bootstrap)
+    if(!rows.length){ applyReadOnlyUI(); return; }                // tom liste → åpen modus (bootstrap)
     roleAssignmentActive=true;                                    // lista styrer nå rollene → lås selvvalg
     const me=(((currentAccount||{}).username)||'').trim().toLowerCase();
     const match=rows.find(f=>{
       const e=(cm.epost?f[cm.epost]:'')||f[cm.title]||'';
       return String(e).trim().toLowerCase()===me;
     });
-    if(match){ const r=String((cm.rolle?match[cm.rolle]:'')||'').trim().toLowerCase(); if(userRoleMap[r]) assignedRole=r; }
+    if(match){
+      const rRaw=String((cm.rolle?match[cm.rolle]:'')||'').trim().toLowerCase();
+      // Rolle «leser» (e.l.) = ren lese-modus; ellers funksjonsrolle
+      if(['leser','reader','lesetilgang','readonly','kunlesing','skrivebeskyttet'].includes(rRaw)){ readOnly=true; }
+      else if(userRoleMap[rRaw]){ assignedRole=rRaw; }
+      // Egen KunLesing-kolonne overstyrer/legger på lese-modus uavhengig av funksjonsrolle
+      if(cm.kunlesing){ const v=match[cm.kunlesing]; if(v===true||['ja','true','1','x'].includes(String(v).trim().toLowerCase())) readOnly=true; }
+    }
   }catch(e){ console.warn('loadRoleAssignment', e); }
+  applyReadOnlyUI();
+}
+/* Speil lese-modus til grensesnittet: body-klasse (skjuler legg-til-knapper) + tydelig merke */
+function applyReadOnlyUI(){
+  if(typeof document==='undefined') return;
+  document.body.classList.toggle('pmotion-readonly', !!readOnly);
+  let badge=document.getElementById('readonly-badge');
+  if(readOnly){
+    if(!badge){ badge=document.createElement('div'); badge.id='readonly-badge'; badge.textContent='🔒 Lesemodus'; badge.title='Du har lesetilgang i PMOTION. Endringer er deaktivert.'; document.body.appendChild(badge); }
+  } else if(badge){ badge.remove(); }
 }
 /* Bootstrap: legg innlogget bruker inn som PMO (brukes ved første oppsett, så man ikke låser seg ute). */
 async function addMeAsAdmin(){
@@ -11658,37 +11688,45 @@ function autoAssignChecklists(p, newPhaseId) {
     matchKeys.push(genericKey);
   }
 
-  let added = 0;
+  let changed = 0;
   matchKeys.forEach(key => {
     const tmpl = CHECKLIST_TEMPLATES_EXTENDED[key];
     if (!tmpl) return;
 
     const existing = p.checklists[key] || [];
-    const existingTexts = existing.map(i =>
-      (typeof i === 'object' ? i.text : i).toLowerCase()
-    );
-    const newItems = tmpl.items
-      .filter(t => {
-        const text = typeof t === 'object' ? t.text : t;
-        return !existingTexts.includes(text.toLowerCase());
-      })
+    const tmplItems = (tmpl.items || []).map(t => (typeof t === 'object' ? t : { text: t }));
+    const tmplTexts = new Set(tmplItems.map(t => String(t.text || '').trim().toLowerCase()));
+
+    // Avstem mot malen:
+    //  - behold egendefinerte punkter (custom) alltid
+    //  - behold mal-punkter som fortsatt finnes i malen (bevarer avhuking)
+    //  - fjern mal-punkter som er slettet fra malen – MEN bare når malene faktisk ble lastet
+    //    (ikke ved lastefeil/fallback, for å unngå å miste data på en midlertidig feil)
+    const canRemove = !templateLoadError;
+    const kept = existing.filter(it => {
+      const text = String((typeof it === 'object' ? it.text : it) || '').trim().toLowerCase();
+      if (it && typeof it === 'object' && it.custom) return true;   // egendefinert – aldri fjern
+      if (tmplTexts.has(text)) return true;                          // finnes fortsatt i malen
+      return !canRemove;                                             // ellers: fjern kun hvis trygt
+    });
+    const removed = existing.length - kept.length;
+
+    const keptTexts = new Set(kept.map(it => String((typeof it === 'object' ? it.text : it) || '').trim().toLowerCase()));
+    const toAdd = tmplItems
+      .filter(t => !keptTexts.has(String(t.text || '').trim().toLowerCase()))
       .map(t => ({
         id: 'ci' + Date.now() + Math.random(),
-        text: typeof t === 'object' ? t.text : t,
-        role: typeof t === 'object' ? (t.role || '') : '',
-        type: typeof t === 'object' ? (t.type || 'check') : 'check',
-        evidence: typeof t === 'object' ? (t.evidence || '') : '',
-        action: typeof t === 'object' ? (t.action || '') : '',
-        checked: false,
+        text: t.text, role: t.role || '', type: t.type || 'check',
+        evidence: t.evidence || '', action: t.action || '', checked: false, src: 'tmpl',
       }));
 
-    if (newItems.length > 0) {
-      p.checklists[key] = [...existing, ...newItems];
-      added += newItems.length;
+    if (removed > 0 || toAdd.length > 0) {
+      p.checklists[key] = [...kept, ...toAdd];
+      changed += removed + toAdd.length;
     }
   });
 
-  return added;
+  return changed;
 }
 
 
