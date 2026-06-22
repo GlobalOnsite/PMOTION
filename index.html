@@ -5877,9 +5877,18 @@ async function resolveUnitList(){
   return unitListId;
 }
 async function unitColMap(lid){
-  let cols=[]; try{ const c=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/columns?$select=name,displayName`); cols=c.value||[]; }catch(e){}
-  const byNorm={}; cols.forEach(col=>{ byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name; });
-  const map={_found:cols.map(c=>c.name)};
+  let cols=[]; try{ const c=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/columns`); cols=c.value||[]; }catch(e){}
+  const byNorm={}, types={}, choices={};
+  cols.forEach(col=>{
+    byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name;
+    let t='text';
+    if(col.boolean) t='boolean';
+    else if(col.number||col.currency) t='number';
+    else if(col.dateTime) t='dateTime';
+    else if(col.choice){ t='choice'; choices[col.name]=(col.choice&&col.choice.choices)||[]; }
+    types[col.name]=t;
+  });
+  const map={_found:cols.map(c=>c.name), _type:types, _choices:choices};
   map.title=byNorm['title']||'Title';
   map.utstyrstype=byNorm['utstyrstype']||byNorm['type']||byNorm['kategori']||null;
   map.hub=byNorm['hub']||null;
@@ -5928,25 +5937,39 @@ async function loadUnitsFromSP(){
     return true;
   }catch(e){ console.warn('loadUnitsFromSP',e); UNITS=[]; return false; }
 }
+function _coerceCol(cm,col,val){
+  const t=(cm&&cm._type&&cm._type[col])||'text';
+  if(t==='boolean') return !!val;
+  if(t==='number'){ const n=parseFloat(val); return isNaN(n)?null:n; }
+  if(t==='dateTime'){ return val? new Date(val).toISOString() : null; }
+  if(typeof val==='boolean'){
+    if(t==='choice'){ const opts=(cm._choices&&cm._choices[col])||[]; const want=val?['ja','yes','true','x','sant']:['nei','no','false','usant']; const hit=opts.find(o=>want.includes(String(o).toLowerCase())); return hit||(val?'Ja':'Nei'); }
+    return val?'Ja':'Nei';
+  }
+  if(t==='choice'){ const opts=(cm._choices&&cm._choices[col])||[]; const hit=opts.find(o=>_normCol(o)===_normCol(val)); return hit!=null?hit:(val==null?null:String(val)); }
+  return val==null?'':String(val);
+}
 function _unitFields(cm,u){
-  const f={ [cm.title]: u.name||'' };
-  if(cm.utstyrstype) f[cm.utstyrstype]=u.type||'';
-  if(cm.hub) f[cm.hub]=u.hub||'';
-  if(cm.status) f[cm.status]=UNIT_STATUS[u.status]?u.status:'tilgjengelig';
-  if(cm.serienummer) f[cm.serienummer]=u.serial||'';
-  if(cm.sertifikatutlop) f[cm.sertifikatutlop]=u.certExp? new Date(u.certExp).toISOString() : null;
-  if(cm.sistvedlikehold) f[cm.sistvedlikehold]=u.maintLast? new Date(u.maintLast).toISOString() : null;
-  if(cm.nestevedlikehold) f[cm.nestevedlikehold]=u.maintNext? new Date(u.maintNext).toISOString() : null;
-  if(cm.notat) f[cm.notat]=u.note||'';
-  if(cm.klargjoring) f[cm.klargjoring]=READINESS[u.readiness]?u.readiness:'rod';
-  if(cm.mal) f[cm.mal]=u.mal||'';
-  if(cm.vekt) f[cm.vekt]=u.vekt||0;
-  if(cm.dnv271) f[cm.dnv271]=!!u.dnv271;
-  if(cm.csc) f[cm.csc]=!!u.csc;
-  if(cm.highcube) f[cm.highcube]=!!u.highcube;
-  if(cm.sideapning) f[cm.sideapning]=!!u.sideapning;
+  const f={ [cm.title||'Title']: u.name||'' };
+  const set=(col,val)=>{ if(!col) return; const cv=_coerceCol(cm,col,val); if(cv!==null && cv!==undefined) f[col]=cv; };
+  set(cm.utstyrstype,u.type);
+  set(cm.hub,u.hub);
+  set(cm.status, UNIT_STATUS[u.status]?u.status:'tilgjengelig');
+  set(cm.serienummer,u.serial);
+  set(cm.sertifikatutlop,u.certExp);
+  set(cm.sistvedlikehold,u.maintLast);
+  set(cm.nestevedlikehold,u.maintNext);
+  set(cm.notat,u.note);
+  set(cm.klargjoring, READINESS[u.readiness]?u.readiness:'rod');
+  set(cm.mal,u.mal);
+  set(cm.vekt,u.vekt);
+  set(cm.dnv271,!!u.dnv271);
+  set(cm.csc,!!u.csc);
+  set(cm.highcube,!!u.highcube);
+  set(cm.sideapning,!!u.sideapning);
   return f;
 }
+async function deleteUnit_PLACEHOLDER(){}
 function openUnitModal(id){
   if(!(typeof roleCan==='function' && roleCan('equipment'))){ showToast('Du har ikke tilgang til å endre enheter', true); return; }
   const u = id ? UNITS.find(x=>x.id===id) : { name:'', type:'', hub:(HUBS[0]||{}).id||'', status:'tilgjengelig', serial:'', certExp:'', maintLast:'', maintNext:'', note:'', readiness:'rod', mal:'', vekt:0, dnv271:false, csc:false, highcube:false, sideapning:false };
@@ -6025,7 +6048,7 @@ async function saveUnit(id){
     } else { const r=await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items`,{fields});
       UNITS.push({id:r&&r.id, ...u}); }
     closeModal(); renderEquipUnits(); showToast(id?'Enhet oppdatert ✓':'Enhet opprettet ✓');
-  }catch(e){ showToast('Kunne ikke lagre: '+e.message, true); }
+  }catch(e){ console.error('saveUnit feilet. Felter sendt:',fields,'Feil:',e); const d=(e&&e.graphError&&e.graphError.message)||(e&&e.message)||''; showToast('Kunne ikke lagre: '+d, true); }
 }
 async function deleteUnit(id){
   const u=UNITS.find(x=>x.id===id); if(!u) return;
