@@ -2720,7 +2720,7 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
   <div class="topbar-sep"></div>
   <div class="topbar-sub" id="topbar-sub-wrap"></div>
   <div class="topbar-right">
-    <div class="sync-status"><span class="sync-dot" id="sync-dot"></span><span id="sync-text">Demo-modus</span></div>
+    <div class="sync-status" onclick="manualRefresh()" style="cursor:pointer" title="Klikk for å synkronisere nå"><span class="sync-dot" id="sync-dot"></span><span id="sync-text">Demo-modus</span></div>
     <button class="alerts-btn" id="alerts-btn" onclick="toggleAlertsPanel()" title="Smart varsler (oppdateres live)">
       <span>🛎</span> Varsler
       <span class="alerts-btn-badge" id="alerts-badge">0</span>
@@ -2978,6 +2978,7 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
     <div style="display:flex;gap:8px;margin-bottom:16px">
       <button id="equip-tab-inv" class="equip-subtab active" onclick="setEquipView('inventory')">📦 Inventarliste</button>
       <button id="equip-tab-units" class="equip-subtab" onclick="setEquipView('units')">🔧 Enheter</button>
+      <button id="equip-tab-pick" class="equip-subtab" onclick="setEquipView('picking')">🚚 Plukk &amp; retur</button>
       <button id="equip-tab-cal" class="equip-subtab" onclick="setEquipView('calendar')">📅 Utleiekalender</button>
     </div>
     <div id="equip-pane-inventory">
@@ -2990,6 +2991,12 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
       <div class="equip-list-panel">
         <div class="equip-list-header"><span class="equip-list-title">Enheter (unike utstyr)</span></div>
         <div id="equip-units"></div>
+      </div>
+    </div>
+    <div id="equip-pane-picking" style="display:none">
+      <div class="equip-list-panel">
+        <div class="equip-list-header"><span class="equip-list-title">Plukk &amp; retur (lager)</span></div>
+        <div id="equip-picking"></div>
       </div>
     </div>
     <div id="equip-pane-calendar" style="display:none">
@@ -4082,8 +4089,13 @@ function fromItem(item){
   if(f.Utsjekk!=null){ o.checkouts = parseSPJson(f.Utsjekk, []); }
   return o;
 }
-async function loadFromLists(){
-  setSyncStatus('loading','Laster...');
+let lastSyncTs = 0, _syncing = false;
+function _hhmm(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+function _modalOpen(){ return !!document.querySelector('.modal-overlay.open'); }
+async function loadFromLists(silent){
+  if(_syncing) return;
+  _syncing = true;
+  setSyncStatus('loading', silent?'Synker...':'Laster...');
   try {
     await ensureListColumns();
     await loadRoleAssignment();              // hent rolletildeling (styrer hvilken rolle innlogget bruker får)
@@ -4100,19 +4112,38 @@ async function loadFromLists(){
     // Generér sjekklister for alle prosjekter (merger – bevarer avhukinger fra SharePoint).
     // Gjør at sjekklister og KPI-er vises korrekt umiddelbart etter innlasting/refresh.
     projects.forEach(p => { try{ PHASES.filter(ph=>ph.id!=='joblost').forEach(ph=> autoAssignChecklists(p, ph.id)); }catch(e){} });
-    setSyncStatus('ok','Synkronisert');
+    lastSyncTs = Date.now();
+    setSyncStatus('ok','Synkronisert '+_hhmm());
     renderAll();
-    showToast('Data lastet fra Microsoft Lists ✓');
-    openProjectFromUrl();
+    if(!silent){ showToast('Data lastet fra Microsoft Lists ✓'); openProjectFromUrl(); }
   } catch(e) {
     setSyncStatus('err', e.graphError?.type === 'access' ? 'Ingen tilgang' : 'Tilkoblingsfeil');
     if (e.graphError) {
       showAccessError(e.graphError);
-    } else {
+    } else if(!silent) {
       showToast('Kunne ikke laste data: ' + e.message, true);
     }
-  }
+  } finally { _syncing = false; }
 }
+/* Myk bakgrunnssynk: henter på nytt uten full sidelasting.
+   Hopper over når en modal er åpen eller fanen er skjult, og bevarer scroll-posisjon. */
+async function softRefresh(){
+  if(!graphMode || document.hidden || _modalOpen() || _syncing) return;
+  const sy = window.scrollY||0;
+  const main = document.querySelector('.main');
+  const ms = main? main.scrollTop : 0;
+  await loadFromLists(true);
+  try{ window.scrollTo(0,sy); if(main) main.scrollTop=ms; }catch(e){}
+}
+function manualRefresh(){
+  if(!graphMode){ showToast('Logg inn først',true); return; }
+  if(_modalOpen()){ showToast('Lukk åpne vinduer før manuell synk',true); return; }
+  loadFromLists(false);
+}
+document.addEventListener('visibilitychange', ()=>{
+  if(!document.hidden && graphMode && !_modalOpen() && (Date.now()-lastSyncTs>60000)) softRefresh();
+});
+setInterval(()=>{ softRefresh(); }, 180000); // skånsom bakgrunnssynk hvert 3. min
 async function saveToLists(p){
   setSyncStatus('loading','Lagrer...');
   try {
@@ -6227,6 +6258,61 @@ function renderEquipUnits(){
   }).join('') || '<div style="padding:24px;text-align:center;color:var(--muted)">Ingen enheter matcher filteret.</div>';
   host.innerHTML=summary+toolbar+body;
 }
+/* Lager-vindu: samler alle plukk/retur-jobber på tvers av prosjekter (steg 4–5 håndteres her). */
+function renderEquipPicking(){
+  const host=document.getElementById('equip-picking'); if(!host) return;
+  const canEdit=(typeof roleCan==='function') && roleCan('equipment');
+  const jobs=[];
+  projects.forEach(p=>{ (p.equipBookings||[]).forEach((b,bi)=>{ if(!b.unitId) return;
+    const unit=UNITS.find(u=>String(u.id)===String(b.unitId));
+    const co=findCheckout(p,b.unitId);
+    jobs.push({ projectId:p.id, projectName:p.name, bi, unitName:unit?unit.name:('#'+b.unitId), typeName:unit?unit.type:((_invByBooking(b)||{}).name||''), from:b.from, to:b.to, co, status: co?co.status:'ny' });
+  });});
+  const cnt=fn=>jobs.filter(j=>fn(j.status)).length;
+  const card=j=>{
+    let action='';
+    if(canEdit){
+      action = (j.status==='ny')
+        ? `<button class="modal-btn" style="padding:6px 14px;font-size:12px" onclick="createCheckout('${j.projectId}',${j.bi})">Start plukk</button>`
+        : `<button class="modal-btn" style="padding:6px 14px;font-size:12px;background:var(--surface);color:var(--text);border:1px solid var(--border)" onclick="openCheckoutModal('${j.projectId}','${j.co.id}')">Åpne</button>`;
+    } else if(j.co){
+      action = `<button class="modal-btn" style="padding:6px 14px;font-size:12px;background:var(--surface);color:var(--text);border:1px solid var(--border)" onclick="openCheckoutModal('${j.projectId}','${j.co.id}')">Vis</button>`;
+    }
+    return `<div class="un-row" style="align-items:center">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="un-id">${escHtml(j.unitName)}</span>
+          <span style="font-size:11px;color:var(--muted)">${escHtml(j.typeName)}</span>
+          ${j.co?`<span style="font-size:10px;color:var(--muted)">Plukket ${j.co.lines.filter(l=>l.plukket).length}/${j.co.lines.length}</span>`:''}
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">${escHtml(j.projectName)} · ${fmtD(j.from)} – ${fmtD(j.to)}</div>
+      </div>
+      ${action}
+    </div>`;
+  };
+  if(!jobs.length){ host.innerHTML=`<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">Ingen enheter er tildelt prosjekter ennå. Når en enhet tildeles en booking på et prosjekt, dukker plukkjobben opp her.</div>`; return; }
+  let html=`<div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:16px;font-size:12px">
+    <span style="color:#d97706"><strong>${cnt(s=>s==='ny'||s==='plukkes')}</strong> til plukk</span>
+    <span style="color:#16a34a"><strong>${cnt(s=>s==='utsjekket')}</strong> ute</span>
+    <span style="color:#3b82f6"><strong>${cnt(s=>s==='iretur')}</strong> i retur</span>
+    <span style="color:var(--muted)"><strong>${cnt(s=>s==='mottatt')}</strong> fullført</span>
+  </div>`;
+  const buckets=[
+    {title:'📋 Til plukk', match:s=>s==='ny'||s==='plukkes', c:'#d97706'},
+    {title:'🚚 Sjekket ut', match:s=>s==='utsjekket', c:'#16a34a'},
+    {title:'↩ I retur', match:s=>s==='iretur', c:'#3b82f6'},
+  ];
+  buckets.forEach(bk=>{
+    const items=jobs.filter(j=>bk.match(j.status));
+    html+=`<div class="un-group">
+      <div class="un-group-head" style="color:${bk.c}">${bk.title} <span style="color:var(--muted);font-weight:400">· ${items.length}</span></div>
+      ${items.map(card).join('')||'<div style="padding:12px;color:var(--muted);font-size:12px">Ingenting her nå.</div>'}
+    </div>`;
+  });
+  const done=jobs.filter(j=>j.status==='mottatt');
+  if(done.length) html+=`<div class="un-group"><div class="un-group-head" style="color:var(--muted)">✓ Fullført · ${done.length}</div>${done.map(card).join('')}</div>`;
+  host.innerHTML=html;
+}
 function renderEquipment(){
   const uniqueItems=[...new Set(INVENTORY.map(i=>i.name))];
   const now=new Date();
@@ -6308,17 +6394,20 @@ function renderEquipment(){
   renderEquipCalendar();
 }
 function setEquipView(v){
-  const inv=document.getElementById('equip-pane-inventory'), cal=document.getElementById('equip-pane-calendar'), un=document.getElementById('equip-pane-units');
-  const ti=document.getElementById('equip-tab-inv'), tc=document.getElementById('equip-tab-cal'), tu=document.getElementById('equip-tab-units');
+  const inv=document.getElementById('equip-pane-inventory'), cal=document.getElementById('equip-pane-calendar'), un=document.getElementById('equip-pane-units'), pk=document.getElementById('equip-pane-picking');
+  const ti=document.getElementById('equip-tab-inv'), tc=document.getElementById('equip-tab-cal'), tu=document.getElementById('equip-tab-units'), tp=document.getElementById('equip-tab-pick');
   if(!inv||!cal) return;
   inv.style.display = v==='inventory'?'block':'none';
   un && (un.style.display = v==='units'?'block':'none');
+  pk && (pk.style.display = v==='picking'?'block':'none');
   cal.style.display = v==='calendar'?'block':'none';
   ti && ti.classList.toggle('active', v==='inventory');
   tu && tu.classList.toggle('active', v==='units');
+  tp && tp.classList.toggle('active', v==='picking');
   tc && tc.classList.toggle('active', v==='calendar');
   if(v==='calendar') renderEquipCalendar();
   else if(v==='units') renderEquipUnits();
+  else if(v==='picking') renderEquipPicking();
 }
 function equipCalToday(){ equipCalOffset=0; renderEquipCalendar(); }
 function toggleEquipOnlyBooked(){ equipOnlyBooked=!equipOnlyBooked; renderEquipCalendar(); }
@@ -6553,13 +6642,11 @@ function renderProjectEquip(p){
       let assignHtml='';
       if(assignedUnit){
         const co=findCheckout(p,assignedUnit.id);
-        const coLbl=(CO_STATUS[co&&co.status]||{}).l;
+        const coInfo=CO_STATUS[co&&co.status];
         assignHtml=`<div style="margin-top:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span class="un-chip" style="background:rgba(34,197,94,.14);color:#16a34a">🔧 Enhet: ${escHtml(assignedUnit.name)}</span>
           <button onclick="openContentsModal('${assignedUnit.id}')" style="background:none;border:none;color:var(--accent2);cursor:pointer;font-size:11px">📋 Innhold (${unitContentCount(assignedUnit.id)})</button>
-          ${co
-            ? `<button onclick="openCheckoutModal('${p.id}','${co.id}')" style="background:none;border:none;color:#7c3aed;cursor:pointer;font-size:11px">📦 Plukkliste (${coLbl||co.status})</button>`
-            : `<button onclick="createCheckout('${p.id}',${bi})" style="background:none;border:none;color:#7c3aed;cursor:pointer;font-size:11px">📦 Lag plukkliste</button>`}
+          ${co?`<span class="un-chip" style="background:rgba(124,58,237,.14);color:#7c3aed" title="Håndteres av lageret under Utstyr → Plukk & retur">📦 ${coInfo?coInfo.l:co.status}</span>`:''}
           <button onclick="unassignUnitFromBooking('${p.id}',${bi})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px">Frigi</button>
         </div>`;
       } else if(b.unitId){
@@ -6715,7 +6802,7 @@ async function createCheckout(projectId, bi){
   openCheckoutModal(projectId, co.id);
 }
 function openCheckoutModal(projectId, coId){ coCtx={projectId,coId}; renderCheckoutModalBody(); document.getElementById('checkout-overlay').classList.add('open'); }
-function closeCheckoutModal(){ document.getElementById('checkout-overlay').classList.remove('open'); if(coCtx.projectId) openEditModal(coCtx.projectId,'equipment'); }
+function closeCheckoutModal(){ document.getElementById('checkout-overlay').classList.remove('open'); if(typeof renderEquipPicking==='function') renderEquipPicking(); }
 function setPickField(i,key,val){ const {co}=_getCheckout(); if(!co||!co.lines[i]) return; if(key==='antallPlukket'||key==='antallMottatt'){ co.lines[i][key]=parseFloat(String(val).replace(',','.'))||0; } else co.lines[i][key]=val; }
 async function saveCheckout(){ const {p}=_getCheckout(); if(!p) return; if(graphMode) await saveToLists(p); showToast('Lagret ✓'); }
 async function checkoutUnit(){
