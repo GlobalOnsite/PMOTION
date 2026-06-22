@@ -3508,6 +3508,11 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
   <div class="modal" style="width:min(1150px,97vw);max-width:97vw"><button class="modal-close" onclick="closeContentsModal()">✕</button><div id="content-modal-body"></div></div>
 </div>
 
+<!-- PLUKKLISTE / RETUR MODAL -->
+<div class="modal-overlay" id="checkout-overlay" onclick="if(event.target===this)closeCheckoutModal()" style="z-index:275">
+  <div class="modal" style="width:min(900px,97vw);max-width:97vw"><button class="modal-close" onclick="closeCheckoutModal()">✕</button><div id="checkout-modal-body"></div></div>
+</div>
+
 <!-- GANTT TOOLTIP -->
 <div class="gantt-tooltip" id="gantt-tooltip"><strong id="tt-name"></strong><span id="tt-dates"></span></div>
 
@@ -4044,6 +4049,7 @@ function toFields(p){
   // Per-prosjekt endringslogg + manuell logg – lagres som JSON kun hvis kolonnene finnes
   if(hasCol('Endringslogg')) f.Endringslogg = JSON.stringify(p.projChangeLog||[]);
   if(hasCol('Logg')) f.Logg = JSON.stringify(p.log||[]);
+  if(hasCol('Utsjekk')) f.Utsjekk = JSON.stringify(p.checkouts||[]);
   return { fields:f };
 }
 
@@ -4073,6 +4079,7 @@ function fromItem(item){
   if(f.Tilbudsprosess!=null){ o.quoteProcess = parseSPJson(f.Tilbudsprosess, {}); }
   if(f.Endringslogg!=null){ o.projChangeLog = parseSPJson(f.Endringslogg, []); }
   if(f.Logg!=null){ o.log = parseSPJson(f.Logg, []); }
+  if(f.Utsjekk!=null){ o.checkouts = parseSPJson(f.Utsjekk, []); }
   return o;
 }
 async function loadFromLists(){
@@ -6545,9 +6552,14 @@ function renderProjectEquip(p){
       const ssel="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px";
       let assignHtml='';
       if(assignedUnit){
+        const co=findCheckout(p,assignedUnit.id);
+        const coLbl=(CO_STATUS[co&&co.status]||{}).l;
         assignHtml=`<div style="margin-top:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <span class="un-chip" style="background:rgba(34,197,94,.14);color:#16a34a">🔧 Enhet: ${escHtml(assignedUnit.name)}</span>
           <button onclick="openContentsModal('${assignedUnit.id}')" style="background:none;border:none;color:var(--accent2);cursor:pointer;font-size:11px">📋 Innhold (${unitContentCount(assignedUnit.id)})</button>
+          ${co
+            ? `<button onclick="openCheckoutModal('${p.id}','${co.id}')" style="background:none;border:none;color:#7c3aed;cursor:pointer;font-size:11px">📦 Plukkliste (${coLbl||co.status})</button>`
+            : `<button onclick="createCheckout('${p.id}',${bi})" style="background:none;border:none;color:#7c3aed;cursor:pointer;font-size:11px">📦 Lag plukkliste</button>`}
           <button onclick="unassignUnitFromBooking('${p.id}',${bi})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px">Frigi</button>
         </div>`;
       } else if(b.unitId){
@@ -6671,6 +6683,120 @@ async function unassignUnitFromBooking(projectId,bi){
   delete b.unitId;
   if(graphMode) await saveToLists(p);
   openEditModal(projectId,'equipment'); showToast('Enhet frigitt');
+}
+/* ═══════════════════════════════════════════════
+   PLUKKLISTE / UTSJEKK / RETUR (steg 4–5)
+   Lagres som JSON på prosjektet (kolonne Utsjekk).
+═══════════════════════════════════════════════ */
+const CO_STATUS={ plukkes:{l:'Til plukk',c:'#d97706'}, utsjekket:{l:'Sjekket ut',c:'#16a34a'}, iretur:{l:'I retur',c:'#3b82f6'}, mottatt:{l:'Mottatt',c:'#6b7280'} };
+let coCtx={projectId:null, coId:null};
+function findCheckout(p,unitId){ return (p.checkouts||[]).find(c=>String(c.unitId)===String(unitId)); }
+function _getCheckout(){ const p=projects.find(pr=>pr.id===coCtx.projectId); const co=p&&(p.checkouts||[]).find(c=>c.id===coCtx.coId); return {p,co}; }
+async function _setUnitStatus(unitId,status){
+  const u=UNITS.find(x=>String(x.id)===String(unitId)); if(u) u.status=status;
+  const ctx=await _unitCtx(); if(ctx&&ctx.cm.status){ try{ await gPatch(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${unitId}/fields`,{[ctx.cm.status]:status}); }catch(e){} }
+}
+async function createCheckout(projectId, bi){
+  const p=projects.find(pr=>pr.id===projectId); if(!p) return;
+  const b=p.equipBookings&&p.equipBookings[bi]; if(!b||!b.unitId){ showToast('Tildel en enhet først',true); return; }
+  const unit=UNITS.find(u=>String(u.id)===String(b.unitId)); if(!unit){ showToast('Fant ikke enheten',true); return; }
+  if(!p.checkouts) p.checkouts=[];
+  if(findCheckout(p,unit.id)){ showToast('Plukkliste finnes allerede for enheten',true); return; }
+  const lines=CONTENTS.filter(c=>c.enhetId===String(unit.id))
+    .sort((a,b)=>(a.kategori||'').localeCompare(b.kategori||'','nb')||(a.rekkefolge-b.rekkefolge))
+    .map(c=>({ name:c.name, kategori:c.kategori, artikkelnr:c.artikkelnr, maleenhet:c.maleenhet,
+      antallForventet:c.antall, antallPlukket:c.antall, plukket:false,
+      antallMottatt:0, tilstand:'', returkommentar:'',
+      kostpris:c.kostpris, valuta:c.valuta, hskode:c.hskode, opprinnelse:c.opprinnelse }));
+  const co={ id:'co'+Date.now(), unitId:String(unit.id), unitName:unit.name, typeName:unit.type, from:b.from, to:b.to, status:'plukkes', opprettet:new Date().toISOString(), lines };
+  p.checkouts.push(co);
+  if(typeof addProjChangeLog==='function') addProjChangeLog(projectId,'resource','📦',`Plukkliste opprettet for ${unit.name}`,'',unit.name);
+  if(graphMode) await saveToLists(p);
+  openCheckoutModal(projectId, co.id);
+}
+function openCheckoutModal(projectId, coId){ coCtx={projectId,coId}; renderCheckoutModalBody(); document.getElementById('checkout-overlay').classList.add('open'); }
+function closeCheckoutModal(){ document.getElementById('checkout-overlay').classList.remove('open'); if(coCtx.projectId) openEditModal(coCtx.projectId,'equipment'); }
+function setPickField(i,key,val){ const {co}=_getCheckout(); if(!co||!co.lines[i]) return; if(key==='antallPlukket'||key==='antallMottatt'){ co.lines[i][key]=parseFloat(String(val).replace(',','.'))||0; } else co.lines[i][key]=val; }
+async function saveCheckout(){ const {p}=_getCheckout(); if(!p) return; if(graphMode) await saveToLists(p); showToast('Lagret ✓'); }
+async function checkoutUnit(){
+  const {p,co}=_getCheckout(); if(!p||!co) return;
+  if(!confirm('Sjekke ut enheten? Den settes til «utleid».')) return;
+  co.status='utsjekket'; co.utsjekketTs=new Date().toISOString();
+  await _setUnitStatus(co.unitId,'utleid');
+  if(typeof addProjChangeLog==='function') addProjChangeLog(p.id,'resource','📦',`Enhet sjekket ut: ${co.unitName}`,'',co.unitName);
+  if(graphMode) await saveToLists(p);
+  renderCheckoutModalBody(); showToast('Enhet sjekket ut ✓');
+}
+function startReturn(){ const {co}=_getCheckout(); if(!co) return; co.status='iretur'; co.lines.forEach(l=>{ if(!l.antallMottatt) l.antallMottatt=l.antallPlukket; if(!l.tilstand) l.tilstand='OK'; }); renderCheckoutModalBody(); }
+async function receiveCheckout(){
+  const {p,co}=_getCheckout(); if(!p||!co) return;
+  const damaged=co.lines.some(l=> l.tilstand && l.tilstand!=='OK' && l.tilstand!=='');
+  const missing=co.lines.some(l=> (parseFloat(l.antallMottatt)||0) < (parseFloat(l.antallPlukket)||0));
+  let msg='Fullføre mottak?';
+  if(damaged||missing){ msg+=`\n\nAvvik registrert (${[missing?'manglende varer':'',damaged?'skade':''].filter(Boolean).join(', ')}). Enheten settes til vedlikehold.`; }
+  if(!confirm(msg)) return;
+  co.status='mottatt'; co.mottattTs=new Date().toISOString();
+  await _setUnitStatus(co.unitId, (damaged||missing)?'vedlikehold':'tilgjengelig');
+  if(typeof addProjChangeLog==='function'){ const av=[]; if(missing)av.push('mangler'); if(damaged)av.push('skade'); addProjChangeLog(p.id,'resource','📥',`Enhet mottatt i retur: ${co.unitName}${av.length?' (avvik: '+av.join(', ')+')':''}`,'',co.unitName); }
+  if(graphMode) await saveToLists(p);
+  renderCheckoutModalBody(); showToast((damaged||missing)?'Mottatt – enhet til vedlikehold pga avvik':'Mottatt ✓ – enhet tilgjengelig');
+}
+function renderCheckoutModalBody(){
+  const host=document.getElementById('checkout-modal-body'); if(!host) return;
+  const {p,co}=_getCheckout(); if(!p||!co){ host.innerHTML='<div style="padding:30px;color:var(--muted)">Fant ikke plukklista.</div>'; return; }
+  const canEdit=(typeof roleCan==='function') && roleCan('equipment');
+  const st=CO_STATUS[co.status]||CO_STATUS.plukkes;
+  const showReturn = co.status==='iretur' || co.status==='mottatt';
+  const editPick = canEdit && co.status==='plukkes';
+  const editRet = canEdit && co.status==='iretur';
+  const inp="padding:4px 6px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font-size:12px";
+  const picked=co.lines.filter(l=>l.plukket).length;
+  const rows=co.lines.map((l,i)=>{
+    const avvik = showReturn && ((parseFloat(l.antallMottatt)||0) < (parseFloat(l.antallPlukket)||0) || (l.tilstand && l.tilstand!=='OK' && l.tilstand!==''));
+    return `<tr style="${avvik?'background:rgba(239,68,68,.06)':''}">
+      <td style="text-align:center"><input type="checkbox" ${l.plukket?'checked':''} ${editPick?'':'disabled'} onchange="setPickField(${i},'plukket',this.checked)"></td>
+      <td>${escHtml(l.name)}${l.kategori?`<div style="font-size:10px;color:var(--muted)">${escHtml(l.kategori)}</div>`:''}</td>
+      <td style="text-align:center">${l.antallForventet}${l.maleenhet?' '+escHtml(l.maleenhet):''}</td>
+      <td style="text-align:center"><input type="number" step="any" value="${l.antallPlukket}" ${editPick?'':'disabled'} onchange="setPickField(${i},'antallPlukket',this.value)" style="${inp};width:60px"></td>
+      ${showReturn?`<td style="text-align:center"><input type="number" step="any" value="${l.antallMottatt}" ${editRet?'':'disabled'} onchange="setPickField(${i},'antallMottatt',this.value)" style="${inp};width:60px"></td>
+        <td><select ${editRet?'':'disabled'} onchange="setPickField(${i},'tilstand',this.value)" style="${inp}">
+          ${['OK','Skadet','Mangler'].map(t=>`<option value="${t}" ${(l.tilstand||'OK')===t?'selected':''}>${t}</option>`).join('')}
+        </select></td>`:''}
+    </tr>`;
+  }).join('');
+  const exportVal=()=>{ const tot={}; co.lines.forEach(l=>{ const v=l.valuta||'NOK'; tot[v]=(tot[v]||0)+(l.antallForventet||0)*(l.kostpris||0); }); return Object.entries(tot).map(([v,s])=>`${s.toLocaleString('nb-NO',{maximumFractionDigits:0})} ${v}`).join(' · ')||'0'; };
+  host.innerHTML=`<div style="padding:22px 24px">
+    <h2 style="margin:0 0 2px;font-size:18px">Plukkliste – ${escHtml(co.unitName)} <span style="font-size:12px;color:var(--muted)">(${escHtml(co.typeName)})</span></h2>
+    <div style="font-size:12px;margin-bottom:12px">Prosjekt: <strong>${escHtml(p.name)}</strong> · ${fmtD(co.from)} – ${fmtD(co.to)} · <span style="color:${st.c};font-weight:600">${st.l}</span> · Plukket ${picked}/${co.lines.length} · Vareverdi: ${exportVal()}</div>
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:9px">
+      <table class="content-table" style="width:100%;border-collapse:collapse;font-size:12px;min-width:${showReturn?'640px':'480px'}">
+        <thead><tr style="background:var(--surface);text-align:left">
+          <th style="width:34px">✓</th><th>Vare</th><th style="text-align:center">Forventet</th><th style="text-align:center">Plukket</th>
+          ${showReturn?'<th style="text-align:center">Mottatt</th><th>Tilstand</th>':''}
+        </tr></thead>
+        <tbody>${rows||'<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--muted)">Enheten har ingen innholdslinjer. Legg til innhold på enheten først.</td></tr>'}</tbody>
+      </table>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;align-items:center">
+      <button class="modal-btn" style="background:var(--surface);color:var(--text);border:1px solid var(--border)" onclick="printCheckout()">🖨 Skriv ut</button>
+      <div style="flex:1"></div>
+      ${editPick?`<button class="modal-btn" onclick="saveCheckout()">Lagre</button><button class="modal-btn" style="background:#16a34a" onclick="checkoutUnit()">✓ Sjekk ut</button>`:''}
+      ${canEdit&&co.status==='utsjekket'?`<button class="modal-btn" style="background:#3b82f6" onclick="startReturn()">↩ Registrer retur</button>`:''}
+      ${editRet?`<button class="modal-btn" onclick="saveCheckout()">Lagre</button><button class="modal-btn" style="background:#16a34a" onclick="receiveCheckout()">✓ Fullfør mottak</button>`:''}
+    </div>
+  </div>`;
+}
+function printCheckout(){
+  const {p,co}=_getCheckout(); if(!p||!co) return;
+  const rows=co.lines.map(l=>`<tr><td>${escHtml(l.kategori||'')}</td><td>${escHtml(l.name)}</td><td style="text-align:center">${l.antallForventet} ${escHtml(l.maleenhet||'')}</td><td style="width:55px"></td><td style="width:130px"></td></tr>`).join('');
+  const w=window.open('','_blank'); if(!w){ showToast('Tillat popup for utskrift',true); return; }
+  w.document.write(`<html><head><title>Plukkliste ${escHtml(co.unitName)}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{font-size:18px;margin:0 0 4px}table{width:100%;border-collapse:collapse;font-size:12px;margin-top:14px}th,td{border:1px solid #999;padding:5px 7px;text-align:left}th{background:#eee}</style></head><body>
+    <h1>Plukkliste – ${escHtml(co.unitName)} (${escHtml(co.typeName)})</h1>
+    <div style="font-size:12px">Prosjekt: ${escHtml(p.name)} &nbsp;·&nbsp; Periode: ${fmtD(co.from)} – ${fmtD(co.to)}</div>
+    <table><thead><tr><th>Kategori</th><th>Vare</th><th>Antall</th><th>Plukket</th><th>Kommentar</th></tr></thead><tbody>${rows}</tbody></table>
+    <p style="margin-top:28px;font-size:12px">Plukket av: ____________________  &nbsp;&nbsp; Dato: ____________</p>
+  </body></html>`);
+  w.document.close(); w.focus(); setTimeout(()=>{ try{w.print();}catch(e){} }, 250);
 }
 
 /* ═══════════════════════════════════
