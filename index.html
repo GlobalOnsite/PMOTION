@@ -237,6 +237,8 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
 .un-chip-amber{background:rgba(217,119,6,.16);color:#d97706}
 .un-chip-red{background:rgba(239,68,68,.16);color:#ef4444}
 .un-edit{background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px}
+.content-table th{padding:7px 8px;font-size:11px;color:var(--muted);font-weight:600;border-bottom:1px solid var(--border)}
+.content-table td{padding:3px 5px;border-bottom:1px solid var(--border)}
 .equip-zoom-btn{background:var(--surface);border:1px solid var(--border);color:var(--muted);padding:5px 11px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit}
 .equip-zoom-btn:hover{color:var(--text)}
 .equip-zoom-btn.active{background:#2563eb;color:#fff;border-color:#2563eb}
@@ -3501,6 +3503,11 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
   <div class="modal" style="width:820px;max-width:97vw"><button class="modal-close" onclick="closeQuoteBuilder()">✕</button><div id="quote-content"></div></div>
 </div>
 
+<!-- UTSTYRSINNHOLD MODAL (bred) -->
+<div class="modal-overlay" id="content-overlay" onclick="if(event.target===this)closeContentsModal()" style="z-index:270">
+  <div class="modal" style="width:min(1150px,97vw);max-width:97vw"><button class="modal-close" onclick="closeContentsModal()">✕</button><div id="content-modal-body"></div></div>
+</div>
+
 <!-- GANTT TOOLTIP -->
 <div class="gantt-tooltip" id="gantt-tooltip"><strong id="tt-name"></strong><span id="tt-dates"></span></div>
 
@@ -4076,6 +4083,7 @@ async function loadFromLists(){
     await loadChecklistTemplatesFromSP();   // hent sjekkliste-maler fra SharePoint (fallback: hardkodet)
     await loadEquipmentFromSP();             // hent utstyrskatalog fra SharePoint (fallback: hardkodet)
     await loadUnitsFromSP();                  // hent unike utstyrsenheter fra SharePoint
+    await loadContentsFromSP();               // hent utstyrsinnhold (varelinjer pr enhet/mal)
     await loadEmployeesFromGraph();          // hent alle ansatte fra Microsoft 365 (Graph)
     await loadStaffBookings();               // hent bemanning (prosjekt/ferie/avspasering) fra SharePoint
     await loadChangeLog();                    // hent endringslogg fra SharePoint (overlever oppdatering)
@@ -5934,6 +5942,222 @@ async function deleteUnit(id){
     UNITS=UNITS.filter(x=>x.id!==id); closeModal(); renderEquipUnits(); showToast('Enhet slettet ✓');
   }catch(e){ showToast('Kunne ikke slette: '+e.message, true); }
 }
+/* ═══════════════════════════════════════════════
+   UTSTYRSINNHOLD – varelinjer pr enhet (og maler pr type)
+   Liste: PMOTIONUtstyrsinnhold.  EnhetId = enhetens id, eller «MAL:<type>».
+═══════════════════════════════════════════════ */
+const CONTENT_LIST_TITLE='PMOTIONUtstyrsinnhold';
+let CONTENTS=[]; let contentListId=null, contentCm=null;
+let contentScope='', contentScopeLabel='', contentScopeType='';
+function _js(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+async function resolveContentList(){
+  if(contentListId) return contentListId;
+  try{ const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists?$filter=displayName eq '${CONTENT_LIST_TITLE}'&$select=id`); contentListId=((d.value||[])[0]||{}).id||null; }
+  catch(e){ contentListId=null; }
+  return contentListId;
+}
+async function contentColMap(lid){
+  let cols=[]; try{ const c=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/columns?$select=name,displayName`); cols=c.value||[]; }catch(e){}
+  const byNorm={}; cols.forEach(col=>{ byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name; });
+  const map={_found:cols.map(c=>c.name)};
+  map.title=byNorm['title']||'Title';
+  map.enhetid=byNorm['enhetid']||null;
+  map.kategori=byNorm['kategori']||null;
+  map.artikkelnummer=byNorm['artikkelnummer']||byNorm['artikkelnr']||null;
+  map.antall=byNorm['antall']||null;
+  map.maleenhet=byNorm['enhet']||byNorm['maleenhet']||null;
+  map.kostpris=byNorm['kostpris']||null;
+  map.valuta=byNorm['valuta']||null;
+  map.hskode=byNorm['hskode']||byNorm['hs']||null;
+  map.opprinnelsesland=byNorm['opprinnelsesland']||byNorm['opprinnelse']||null;
+  map.vekt=byNorm['vekt']||null;
+  map.kommentar=byNorm['kommentar']||null;
+  map.rekkefolge=byNorm['rekkefolge']||null;
+  return map;
+}
+async function _contentCtx(){ const lid=await resolveContentList(); if(!lid) return null; if(!contentCm) contentCm=await contentColMap(lid); return {lid,cm:contentCm}; }
+async function loadContentsFromSP(){
+  try{
+    const lid=await resolveContentList(); if(!lid){ CONTENTS=[]; return false; }
+    const cm=await contentColMap(lid); contentCm=cm;
+    let url=`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?expand=fields&$top=999`;
+    const all=[];
+    while(url){ const d=await gGet(url); ((d&&d.value)||[]).forEach(it=>all.push(it)); const nl=d&&d['@odata.nextLink']; url = nl? nl.replace(GRAPH,'') : null; }
+    CONTENTS=all.filter(it=>it.fields).map(it=>{ const f=it.fields; return {
+      id:it.id,
+      enhetId:String((cm.enhetid?f[cm.enhetid]:'')||''),
+      name:f[cm.title]||'',
+      kategori:(cm.kategori?f[cm.kategori]:'')||'',
+      artikkelnr:(cm.artikkelnummer?f[cm.artikkelnummer]:'')||'',
+      antall:parseFloat(cm.antall?f[cm.antall]:0)||0,
+      maleenhet:(cm.maleenhet?f[cm.maleenhet]:'')||'',
+      kostpris:parseFloat(cm.kostpris?f[cm.kostpris]:0)||0,
+      valuta:(cm.valuta?f[cm.valuta]:'')||'NOK',
+      hskode:(cm.hskode?f[cm.hskode]:'')||'',
+      opprinnelse:(cm.opprinnelsesland?f[cm.opprinnelsesland]:'')||'',
+      vekt:parseFloat(cm.vekt?f[cm.vekt]:0)||0,
+      kommentar:(cm.kommentar?f[cm.kommentar]:'')||'',
+      rekkefolge:parseInt(cm.rekkefolge?f[cm.rekkefolge]:0)||0,
+    };});
+    return true;
+  }catch(e){ console.warn('loadContentsFromSP',e); CONTENTS=[]; return false; }
+}
+function _contentFields(cm,c){
+  const f={ [cm.title]: c.name||'Ny vare' };
+  if(cm.enhetid) f[cm.enhetid]=String(c.enhetId||'');
+  if(cm.kategori) f[cm.kategori]=c.kategori||'';
+  if(cm.artikkelnummer) f[cm.artikkelnummer]=c.artikkelnr||'';
+  if(cm.antall) f[cm.antall]=c.antall||0;
+  if(cm.maleenhet) f[cm.maleenhet]=c.maleenhet||'';
+  if(cm.kostpris) f[cm.kostpris]=c.kostpris||0;
+  if(cm.valuta) f[cm.valuta]=c.valuta||'NOK';
+  if(cm.hskode) f[cm.hskode]=c.hskode||'';
+  if(cm.opprinnelsesland) f[cm.opprinnelsesland]=c.opprinnelse||'';
+  if(cm.vekt) f[cm.vekt]=c.vekt||0;
+  if(cm.kommentar) f[cm.kommentar]=c.kommentar||'';
+  if(cm.rekkefolge) f[cm.rekkefolge]=c.rekkefolge||0;
+  return f;
+}
+function unitContentCount(id){ const s=String(id); return CONTENTS.filter(c=>c.enhetId===s).length; }
+function openContentsModal(scopeId,label,type){
+  scopeId=String(scopeId);
+  if(!label && scopeId.indexOf('MAL:')!==0){ const u=UNITS.find(x=>String(x.id)===scopeId); if(u){ label=u.name+' · '+u.type; type=u.type; } }
+  contentScope=scopeId; contentScopeLabel=label||scopeId; contentScopeType=type||'';
+  renderContentsModalBody();
+  document.getElementById('content-overlay').classList.add('open');
+}
+function closeContentsModal(){ document.getElementById('content-overlay').classList.remove('open'); if(typeof renderEquipUnits==='function') renderEquipUnits(); }
+function updateContentsTotals(){
+  const el=document.getElementById('content-tot'); if(!el) return;
+  const tot={}; CONTENTS.filter(c=>c.enhetId===contentScope).forEach(c=>{ const v=c.valuta||'NOK'; tot[v]=(tot[v]||0)+(c.antall||0)*(c.kostpris||0); });
+  el.textContent = Object.keys(tot).length? Object.entries(tot).map(([v,s])=>`${s.toLocaleString('nb-NO',{maximumFractionDigits:0})} ${v}`).join(' · ') : '0';
+}
+function renderContentsModalBody(){
+  const host=document.getElementById('content-modal-body'); if(!host) return;
+  const canEdit=(typeof roleCan==='function') && roleCan('equipment');
+  const isTmpl=contentScope.indexOf('MAL:')===0;
+  const lines=CONTENTS.filter(c=>c.enhetId===contentScope).sort((a,b)=> (a.kategori||'').localeCompare(b.kategori||'','nb') || (a.rekkefolge-b.rekkefolge) || a.name.localeCompare(b.name,'nb'));
+  const tot={}; lines.forEach(c=>{ const v=c.valuta||'NOK'; tot[v]=(tot[v]||0)+(c.antall||0)*(c.kostpris||0); });
+  const totStr=Object.keys(tot).length? Object.entries(tot).map(([v,s])=>`${s.toLocaleString('nb-NO',{maximumFractionDigits:0})} ${v}`).join(' · ') : '0';
+  const inp="width:100%;padding:5px 6px;border:1px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);font-size:12px;box-sizing:border-box";
+  const ro=!canEdit?'disabled':'';
+  const hasTmpl = !isTmpl && contentScopeType && CONTENTS.some(c=>c.enhetId==='MAL:'+contentScopeType);
+  const rows=lines.map(c=>`<tr>
+    <td><input style="${inp}" value="${escAttr(c.name)}" ${ro} onchange="saveContentCell('${c.id}','name',this.value)"></td>
+    <td><input style="${inp};width:90px" value="${escAttr(c.artikkelnr)}" ${ro} onchange="saveContentCell('${c.id}','artikkelnr',this.value)"></td>
+    <td><input type="number" step="any" style="${inp};width:62px" value="${c.antall}" ${ro} onchange="saveContentCell('${c.id}','antall',this.value)"></td>
+    <td><input style="${inp};width:50px" value="${escAttr(c.maleenhet)}" ${ro} onchange="saveContentCell('${c.id}','maleenhet',this.value)"></td>
+    <td><input type="number" step="any" style="${inp};width:82px" value="${c.kostpris}" ${ro} onchange="saveContentCell('${c.id}','kostpris',this.value)"></td>
+    <td><input style="${inp};width:52px" value="${escAttr(c.valuta)}" ${ro} onchange="saveContentCell('${c.id}','valuta',this.value)"></td>
+    <td><input style="${inp};width:84px" value="${escAttr(c.hskode)}" ${ro} onchange="saveContentCell('${c.id}','hskode',this.value)"></td>
+    <td><input style="${inp};width:96px" value="${escAttr(c.opprinnelse)}" ${ro} onchange="saveContentCell('${c.id}','opprinnelse',this.value)"></td>
+    <td><input style="${inp};width:120px" value="${escAttr(c.kategori)}" ${ro} onchange="saveContentCell('${c.id}','kategori',this.value)"></td>
+    <td style="text-align:center">${canEdit?`<button onclick="deleteContentLine('${c.id}')" title="Slett" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:14px">🗑</button>`:''}</td>
+  </tr>`).join('');
+  host.innerHTML=`<div style="padding:22px 24px">
+    <h2 style="margin:0 0 2px;font-size:18px">Innhold – ${escHtml(contentScopeLabel)}</h2>
+    <div style="color:var(--muted);font-size:12px;margin-bottom:12px">${lines.length} varelinjer · Verdi: <strong id="content-tot">${totStr}</strong> ${isTmpl?'· <span style="color:#7c3aed;font-weight:600">Innholdsmal</span>':''}</div>
+    ${canEdit?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="modal-btn" onclick="addContentLine()">+ Ny linje</button>
+      ${hasTmpl?`<button class="modal-btn" style="background:#7c3aed" onclick="copyFromTemplate()">📋 Kopier fra mal</button>`:''}
+      <button class="modal-btn" style="background:var(--surface);color:var(--text);border:1px solid var(--border)" onclick="var b=document.getElementById('content-paste-box');b.style.display=(b.style.display==='none'?'block':'none')">📥 Lim inn fra Excel</button>
+    </div>
+    <div id="content-paste-box" style="display:none;margin-bottom:12px">
+      <textarea id="content-paste" rows="5" placeholder="Lim inn fra Excel: én vare per linje, «Navn[tab]Antall». Linjer uten antall blir kategori-overskrift." style="${inp};font-family:'DM Mono',monospace"></textarea>
+      <button class="modal-btn" style="margin-top:6px" onclick="importContentsPaste()">Importer linjer</button>
+    </div>`:''}
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:9px">
+      <table class="content-table" style="width:100%;border-collapse:collapse;font-size:12px;min-width:840px">
+        <thead><tr style="background:var(--surface);text-align:left">
+          <th>Vare</th><th>Art.nr</th><th>Antall</th><th>Enhet</th><th>Kostpris</th><th>Valuta</th><th>HS-kode</th><th>Opprinnelse</th><th>Kategori</th><th></th>
+        </tr></thead>
+        <tbody>${rows||`<tr><td colspan="10" style="padding:22px;text-align:center;color:var(--muted)">Ingen varelinjer ennå.${canEdit?' Bruk «+ Ny linje» eller «Lim inn fra Excel».':''}</td></tr>`}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+async function saveContentCell(id,key,val){
+  const c=CONTENTS.find(x=>x.id===id); if(!c) return;
+  const ctx=await _contentCtx(); if(!ctx) return;
+  const numeric=['antall','kostpris','vekt'];
+  let v=val; if(numeric.indexOf(key)>=0) v=parseFloat(String(val).replace(',','.'))||0;
+  c[key]=v;
+  const colKeyMap={ name:'title', kategori:'kategori', artikkelnr:'artikkelnummer', antall:'antall', maleenhet:'maleenhet', kostpris:'kostpris', valuta:'valuta', hskode:'hskode', opprinnelse:'opprinnelsesland', vekt:'vekt', kommentar:'kommentar' };
+  const col=ctx.cm[colKeyMap[key]]; if(!col) return;
+  try{ await gPatch(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${id}/fields`,{[col]:v});
+    if(key==='antall'||key==='kostpris'||key==='valuta') updateContentsTotals();
+  }catch(e){ showToast('Lagring feilet: '+e.message,true); }
+}
+async function addContentLine(){
+  const ctx=await _contentCtx(); if(!ctx){ showToast('Opprett lista «'+CONTENT_LIST_TITLE+'» først',true); return; }
+  const order=Math.max(0,...CONTENTS.filter(c=>c.enhetId===contentScope).map(c=>c.rekkefolge||0))+1;
+  const line={ enhetId:contentScope, name:'Ny vare', kategori:'', artikkelnr:'', antall:1, maleenhet:'stk', kostpris:0, valuta:'NOK', hskode:'', opprinnelse:'', vekt:0, kommentar:'', rekkefolge:order };
+  try{ const r=await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items`,{fields:_contentFields(ctx.cm,line)}); line.id=r&&r.id; CONTENTS.push(line); renderContentsModalBody(); }
+  catch(e){ showToast('Kunne ikke legge til: '+e.message,true); }
+}
+async function deleteContentLine(id){
+  const c=CONTENTS.find(x=>x.id===id); if(!c) return;
+  if(!confirm(`Slett «${c.name}»?`)) return;
+  const ctx=await _contentCtx(); if(!ctx) return;
+  try{ await gDelete(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${id}`); CONTENTS=CONTENTS.filter(x=>x.id!==id); renderContentsModalBody(); }
+  catch(e){ showToast('Kunne ikke slette: '+e.message,true); }
+}
+async function importContentsPaste(){
+  const ta=document.getElementById('content-paste'); if(!ta) return;
+  const text=ta.value||''; if(!text.trim()){ showToast('Lim inn liste først',true); return; }
+  const ctx=await _contentCtx(); if(!ctx){ showToast('Opprett lista «'+CONTENT_LIST_TITLE+'» først',true); return; }
+  let cat=''; let order=Math.max(0,...CONTENTS.filter(c=>c.enhetId===contentScope).map(c=>c.rekkefolge||0));
+  const toAdd=[];
+  text.split(/\r?\n/).forEach(raw=>{
+    if(!raw.trim()) return;
+    const cells=raw.split('\t').map(s=>s.trim()).filter((s,i,arr)=> i<arr.length); // behold posisjon
+    const last=cells[cells.length-1];
+    if(cells.length>=2 && /^\d+([.,]\d+)?$/.test(last)){
+      const qty=parseFloat(last.replace(',','.')); const name=cells.slice(0,-1).join(' ').trim();
+      if(name){ order++; toAdd.push({name, antall:qty, kategori:cat}); }
+    } else {
+      const name=cells.join(' ').trim();
+      if(name) cat=name; // kategori-overskrift
+    }
+  });
+  if(!toAdd.length){ showToast('Fant ingen varelinjer (sjekk at antall står i kolonne 2)',true); return; }
+  showToast(`Importerer ${toAdd.length} linjer...`);
+  let ok=0;
+  for(const t of toAdd){
+    const line={ enhetId:contentScope, name:t.name, kategori:t.kategori, artikkelnr:'', antall:t.antall, maleenhet:'', kostpris:0, valuta:'NOK', hskode:'', opprinnelse:'', vekt:0, kommentar:'', rekkefolge:++order };
+    try{ const r=await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items`,{fields:_contentFields(ctx.cm,line)}); line.id=r&&r.id; CONTENTS.push(line); ok++; }catch(e){ console.warn('import linje feilet',t,e); }
+  }
+  ta.value=''; showToast(`Importert ${ok} linjer ✓`); renderContentsModalBody();
+}
+async function copyFromTemplate(){
+  if(!contentScope || contentScope.indexOf('MAL:')===0) return;
+  const type=contentScopeType; const mal=CONTENTS.filter(c=>c.enhetId==='MAL:'+type);
+  if(!mal.length){ showToast('Ingen mal for type «'+type+'»',true); return; }
+  if(!confirm(`Kopiere ${mal.length} linjer fra malen for «${type}» inn i denne enheten?`)) return;
+  const ctx=await _contentCtx(); if(!ctx) return;
+  showToast(`Kopierer ${mal.length} linjer...`);
+  let ok=0;
+  for(const m of mal){
+    const line={...m, enhetId:contentScope}; delete line.id;
+    try{ const r=await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items`,{fields:_contentFields(ctx.cm,line)}); line.id=r&&r.id; CONTENTS.push(line); ok++; }catch(e){}
+  }
+  showToast(`Kopiert ${ok} linjer fra mal ✓`); renderContentsModalBody();
+}
+function openContentTemplates(){
+  const types=[...new Set(INVENTORY.map(i=>i.name))].sort((a,b)=>a.localeCompare(b,'nb'));
+  if(!types.length){ showToast('Ingen utstyrstyper i katalogen ennå',true); return; }
+  const cnt=t=>CONTENTS.filter(c=>c.enhetId==='MAL:'+t).length;
+  const html=`<div style="padding:24px 26px">
+    <h2 style="margin:0 0 4px;font-size:18px">Innholdsmaler per type</h2>
+    <div style="color:var(--muted);font-size:12px;margin-bottom:14px">Definér en standard innholdsliste per utstyrstype. Nye enheter kan kopiere fra malen.</div>
+    ${types.map(t=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1"><strong>${escHtml(t)}</strong> <span style="color:var(--muted);font-size:11px">· ${cnt(t)} linjer</span></div>
+      <button class="modal-btn" onclick="openContentsModal('MAL:${_js(t)}','Mal: ${_js(t)}','${_js(t)}')">Rediger mal</button>
+    </div>`).join('')}
+  </div>`;
+  document.getElementById('content-modal-body').innerHTML=html;
+  document.getElementById('content-overlay').classList.add('open');
+}
 function setUnitFilter(kind,val){ if(kind==='hub')unitFilterHub=val; else if(kind==='status')unitFilterStatus=val; renderEquipUnits(); }
 function _daysUntil(d){ if(!d) return null; const t=new Date(d); if(isNaN(t)) return null; const now=new Date(); now.setHours(0,0,0,0); t.setHours(0,0,0,0); return Math.round((t-now)/86400000); }
 function renderEquipUnits(){
@@ -5951,6 +6175,7 @@ function renderEquipUnits(){
   </div>`;
   const toolbar=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
     ${canEdit?`<button class="modal-btn" onclick="openUnitModal()">+ Ny enhet</button>`:''}
+    ${canEdit?`<button class="modal-btn" style="background:#7c3aed" onclick="openContentTemplates()">📋 Innholdsmaler</button>`:''}
     <div style="flex:1"></div>
     <select onchange="setUnitFilter('hub',this.value)" style="${sel}">
       <option value="all">Alle hubber</option>
@@ -5984,6 +6209,7 @@ function renderEquipUnits(){
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px">${certChip(u)}${maintChip(u)}</div>
           ${u.note?`<div style="font-size:11px;color:var(--muted);margin-top:4px">${escHtml(u.note)}</div>`:''}
         </div>
+        <button class="un-edit" onclick="openContentsModal('${u.id}')" title="Innhold / utstyrsliste">📋 ${unitContentCount(u.id)}</button>
         ${canEdit?`<button class="un-edit" onclick="openUnitModal('${u.id}')" title="Rediger">✏️</button>`:''}
       </div>`;
     }).join('');
