@@ -6540,9 +6540,33 @@ function renderProjectEquip(p){
     myBookings.forEach((b,bi)=>{
       const item=_invByBooking(b);
       const hub=item?HUBS.find(h=>h.id===item.hub):null;
-      html+=`<div class="pipe-row" style="margin-bottom:6px">
-        <div style="flex:1"><div style="font-size:13px;font-weight:500">${item?item.name:'Ukjent'}</div>
-        <div style="font-size:11px;color:var(--muted)">${hub?hub.flag+' '+hub.name:''} · Antall: ${b.qty} · ${fmtD(b.from)} – ${fmtD(b.to)}</div></div>
+      const typeName=item?item.name:'';
+      const assignedUnit = b.unitId ? UNITS.find(u=>String(u.id)===String(b.unitId)) : null;
+      const ssel="padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px";
+      let assignHtml='';
+      if(assignedUnit){
+        assignHtml=`<div style="margin-top:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="un-chip" style="background:rgba(34,197,94,.14);color:#16a34a">🔧 Enhet: ${escHtml(assignedUnit.name)}</span>
+          <button onclick="openContentsModal('${assignedUnit.id}')" style="background:none;border:none;color:var(--accent2);cursor:pointer;font-size:11px">📋 Innhold (${unitContentCount(assignedUnit.id)})</button>
+          <button onclick="unassignUnitFromBooking('${p.id}',${bi})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px">Frigi</button>
+        </div>`;
+      } else if(b.unitId){
+        assignHtml=`<div style="margin-top:5px;display:flex;align-items:center;gap:8px"><span class="un-chip un-chip-amber">Tildelt enhet finnes ikke lenger</span><button onclick="unassignUnitFromBooking('${p.id}',${bi})" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px">Frigi</button></div>`;
+      } else if(!UNITS.some(u=>u.type===typeName)){
+        assignHtml=`<div style="margin-top:5px;font-size:11px;color:var(--muted)">Ingen enheter registrert for «${escHtml(typeName)}» ennå (Utstyr → Enheter).</div>`;
+      } else {
+        const avail=availableUnitsForBooking(b,typeName);
+        assignHtml=`<div style="margin-top:5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <select id="assign-${bi}" style="${ssel}">
+            ${avail.length? avail.map(u=>`<option value="${u.id}">${escHtml(u.name)}${u.hub?' · '+(HUBS.find(h=>h.id===u.hub)||{}).name||'':''}</option>`).join('') : '<option value="">Ingen ledige i perioden</option>'}
+          </select>
+          <button class="modal-btn" style="padding:5px 12px;font-size:12px" onclick="assignUnitToBooking('${p.id}',${bi})" ${avail.length?'':'disabled'}>Tildel enhet</button>
+        </div>`;
+      }
+      html+=`<div class="pipe-row" style="margin-bottom:6px;align-items:flex-start">
+        <div style="flex:1"><div style="font-size:13px;font-weight:500">${typeName||'Ukjent'}</div>
+        <div style="font-size:11px;color:var(--muted)">${hub?hub.flag+' '+hub.name:''} · Antall: ${b.qty} · ${fmtD(b.from)} – ${fmtD(b.to)}</div>
+        ${assignHtml}</div>
         <button onclick="removeEquipBooking('${p.id}',${bi})" style="background:#dc2626;border:none;color:white;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px">Fjern</button>
       </div>`;
     });
@@ -6619,6 +6643,34 @@ async function removeEquipBooking(projectId,bookingIdx){
   if(graphMode)await saveToLists(p);
   openEditModal(projectId,'equipment');
   showToast('Booking fjernet');
+}
+/* ── Enhets-tildeling til bookinger (steg 3) ── */
+function _ovl(a1,a2,b1,b2){ return new Date(a1)<=new Date(b2) && new Date(a2)>=new Date(b1); }
+function unitBusy(unitId,from,to,exceptProj,exceptBi){
+  return projects.some(p=> (p.equipBookings||[]).some((b,i)=>{
+    if(p.id===exceptProj && i===exceptBi) return false;
+    return String(b.unitId||'')===String(unitId) && b.from && b.to && _ovl(b.from,b.to,from,to);
+  }));
+}
+function availableUnitsForBooking(b,typeName){
+  return UNITS.filter(u=> u.type===typeName && u.status!=='utrangert' && !unitBusy(u.id,b.from,b.to));
+}
+async function assignUnitToBooking(projectId,bi){
+  const p=projects.find(pr=>pr.id===projectId); if(!p) return;
+  const b=p.equipBookings&&p.equipBookings[bi]; if(!b) return;
+  const sel=document.getElementById('assign-'+bi); const unitId=sel&&sel.value;
+  if(!unitId){ showToast('Ingen ledig enhet å tildele',true); return; }
+  if(unitBusy(unitId,b.from,b.to,projectId,bi)){ showToast('Enheten er allerede booket i perioden',true); return; }
+  b.unitId=String(unitId);
+  if(graphMode) await saveToLists(p);
+  openEditModal(projectId,'equipment'); showToast('Enhet tildelt ✓');
+}
+async function unassignUnitFromBooking(projectId,bi){
+  const p=projects.find(pr=>pr.id===projectId); if(!p) return;
+  const b=p.equipBookings&&p.equipBookings[bi]; if(!b) return;
+  delete b.unitId;
+  if(graphMode) await saveToLists(p);
+  openEditModal(projectId,'equipment'); showToast('Enhet frigitt');
 }
 
 /* ═══════════════════════════════════
