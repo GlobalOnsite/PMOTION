@@ -6316,19 +6316,33 @@ function renderEquipPicking(){
 function renderEquipment(){
   const uniqueItems=[...new Set(INVENTORY.map(i=>i.name))];
   const now=new Date();
-  // KPIs
-  let totalBooked=0;
+  // Antall hentes fra Enheter der enheter er registrert for typen (på samme hub),
+  // ellers fra manuelt Antall på katalogen. Unngår dobbeltbokføring.
+  const unitStats=(name,hub)=>{
+    const us=UNITS.filter(u=>u.type===name && (!hub||u.hub===hub));
+    if(!us.length) return null;
+    return { total:us.length,
+      tilgjengelig:us.filter(u=>u.status==='tilgjengelig').length,
+      utleid:us.filter(u=>u.status==='utleid').length,
+      vedlikehold:us.filter(u=>u.status==='vedlikehold').length,
+      utrangert:us.filter(u=>u.status==='utrangert').length };
+  };
+  // KPIs (oppsummert fra enheter + manuelt antall der enheter mangler)
+  let totalUnits=0, totalBooked=0, totalAvail=0;
   INVENTORY.forEach((item,idx)=>{
-    const bks=getEquipBookings(idx);
-    const activeNow=bks.filter(b=>new Date(b.from)<=now&&new Date(b.to)>=now);
-    totalBooked+=Math.min(activeNow.length,item.qty);
+    const st=unitStats(item.name,item.hub);
+    if(st){ totalUnits+=st.total; totalBooked+=st.utleid; totalAvail+=st.tilgjengelig; }
+    else {
+      const activeNow=getEquipBookings(idx).filter(b=>new Date(b.from)<=now&&new Date(b.to)>=now).length;
+      const booked=Math.min(activeNow,item.qty);
+      totalUnits+=item.qty; totalBooked+=booked; totalAvail+=Math.max(0,item.qty-booked);
+    }
   });
-  const totalUnits=INVENTORY.reduce((s,i)=>s+i.qty,0);
   document.getElementById('equip-kpis').innerHTML=`
     <div class="equip-kpi"><div class="equip-kpi-label">Utstyrstyper</div><div class="equip-kpi-value">${uniqueItems.length}</div></div>
     <div class="equip-kpi"><div class="equip-kpi-label">Totalt enheter</div><div class="equip-kpi-value">${totalUnits}</div></div>
     <div class="equip-kpi"><div class="equip-kpi-label">Utleid nå</div><div class="equip-kpi-value" style="color:#d97706">${totalBooked}</div></div>
-    <div class="equip-kpi"><div class="equip-kpi-label">Ledige nå</div><div class="equip-kpi-value" style="color:#16a34a">${totalUnits-totalBooked}</div></div>
+    <div class="equip-kpi"><div class="equip-kpi-label">Ledige nå</div><div class="equip-kpi-value" style="color:#16a34a">${totalAvail}</div></div>
     <div class="equip-kpi"><div class="equip-kpi-label">Hubber</div><div class="equip-kpi-value">${HUBS.length}</div></div>`;
   // Equipment list
   const canEditEquip = (typeof roleCan==='function') && roleCan('equipment');
@@ -6364,33 +6378,50 @@ function renderEquipment(){
         <option value="qty" ${equipSortBy==='qty'?'selected':''}>Antall (høy–lav)</option>
       </select>
     </div>`;
+  const effQty=it=>{ const s=unitStats(it.name,it.hub); return s? s.total : it.qty; };
   let listItems=INVENTORY.map((item,idx)=>({item,idx}))
     .filter(({item})=>(equipFilterHub==='all'||item.hub===equipFilterHub) && (equipFilterType==='all'||item.name===equipFilterType));
   const hubName=h=>{const x=HUBS.find(z=>z.id===h);return x?x.name:h;};
   listItems.sort((a,b)=>{
-    if(equipSortBy==='qty') return (b.item.qty-a.item.qty) || a.item.name.localeCompare(b.item.name,'nb');
+    if(equipSortBy==='qty') return (effQty(b.item)-effQty(a.item)) || a.item.name.localeCompare(b.item.name,'nb');
     if(equipSortBy==='hub') return hubName(a.item.hub).localeCompare(hubName(b.item.hub),'nb') || a.item.name.localeCompare(b.item.name,'nb');
     return a.item.name.localeCompare(b.item.name,'nb') || hubName(a.item.hub).localeCompare(hubName(b.item.hub),'nb');
   });
   const listRows = listItems.map(({item,idx})=>{
-    const bks=getEquipBookings(idx);
-    const activeNow=bks.filter(b=>new Date(b.from)<=now&&new Date(b.to)>=now).length;
-    const avail=item.qty-activeNow;
     const hub=HUBS.find(h=>h.id===item.hub);
+    const st=unitStats(item.name,item.hub);
+    let meta, chip, ctrl;
+    if(st){
+      const bits=[`${st.total} enheter`];
+      if(st.utleid) bits.push(`${st.utleid} ute`);
+      if(st.vedlikehold) bits.push(`${st.vedlikehold} vedl.`);
+      if(st.utrangert) bits.push(`${st.utrangert} utrangert`);
+      meta=`<span style="color:var(--muted);font-size:10px">${bits.join(' · ')}</span>`;
+      chip=`<span class="equip-status ${st.tilgjengelig>0?'available':'booked'}">${st.tilgjengelig>0?st.tilgjengelig+' ledig':'Alle ute'}</span>`;
+      ctrl=`<span style="font-size:10px;color:var(--muted);margin-left:10px" title="Antallet hentes automatisk fra Enheter-fanen">↳ fra Enheter</span>`
+        + (canEditEquip?`<button onclick="deleteEquipmentItem(${idx})" title="Slett type fra katalog" style="background:none;border:none;color:#ef4444;font-size:15px;cursor:pointer;margin-left:6px">🗑</button>`:'');
+    } else {
+      const activeNow=getEquipBookings(idx).filter(b=>new Date(b.from)<=now&&new Date(b.to)>=now).length;
+      const avail=item.qty-activeNow;
+      meta=`<span style="color:var(--muted);font-size:10px">Antall: ${item.qty} <span style="opacity:.6">(manuelt)</span></span>`;
+      chip=`<span class="equip-status ${avail>0?'available':'booked'}">${avail>0?avail+' ledig':'Alle utleid'}</span>`;
+      ctrl=canEditEquip?`<input type="number" min="0" value="${item.qty}" onchange="editEquipmentQty(${idx},this.value)" title="Endre manuelt antall" style="width:56px;margin-left:10px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px">
+        <button onclick="deleteEquipmentItem(${idx})" title="Slett" style="background:none;border:none;color:#ef4444;font-size:15px;cursor:pointer;margin-left:6px">🗑</button>`:'';
+    }
     return`<div class="equip-item">
       <div style="flex:1">
         <div class="equip-name">${item.name}</div>
         <div style="display:flex;gap:8px;margin-top:2px;align-items:center">
           <span class="equip-hub">${hub?hub.flag+' '+hub.name:''}</span>
-          <span style="color:var(--muted);font-size:10px">Antall: ${item.qty}</span>
+          ${meta}
         </div>
       </div>
-      <span class="equip-status ${avail>0?'available':'booked'}">${avail>0?avail+' ledig':'Alle utleid'}</span>
-      ${canEditEquip?`<input type="number" min="0" value="${item.qty}" onchange="editEquipmentQty(${idx},this.value)" title="Endre antall" style="width:56px;margin-left:10px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px">
-      <button onclick="deleteEquipmentItem(${idx})" title="Slett" style="background:none;border:none;color:#ef4444;font-size:15px;cursor:pointer;margin-left:6px">🗑</button>`:''}
+      ${chip}
+      ${ctrl}
     </div>`;
   }).join('') || '<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">Ingen utstyr matcher filteret.</div>';
-  document.getElementById('equip-list').innerHTML = adminForm + filterBar + listRows;
+  const rollupNote=`<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Antall hentes automatisk fra <strong>Enheter</strong> der enheter er registrert for typen. Typer uten registrerte enheter viser manuelt antall.</div>`;
+  document.getElementById('equip-list').innerHTML = adminForm + filterBar + rollupNote + listRows;
   renderEquipCalendar();
 }
 function setEquipView(v){
