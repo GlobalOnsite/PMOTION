@@ -227,6 +227,16 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
 .equip-subtab{background:var(--surface);border:1px solid var(--border);color:var(--muted);padding:8px 16px;border-radius:9px;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit;transition:all .15s}
 .equip-subtab:hover{color:var(--text)}
 .equip-subtab.active{background:#2563eb;color:#fff;border-color:#2563eb}
+.un-group{margin-bottom:16px}
+.un-group-head{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--accent2);padding:6px 2px;border-bottom:1px solid var(--border);margin-bottom:6px}
+.un-row{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;margin-bottom:6px;background:var(--surface)}
+.un-id{font-weight:600;font-size:14px;font-family:'DM Mono',monospace}
+.un-badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px}
+.un-chip{font-size:10px;font-weight:600;padding:2px 8px;border-radius:6px}
+.un-chip-ok{background:rgba(107,114,128,.14);color:var(--muted)}
+.un-chip-amber{background:rgba(217,119,6,.16);color:#d97706}
+.un-chip-red{background:rgba(239,68,68,.16);color:#ef4444}
+.un-edit{background:none;border:none;cursor:pointer;font-size:14px;padding:2px 4px}
 .equip-zoom-btn{background:var(--surface);border:1px solid var(--border);color:var(--muted);padding:5px 11px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit}
 .equip-zoom-btn:hover{color:var(--text)}
 .equip-zoom-btn.active{background:#2563eb;color:#fff;border-color:#2563eb}
@@ -2965,12 +2975,19 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
     <div class="equip-kpis" id="equip-kpis"></div>
     <div style="display:flex;gap:8px;margin-bottom:16px">
       <button id="equip-tab-inv" class="equip-subtab active" onclick="setEquipView('inventory')">📦 Inventarliste</button>
+      <button id="equip-tab-units" class="equip-subtab" onclick="setEquipView('units')">🔧 Enheter</button>
       <button id="equip-tab-cal" class="equip-subtab" onclick="setEquipView('calendar')">📅 Utleiekalender</button>
     </div>
     <div id="equip-pane-inventory">
       <div class="equip-list-panel">
         <div class="equip-list-header"><span class="equip-list-title">Inventarliste</span></div>
         <div id="equip-list"></div>
+      </div>
+    </div>
+    <div id="equip-pane-units" style="display:none">
+      <div class="equip-list-panel">
+        <div class="equip-list-header"><span class="equip-list-title">Enheter (unike utstyr)</span></div>
+        <div id="equip-units"></div>
       </div>
     </div>
     <div id="equip-pane-calendar" style="display:none">
@@ -4058,6 +4075,7 @@ async function loadFromLists(){
     await loadRoleAssignment();              // hent rolletildeling (styrer hvilken rolle innlogget bruker får)
     await loadChecklistTemplatesFromSP();   // hent sjekkliste-maler fra SharePoint (fallback: hardkodet)
     await loadEquipmentFromSP();             // hent utstyrskatalog fra SharePoint (fallback: hardkodet)
+    await loadUnitsFromSP();                  // hent unike utstyrsenheter fra SharePoint
     await loadEmployeesFromGraph();          // hent alle ansatte fra Microsoft 365 (Graph)
     await loadStaffBookings();               // hent bemanning (prosjekt/ferie/avspasering) fra SharePoint
     await loadChangeLog();                    // hent endringslogg fra SharePoint (overlever oppdatering)
@@ -5778,6 +5796,204 @@ function getEquipBookings(invIdx,projectId){
       .map(b=>{return{...b,projectId:p.id,projectName:p.name,projectPhase:p.phase}})
   );
 }
+/* ═══════════════════════════════════════════════
+   UTSTYRSENHETER – unike fysiske enheter pr type
+   Liste: PMOTIONUtstyrsenheter
+═══════════════════════════════════════════════ */
+const UNIT_LIST_TITLE='PMOTIONUtstyrsenheter';
+let UNITS=[]; let unitListId=null, unitCm=null;
+let unitFilterHub='all', unitFilterStatus='all';
+const UNIT_STATUS={
+  tilgjengelig:{label:'Tilgjengelig', color:'#16a34a', bg:'rgba(34,197,94,.14)'},
+  utleid:{label:'Utleid', color:'#d97706', bg:'rgba(217,119,6,.14)'},
+  vedlikehold:{label:'Vedlikehold', color:'#3b82f6', bg:'rgba(59,130,246,.14)'},
+  utrangert:{label:'Utrangert', color:'#6b7280', bg:'rgba(107,114,128,.14)'},
+};
+function unitStatusKey(s){ const k=String(s||'').trim().toLowerCase(); return UNIT_STATUS[k]?k:'tilgjengelig'; }
+async function resolveUnitList(){
+  if(unitListId) return unitListId;
+  try{ const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists?$filter=displayName eq '${UNIT_LIST_TITLE}'&$select=id`); unitListId=((d.value||[])[0]||{}).id||null; }
+  catch(e){ unitListId=null; }
+  return unitListId;
+}
+async function unitColMap(lid){
+  let cols=[]; try{ const c=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/columns?$select=name,displayName`); cols=c.value||[]; }catch(e){}
+  const byNorm={}; cols.forEach(col=>{ byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name; });
+  const map={_found:cols.map(c=>c.name)};
+  map.title=byNorm['title']||'Title';
+  map.utstyrstype=byNorm['utstyrstype']||byNorm['type']||byNorm['kategori']||null;
+  map.hub=byNorm['hub']||null;
+  map.status=byNorm['status']||null;
+  map.serienummer=byNorm['serienummer']||byNorm['serienr']||null;
+  map.sertifikatutlop=byNorm['sertifikatutlop']||byNorm['sertifikat']||null;
+  map.sistvedlikehold=byNorm['sistvedlikehold']||null;
+  map.nestevedlikehold=byNorm['nestevedlikehold']||null;
+  map.notat=byNorm['notat']||null;
+  return map;
+}
+async function _unitCtx(){ const lid=await resolveUnitList(); if(!lid) return null; if(!unitCm) unitCm=await unitColMap(lid); return {lid,cm:unitCm}; }
+async function loadUnitsFromSP(){
+  try{
+    const lid=await resolveUnitList(); if(!lid){ UNITS=[]; return false; }
+    const cm=await unitColMap(lid); unitCm=cm;
+    const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/items?expand=fields&$top=999`);
+    const dval=v=> (v? String(v).split('T')[0] : '');
+    UNITS=(d.value||[]).filter(it=>it.fields && it.fields[cm.title]).map(it=>{ const f=it.fields; return {
+      id:it.id,
+      name:f[cm.title]||'',
+      type:(cm.utstyrstype?f[cm.utstyrstype]:'')||'',
+      hub:(cm.hub?f[cm.hub]:'')||'',
+      status:unitStatusKey(cm.status?f[cm.status]:''),
+      serial:(cm.serienummer?f[cm.serienummer]:'')||'',
+      certExp:dval(cm.sertifikatutlop?f[cm.sertifikatutlop]:''),
+      maintLast:dval(cm.sistvedlikehold?f[cm.sistvedlikehold]:''),
+      maintNext:dval(cm.nestevedlikehold?f[cm.nestevedlikehold]:''),
+      note:(cm.notat?f[cm.notat]:'')||'',
+    };});
+    UNITS.sort((a,b)=> a.type.localeCompare(b.type,'nb') || a.name.localeCompare(b.name,'nb'));
+    return true;
+  }catch(e){ console.warn('loadUnitsFromSP',e); UNITS=[]; return false; }
+}
+function _unitFields(cm,u){
+  const f={ [cm.title]: u.name||'' };
+  if(cm.utstyrstype) f[cm.utstyrstype]=u.type||'';
+  if(cm.hub) f[cm.hub]=u.hub||'';
+  if(cm.status) f[cm.status]=UNIT_STATUS[u.status]?u.status:'tilgjengelig';
+  if(cm.serienummer) f[cm.serienummer]=u.serial||'';
+  if(cm.sertifikatutlop) f[cm.sertifikatutlop]=u.certExp? new Date(u.certExp).toISOString() : null;
+  if(cm.sistvedlikehold) f[cm.sistvedlikehold]=u.maintLast? new Date(u.maintLast).toISOString() : null;
+  if(cm.nestevedlikehold) f[cm.nestevedlikehold]=u.maintNext? new Date(u.maintNext).toISOString() : null;
+  if(cm.notat) f[cm.notat]=u.note||'';
+  return f;
+}
+function openUnitModal(id){
+  if(!(typeof roleCan==='function' && roleCan('equipment'))){ showToast('Du har ikke tilgang til å endre enheter', true); return; }
+  const u = id ? UNITS.find(x=>x.id===id) : { name:'', type:'', hub:(HUBS[0]||{}).id||'', status:'tilgjengelig', serial:'', certExp:'', maintLast:'', maintNext:'', note:'' };
+  if(!u) return;
+  const typeNames=[...new Set(INVENTORY.map(i=>i.name))].sort((a,b)=>a.localeCompare(b,'nb'));
+  const inp="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);font-size:13px;box-sizing:border-box";
+  const lbl="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 4px";
+  const html=`<div style="padding:26px 30px;max-width:560px">
+    <h2 style="margin:0 0 4px;font-size:18px">${id?'Rediger enhet':'Ny enhet'}</h2>
+    <div style="color:var(--muted);font-size:12px;margin-bottom:8px">Unik fysisk enhet med eget ID-nummer.</div>
+    <div style="${lbl}">ID-nummer *</div>
+    <input id="un-name" value="${escAttr(u.name)}" placeholder="f.eks. GO17 / KRSU 200029" style="${inp}">
+    <div style="${lbl}">Utstyrstype *</div>
+    <input id="un-type" list="un-type-list" value="${escAttr(u.type)}" placeholder="Velg/skriv type" style="${inp}">
+    <datalist id="un-type-list">${typeNames.map(t=>`<option value="${escAttr(t)}">`).join('')}</datalist>
+    <div style="display:flex;gap:12px">
+      <div style="flex:1"><div style="${lbl}">Hub</div>
+        <select id="un-hub" style="${inp}">${HUBS.map(h=>`<option value="${h.id}" ${u.hub===h.id?'selected':''}>${h.flag} ${h.name}</option>`).join('')}</select></div>
+      <div style="flex:1"><div style="${lbl}">Status</div>
+        <select id="un-status" style="${inp}">${Object.keys(UNIT_STATUS).map(k=>`<option value="${k}" ${u.status===k?'selected':''}>${UNIT_STATUS[k].label}</option>`).join('')}</select></div>
+    </div>
+    <div style="${lbl}">Serienummer</div>
+    <input id="un-serial" value="${escAttr(u.serial)}" style="${inp}">
+    <div style="display:flex;gap:12px">
+      <div style="flex:1"><div style="${lbl}">Sertifikat utløper</div><input id="un-cert" type="date" value="${u.certExp||''}" style="${inp}"></div>
+      <div style="flex:1"><div style="${lbl}">Sist vedlikehold</div><input id="un-mlast" type="date" value="${u.maintLast||''}" style="${inp}"></div>
+      <div style="flex:1"><div style="${lbl}">Neste vedlikehold</div><input id="un-mnext" type="date" value="${u.maintNext||''}" style="${inp}"></div>
+    </div>
+    <div style="${lbl}">Notat</div>
+    <textarea id="un-note" rows="2" style="${inp}">${escHtml(u.note)}</textarea>
+    <div style="display:flex;gap:10px;margin-top:18px">
+      <button class="modal-btn" onclick="saveUnit('${id||''}')" style="flex:1">${id?'Lagre endringer':'Opprett enhet'}</button>
+      ${id?`<button class="modal-btn" onclick="deleteUnit('${id}')" style="background:#ef4444;flex:0 0 auto">Slett</button>`:''}
+    </div>
+  </div>`;
+  document.getElementById('modal-content').innerHTML=html;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+async function saveUnit(id){
+  const ctx=await _unitCtx(); if(!ctx){ showToast('Opprett lista «'+UNIT_LIST_TITLE+'» først', true); return; }
+  const g=x=>document.getElementById(x);
+  const u={
+    name:(g('un-name').value||'').trim(),
+    type:(g('un-type').value||'').trim(),
+    hub:g('un-hub').value, status:g('un-status').value,
+    serial:(g('un-serial').value||'').trim(),
+    certExp:g('un-cert').value||'', maintLast:g('un-mlast').value||'', maintNext:g('un-mnext').value||'',
+    note:(g('un-note').value||'').trim(),
+  };
+  if(!u.name){ showToast('ID-nummer er påkrevd', true); return; }
+  if(!u.type){ showToast('Velg utstyrstype', true); return; }
+  const fields=_unitFields(ctx.cm,u);
+  try{
+    if(id){ await gPatch(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${id}/fields`,fields);
+      const ix=UNITS.findIndex(x=>x.id===id); if(ix>=0) UNITS[ix]={...UNITS[ix],...u};
+    } else { const r=await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items`,{fields});
+      UNITS.push({id:r&&r.id, ...u}); }
+    closeModal(); renderEquipUnits(); showToast(id?'Enhet oppdatert ✓':'Enhet opprettet ✓');
+  }catch(e){ showToast('Kunne ikke lagre: '+e.message, true); }
+}
+async function deleteUnit(id){
+  const u=UNITS.find(x=>x.id===id); if(!u) return;
+  if(!confirm(`Slett enhet «${u.name}»? Innholdslista for enheten bør også fjernes manuelt.`)) return;
+  const ctx=await _unitCtx(); if(!ctx) return;
+  try{ await gDelete(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${id}`);
+    UNITS=UNITS.filter(x=>x.id!==id); closeModal(); renderEquipUnits(); showToast('Enhet slettet ✓');
+  }catch(e){ showToast('Kunne ikke slette: '+e.message, true); }
+}
+function setUnitFilter(kind,val){ if(kind==='hub')unitFilterHub=val; else if(kind==='status')unitFilterStatus=val; renderEquipUnits(); }
+function _daysUntil(d){ if(!d) return null; const t=new Date(d); if(isNaN(t)) return null; const now=new Date(); now.setHours(0,0,0,0); t.setHours(0,0,0,0); return Math.round((t-now)/86400000); }
+function renderEquipUnits(){
+  const host=document.getElementById('equip-units'); if(!host) return;
+  const canEdit=(typeof roleCan==='function') && roleCan('equipment');
+  const hubName=h=>{const x=HUBS.find(z=>z.id===h);return x?x.flag+' '+x.name:(h||'–');};
+  const sel="padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);font-size:12px";
+  const byStatus=k=>UNITS.filter(u=>u.status===k).length;
+  const summary=`<div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px;font-size:12px">
+    <span><strong>${UNITS.length}</strong> enheter</span>
+    <span style="color:#16a34a">${byStatus('tilgjengelig')} tilgjengelig</span>
+    <span style="color:#d97706">${byStatus('utleid')} utleid</span>
+    <span style="color:#3b82f6">${byStatus('vedlikehold')} vedlikehold</span>
+    <span style="color:#6b7280">${byStatus('utrangert')} utrangert</span>
+  </div>`;
+  const toolbar=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+    ${canEdit?`<button class="modal-btn" onclick="openUnitModal()">+ Ny enhet</button>`:''}
+    <div style="flex:1"></div>
+    <select onchange="setUnitFilter('hub',this.value)" style="${sel}">
+      <option value="all">Alle hubber</option>
+      ${HUBS.map(h=>`<option value="${h.id}" ${unitFilterHub===h.id?'selected':''}>${h.flag} ${h.name}</option>`).join('')}
+    </select>
+    <select onchange="setUnitFilter('status',this.value)" style="${sel}">
+      <option value="all">Alle statuser</option>
+      ${Object.keys(UNIT_STATUS).map(k=>`<option value="${k}" ${unitFilterStatus===k?'selected':''}>${UNIT_STATUS[k].label}</option>`).join('')}
+    </select>
+  </div>`;
+  if(!UNITS.length){
+    host.innerHTML=summary+toolbar+`<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">Ingen enheter registrert ennå.${canEdit?' Klikk «+ Ny enhet» for å legge til den første.':''}</div>`;
+    return;
+  }
+  const list=UNITS.filter(u=>(unitFilterHub==='all'||u.hub===unitFilterHub) && (unitFilterStatus==='all'||u.status===unitFilterStatus));
+  const groups={}; list.forEach(u=>{ (groups[u.type]=groups[u.type]||[]).push(u); });
+  const typeKeys=Object.keys(groups).sort((a,b)=>a.localeCompare(b,'nb'));
+  const certChip=u=>{ const d=_daysUntil(u.certExp); if(d===null) return ''; if(d<0) return `<span class="un-chip un-chip-red">Sertifikat utløpt</span>`; if(d<=30) return `<span class="un-chip un-chip-amber">Sertifikat ${d}d</span>`; return `<span class="un-chip un-chip-ok">Sert. ${fmtD(u.certExp)}</span>`; };
+  const maintChip=u=>{ const d=_daysUntil(u.maintNext); if(d===null) return ''; if(d<0) return `<span class="un-chip un-chip-red">Vedlikehold forfalt</span>`; if(d<=14) return `<span class="un-chip un-chip-amber">Vedlikehold ${d}d</span>`; return `<span class="un-chip un-chip-ok">Vedl. ${fmtD(u.maintNext)}</span>`; };
+  const body=typeKeys.map(tk=>{
+    const rows=groups[tk].map(u=>{
+      const st=UNIT_STATUS[u.status]||UNIT_STATUS.tilgjengelig;
+      return `<div class="un-row">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span class="un-id">${escHtml(u.name)}</span>
+            <span class="un-badge" style="background:${st.bg};color:${st.color}">${st.label}</span>
+            <span style="font-size:11px;color:var(--muted)">${hubName(u.hub)}</span>
+            ${u.serial?`<span style="font-size:11px;color:var(--muted)">S/N: ${escHtml(u.serial)}</span>`:''}
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px">${certChip(u)}${maintChip(u)}</div>
+          ${u.note?`<div style="font-size:11px;color:var(--muted);margin-top:4px">${escHtml(u.note)}</div>`:''}
+        </div>
+        ${canEdit?`<button class="un-edit" onclick="openUnitModal('${u.id}')" title="Rediger">✏️</button>`:''}
+      </div>`;
+    }).join('');
+    return `<div class="un-group">
+      <div class="un-group-head">${escHtml(tk||'(uten type)')} <span style="color:var(--muted);font-weight:400">· ${groups[tk].length}</span></div>
+      ${rows}
+    </div>`;
+  }).join('') || '<div style="padding:24px;text-align:center;color:var(--muted)">Ingen enheter matcher filteret.</div>';
+  host.innerHTML=summary+toolbar+body;
+}
 function renderEquipment(){
   const uniqueItems=[...new Set(INVENTORY.map(i=>i.name))];
   const now=new Date();
@@ -5859,15 +6075,17 @@ function renderEquipment(){
   renderEquipCalendar();
 }
 function setEquipView(v){
-  const inv=document.getElementById('equip-pane-inventory'), cal=document.getElementById('equip-pane-calendar');
-  const ti=document.getElementById('equip-tab-inv'), tc=document.getElementById('equip-tab-cal');
+  const inv=document.getElementById('equip-pane-inventory'), cal=document.getElementById('equip-pane-calendar'), un=document.getElementById('equip-pane-units');
+  const ti=document.getElementById('equip-tab-inv'), tc=document.getElementById('equip-tab-cal'), tu=document.getElementById('equip-tab-units');
   if(!inv||!cal) return;
-  const calendar = v==='calendar';
-  inv.style.display = calendar?'none':'block';
-  cal.style.display = calendar?'block':'none';
-  if(ti) ti.classList.toggle('active', !calendar);
-  if(tc) tc.classList.toggle('active', calendar);
-  if(calendar) renderEquipCalendar();
+  inv.style.display = v==='inventory'?'block':'none';
+  un && (un.style.display = v==='units'?'block':'none');
+  cal.style.display = v==='calendar'?'block':'none';
+  ti && ti.classList.toggle('active', v==='inventory');
+  tu && tu.classList.toggle('active', v==='units');
+  tc && tc.classList.toggle('active', v==='calendar');
+  if(v==='calendar') renderEquipCalendar();
+  else if(v==='units') renderEquipUnits();
 }
 function equipCalToday(){ equipCalOffset=0; renderEquipCalendar(); }
 function toggleEquipOnlyBooked(){ equipOnlyBooked=!equipOnlyBooked; renderEquipCalendar(); }
