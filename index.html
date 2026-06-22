@@ -5848,7 +5848,7 @@ function getEquipBookings(invIdx,projectId){
 ═══════════════════════════════════════════════ */
 const UNIT_LIST_TITLE='PMOTIONUtstyrsenheter';
 let UNITS=[]; let unitListId=null, unitCm=null;
-let unitFilterHub='all', unitFilterStatus='all';
+let unitFilterHub='all', unitFilterStatus='all', unitFilterReadiness='all';
 const UNIT_STATUS={
   tilgjengelig:{label:'Tilgjengelig', color:'#16a34a', bg:'rgba(34,197,94,.14)'},
   utleid:{label:'Utleid', color:'#d97706', bg:'rgba(217,119,6,.14)'},
@@ -5856,6 +5856,20 @@ const UNIT_STATUS={
   utrangert:{label:'Utrangert', color:'#6b7280', bg:'rgba(107,114,128,.14)'},
 };
 function unitStatusKey(s){ const k=String(s||'').trim().toLowerCase(); return UNIT_STATUS[k]?k:'tilgjengelig'; }
+/* Klargjøringsstatus (lagerets trafikklys) – uavhengig av utleiestatus */
+const READINESS={
+  gronn:{label:'Grønn – komplett og klar', short:'Klar', color:'#16a34a', bg:'rgba(34,197,94,.16)', dot:'#16a34a'},
+  gul:{label:'Gul – gjennomgått, mangler utstyr', short:'Mangler utstyr', color:'#d97706', bg:'rgba(217,119,6,.16)', dot:'#d97706'},
+  rod:{label:'Rød – ikke gjennomgått', short:'Ikke gjennomgått', color:'#ef4444', bg:'rgba(239,68,68,.16)', dot:'#ef4444'},
+};
+function readinessKey(s){
+  const k=String(s||'').trim().toLowerCase();
+  if(['gronn','grønn','green','g','klar'].includes(k)) return 'gronn';
+  if(['gul','yellow','y'].includes(k)) return 'gul';
+  if(['rod','rød','red','r'].includes(k)) return 'rod';
+  return 'rod'; // tom/ukjent = ikke gjennomgått
+}
+function _truthy(v){ if(v===true) return true; if(v===false||v==null||v==='') return false; const s=String(v).trim().toLowerCase(); return ['true','1','ja','yes','y','x','sant'].includes(s); }
 async function resolveUnitList(){
   if(unitListId) return unitListId;
   try{ const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists?$filter=displayName eq '${UNIT_LIST_TITLE}'&$select=id`); unitListId=((d.value||[])[0]||{}).id||null; }
@@ -5875,6 +5889,12 @@ async function unitColMap(lid){
   map.sistvedlikehold=byNorm['sistvedlikehold']||null;
   map.nestevedlikehold=byNorm['nestevedlikehold']||null;
   map.notat=byNorm['notat']||null;
+  map.klargjoring=byNorm['klargjoring']||byNorm['klargjøring']||byNorm['beredskap']||byNorm['kontainerstatus']||byNorm['fargestatus']||null;
+  map.mal=byNorm['mal']||byNorm['dimensjoner']||byNorm['dimensjon']||byNorm['storrelse']||null;
+  map.vekt=byNorm['vekt']||byNorm['vekt(kg)']||byNorm['egenvekt']||byNorm['tara']||null;
+  map.dnv271=byNorm['dnv271']||byNorm['dnv2.7-1']||byNorm['dnv']||byNorm['offshore']||byNorm['offshoregodkjent']||null;
+  map.csc=byNorm['csc']||byNorm['cscgodkjent']||byNorm['cscgodkjenning']||null;
+  map.highcube=byNorm['highcube']||byNorm['hc']||byNorm['highcubecontainer']||null;
   return map;
 }
 async function _unitCtx(){ const lid=await resolveUnitList(); if(!lid) return null; if(!unitCm) unitCm=await unitColMap(lid); return {lid,cm:unitCm}; }
@@ -5895,6 +5915,12 @@ async function loadUnitsFromSP(){
       maintLast:dval(cm.sistvedlikehold?f[cm.sistvedlikehold]:''),
       maintNext:dval(cm.nestevedlikehold?f[cm.nestevedlikehold]:''),
       note:(cm.notat?f[cm.notat]:'')||'',
+      readiness:readinessKey(cm.klargjoring?f[cm.klargjoring]:''),
+      mal:(cm.mal?f[cm.mal]:'')||'',
+      vekt:parseFloat(cm.vekt?f[cm.vekt]:0)||0,
+      dnv271:_truthy(cm.dnv271?f[cm.dnv271]:false),
+      csc:_truthy(cm.csc?f[cm.csc]:false),
+      highcube:_truthy(cm.highcube?f[cm.highcube]:false),
     };});
     UNITS.sort((a,b)=> a.type.localeCompare(b.type,'nb') || a.name.localeCompare(b.name,'nb'));
     return true;
@@ -5910,11 +5936,17 @@ function _unitFields(cm,u){
   if(cm.sistvedlikehold) f[cm.sistvedlikehold]=u.maintLast? new Date(u.maintLast).toISOString() : null;
   if(cm.nestevedlikehold) f[cm.nestevedlikehold]=u.maintNext? new Date(u.maintNext).toISOString() : null;
   if(cm.notat) f[cm.notat]=u.note||'';
+  if(cm.klargjoring) f[cm.klargjoring]=READINESS[u.readiness]?u.readiness:'rod';
+  if(cm.mal) f[cm.mal]=u.mal||'';
+  if(cm.vekt) f[cm.vekt]=u.vekt||0;
+  if(cm.dnv271) f[cm.dnv271]=!!u.dnv271;
+  if(cm.csc) f[cm.csc]=!!u.csc;
+  if(cm.highcube) f[cm.highcube]=!!u.highcube;
   return f;
 }
 function openUnitModal(id){
   if(!(typeof roleCan==='function' && roleCan('equipment'))){ showToast('Du har ikke tilgang til å endre enheter', true); return; }
-  const u = id ? UNITS.find(x=>x.id===id) : { name:'', type:'', hub:(HUBS[0]||{}).id||'', status:'tilgjengelig', serial:'', certExp:'', maintLast:'', maintNext:'', note:'' };
+  const u = id ? UNITS.find(x=>x.id===id) : { name:'', type:'', hub:(HUBS[0]||{}).id||'', status:'tilgjengelig', serial:'', certExp:'', maintLast:'', maintNext:'', note:'', readiness:'rod', mal:'', vekt:0, dnv271:false, csc:false, highcube:false };
   if(!u) return;
   const typeNames=[...new Set(INVENTORY.map(i=>i.name))].sort((a,b)=>a.localeCompare(b,'nb'));
   const inp="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);font-size:13px;box-sizing:border-box";
@@ -5933,12 +5965,24 @@ function openUnitModal(id){
       <div style="flex:1"><div style="${lbl}">Status</div>
         <select id="un-status" style="${inp}">${Object.keys(UNIT_STATUS).map(k=>`<option value="${k}" ${u.status===k?'selected':''}>${UNIT_STATUS[k].label}</option>`).join('')}</select></div>
     </div>
+    <div style="${lbl}">Klargjøring (lagerets trafikklys)</div>
+    <select id="un-readiness" style="${inp}">${Object.keys(READINESS).map(k=>`<option value="${k}" ${(u.readiness||'rod')===k?'selected':''}>${READINESS[k].label}</option>`).join('')}</select>
     <div style="${lbl}">Serienummer</div>
     <input id="un-serial" value="${escAttr(u.serial)}" style="${inp}">
     <div style="display:flex;gap:12px">
       <div style="flex:1"><div style="${lbl}">Sertifikat utløper</div><input id="un-cert" type="date" value="${u.certExp||''}" style="${inp}"></div>
       <div style="flex:1"><div style="${lbl}">Sist vedlikehold</div><input id="un-mlast" type="date" value="${u.maintLast||''}" style="${inp}"></div>
       <div style="flex:1"><div style="${lbl}">Neste vedlikehold</div><input id="un-mnext" type="date" value="${u.maintNext||''}" style="${inp}"></div>
+    </div>
+    <div style="display:flex;gap:12px">
+      <div style="flex:2"><div style="${lbl}">Mål (L×B×H)</div><input id="un-mal" value="${escAttr(u.mal||'')}" placeholder="f.eks. 6058×2438×2896 mm" style="${inp}"></div>
+      <div style="flex:1"><div style="${lbl}">Vekt (kg)</div><input id="un-vekt" type="number" step="any" value="${u.vekt||''}" style="${inp}"></div>
+    </div>
+    <div style="${lbl}">Godkjenninger</div>
+    <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:13px;padding:2px 0 2px">
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="un-dnv271" ${u.dnv271?'checked':''}> Offshore DNV 2.7-1</label>
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="un-csc" ${u.csc?'checked':''}> CSC-godkjent</label>
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer"><input type="checkbox" id="un-highcube" ${u.highcube?'checked':''}> High Cube container</label>
     </div>
     <div style="${lbl}">Notat</div>
     <textarea id="un-note" rows="2" style="${inp}">${escHtml(u.note)}</textarea>
@@ -5957,9 +6001,15 @@ async function saveUnit(id){
     name:(g('un-name').value||'').trim(),
     type:(g('un-type').value||'').trim(),
     hub:g('un-hub').value, status:g('un-status').value,
+    readiness:(g('un-readiness')||{}).value||'rod',
     serial:(g('un-serial').value||'').trim(),
     certExp:g('un-cert').value||'', maintLast:g('un-mlast').value||'', maintNext:g('un-mnext').value||'',
     note:(g('un-note').value||'').trim(),
+    mal:((g('un-mal')||{}).value||'').trim(),
+    vekt:parseFloat((g('un-vekt')||{}).value)||0,
+    dnv271:!!(g('un-dnv271')||{}).checked,
+    csc:!!(g('un-csc')||{}).checked,
+    highcube:!!(g('un-highcube')||{}).checked,
   };
   if(!u.name){ showToast('ID-nummer er påkrevd', true); return; }
   if(!u.type){ showToast('Velg utstyrstype', true); return; }
@@ -6196,7 +6246,16 @@ function openContentTemplates(){
   document.getElementById('content-modal-body').innerHTML=html;
   document.getElementById('content-overlay').classList.add('open');
 }
-function setUnitFilter(kind,val){ if(kind==='hub')unitFilterHub=val; else if(kind==='status')unitFilterStatus=val; renderEquipUnits(); }
+function setUnitFilter(kind,val){ if(kind==='hub')unitFilterHub=val; else if(kind==='status')unitFilterStatus=val; else if(kind==='readiness')unitFilterReadiness=val; renderEquipUnits(); }
+async function _applyReadiness(unitId,key){
+  const u=UNITS.find(x=>String(x.id)===String(unitId)); if(u) u.readiness=READINESS[key]?key:'rod';
+  const ctx=await _unitCtx(); if(ctx&&ctx.cm.klargjoring){ try{ await gPatch(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${unitId}/fields`,{[ctx.cm.klargjoring]:(u?u.readiness:key)}); }catch(e){} }
+}
+async function setUnitReadiness(unitId,key){
+  if(!(typeof roleCan==='function' && roleCan('equipment'))){ showToast('Ingen tilgang',true); return; }
+  const ctx=await _unitCtx(); if(!(ctx&&ctx.cm.klargjoring)){ showToast('Opprett kolonnen «Klargjoring» på enhetslista først',true); return; }
+  await _applyReadiness(unitId,key); renderEquipUnits(); showToast('Klargjøring oppdatert ✓');
+}
 function _daysUntil(d){ if(!d) return null; const t=new Date(d); if(isNaN(t)) return null; const now=new Date(); now.setHours(0,0,0,0); t.setHours(0,0,0,0); return Math.round((t-now)/86400000); }
 function renderEquipUnits(){
   const host=document.getElementById('equip-units'); if(!host) return;
@@ -6204,12 +6263,19 @@ function renderEquipUnits(){
   const hubName=h=>{const x=HUBS.find(z=>z.id===h);return x?x.flag+' '+x.name:(h||'–');};
   const sel="padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);font-size:12px";
   const byStatus=k=>UNITS.filter(u=>u.status===k).length;
-  const summary=`<div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px;font-size:12px">
+  const byRead=k=>UNITS.filter(u=>(u.readiness||'rod')===k).length;
+  const summary=`<div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:8px;font-size:12px">
     <span><strong>${UNITS.length}</strong> enheter</span>
     <span style="color:#16a34a">${byStatus('tilgjengelig')} tilgjengelig</span>
     <span style="color:#d97706">${byStatus('utleid')} utleid</span>
     <span style="color:#3b82f6">${byStatus('vedlikehold')} vedlikehold</span>
     <span style="color:#6b7280">${byStatus('utrangert')} utrangert</span>
+  </div>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;font-size:12px;align-items:center">
+    <span style="font-weight:600;color:var(--muted)">Klargjøring:</span>
+    <span style="color:#16a34a">● ${byRead('gronn')} grønn</span>
+    <span style="color:#d97706">● ${byRead('gul')} gul</span>
+    <span style="color:#ef4444">● ${byRead('rod')} rød</span>
   </div>`;
   const toolbar=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
     ${canEdit?`<button class="modal-btn" onclick="openUnitModal()">+ Ny enhet</button>`:''}
@@ -6223,16 +6289,24 @@ function renderEquipUnits(){
       <option value="all">Alle statuser</option>
       ${Object.keys(UNIT_STATUS).map(k=>`<option value="${k}" ${unitFilterStatus===k?'selected':''}>${UNIT_STATUS[k].label}</option>`).join('')}
     </select>
+    <select onchange="setUnitFilter('readiness',this.value)" style="${sel}">
+      <option value="all">All klargjøring</option>
+      ${Object.keys(READINESS).map(k=>`<option value="${k}" ${unitFilterReadiness===k?'selected':''}>${READINESS[k].short}</option>`).join('')}
+    </select>
   </div>`;
   if(!UNITS.length){
     host.innerHTML=summary+toolbar+`<div style="padding:30px;text-align:center;color:var(--muted);font-size:13px">Ingen enheter registrert ennå.${canEdit?' Klikk «+ Ny enhet» for å legge til den første.':''}</div>`;
     return;
   }
-  const list=UNITS.filter(u=>(unitFilterHub==='all'||u.hub===unitFilterHub) && (unitFilterStatus==='all'||u.status===unitFilterStatus));
+  const list=UNITS.filter(u=>(unitFilterHub==='all'||u.hub===unitFilterHub) && (unitFilterStatus==='all'||u.status===unitFilterStatus) && (unitFilterReadiness==='all'||(u.readiness||'rod')===unitFilterReadiness));
   const groups={}; list.forEach(u=>{ (groups[u.type]=groups[u.type]||[]).push(u); });
   const typeKeys=Object.keys(groups).sort((a,b)=>a.localeCompare(b,'nb'));
   const certChip=u=>{ const d=_daysUntil(u.certExp); if(d===null) return ''; if(d<0) return `<span class="un-chip un-chip-red">Sertifikat utløpt</span>`; if(d<=30) return `<span class="un-chip un-chip-amber">Sertifikat ${d}d</span>`; return `<span class="un-chip un-chip-ok">Sert. ${fmtD(u.certExp)}</span>`; };
   const maintChip=u=>{ const d=_daysUntil(u.maintNext); if(d===null) return ''; if(d<0) return `<span class="un-chip un-chip-red">Vedlikehold forfalt</span>`; if(d<=14) return `<span class="un-chip un-chip-amber">Vedlikehold ${d}d</span>`; return `<span class="un-chip un-chip-ok">Vedl. ${fmtD(u.maintNext)}</span>`; };
+  const readChip=u=>{ const r=READINESS[u.readiness||'rod']; return `<span class="un-badge" style="background:${r.bg};color:${r.color}">● ${r.short}</span>`; };
+  const readDots=u=>['gronn','gul','rod'].map(k=>{ const r=READINESS[k]; const active=(u.readiness||'rod')===k; return `<button onclick="setUnitReadiness('${u.id}','${k}')" title="${r.label}" style="width:15px;height:15px;border-radius:50%;border:2px solid ${active?'var(--text)':'transparent'};background:${r.dot};opacity:${active?1:.3};cursor:pointer;padding:0;margin:0">​</button>`; }).join('');
+  const specChips=u=>{ let s=''; if(u.dnv271) s+=`<span class="un-chip un-chip-ok">DNV 2.7-1</span>`; if(u.csc) s+=`<span class="un-chip un-chip-ok">CSC</span>`; if(u.highcube) s+=`<span class="un-chip">High Cube</span>`; return s; };
+  const specLine=u=>{ const b=[]; if(u.mal) b.push('Mål: '+escHtml(u.mal)); if(u.vekt) b.push('Vekt: '+u.vekt+' kg'); return b.length?`<div style="font-size:11px;color:var(--muted);margin-top:3px">${b.join(' · ')}</div>`:''; };
   const body=typeKeys.map(tk=>{
     const rows=groups[tk].map(u=>{
       const st=UNIT_STATUS[u.status]||UNIT_STATUS.tilgjengelig;
@@ -6241,10 +6315,15 @@ function renderEquipUnits(){
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span class="un-id">${escHtml(u.name)}</span>
             <span class="un-badge" style="background:${st.bg};color:${st.color}">${st.label}</span>
+            ${readChip(u)}
             <span style="font-size:11px;color:var(--muted)">${hubName(u.hub)}</span>
             ${u.serial?`<span style="font-size:11px;color:var(--muted)">S/N: ${escHtml(u.serial)}</span>`:''}
           </div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px">${certChip(u)}${maintChip(u)}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px;align-items:center">
+            ${canEdit?`<span style="display:inline-flex;gap:3px;align-items:center;margin-right:4px" title="Sett klargjøring">${readDots(u)}</span>`:''}
+            ${certChip(u)}${maintChip(u)}${specChips(u)}
+          </div>
+          ${specLine(u)}
           ${u.note?`<div style="font-size:11px;color:var(--muted);margin-top:4px">${escHtml(u.note)}</div>`:''}
         </div>
         <button class="un-edit" onclick="openContentsModal('${u.id}')" title="Innhold / utstyrsliste">📋 ${unitContentCount(u.id)}</button>
@@ -6855,6 +6934,7 @@ async function receiveCheckout(){
   if(!confirm(msg)) return;
   co.status='mottatt'; co.mottattTs=new Date().toISOString();
   await _setUnitStatus(co.unitId, (damaged||missing)?'vedlikehold':'tilgjengelig');
+  await _applyReadiness(co.unitId, (damaged||missing)?'gul':'gronn');
   if(typeof addProjChangeLog==='function'){ const av=[]; if(missing)av.push('mangler'); if(damaged)av.push('skade'); addProjChangeLog(p.id,'resource','📥',`Enhet mottatt i retur: ${co.unitName}${av.length?' (avvik: '+av.join(', ')+')':''}`,'',co.unitName); }
   if(graphMode) await saveToLists(p);
   renderCheckoutModalBody(); showToast((damaged||missing)?'Mottatt – enhet til vedlikehold pga avvik':'Mottatt ✓ – enhet tilgjengelig');
