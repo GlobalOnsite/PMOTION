@@ -4062,13 +4062,15 @@ function toFields(p){
   { const k=colKey('Endringslogg'); if(k) f[k] = JSON.stringify(p.projChangeLog||[]); }
   { const k=colKey('Logg'); if(k) f[k] = JSON.stringify(p.log||[]); }
   { const k=colKey('Utsjekk'); if(k) f[k] = JSON.stringify(p.checkouts||[]); }
+  { const k=colKey('ResourceBookings'); if(k) f[k] = JSON.stringify(p.resourceBookings||[]); }
   return { fields:f };
 }
 
 function fromItem(item){
-  const f=item.fields; let pl={},eb=[];
+  const f=item.fields; let pl={},eb=[],rb=[];
   try{pl=JSON.parse(f.PhaseLog||'{}');}catch(e){}
   try{eb=JSON.parse(f.EquipBookings||'[]');}catch(e){}
+  { const k=colKey('ResourceBookings'); if(k && f[k]!=null){ try{ rb=parseSPJson(f[k],[]); }catch(e){} } }
   const months = parseInt(f.Varighet)||0;
   // Eksakt varighet hvis nye kolonner finnes, ellers fall tilbake til måneder (eldre rader)
   let durUnit, durVal, durDays;
@@ -4081,7 +4083,7 @@ function fromItem(item){
     rigType:f.Riggtype||'', mmsi:f.MMSI||'',
     durationMonths:(durDays>0 ? Math.round(durDays/30.44) : months), value:parseFloat(f.EstimertVerdi)||0, description:f.Beskrivelse||'',
     personnel:[], equipment:[], hub:f.Hub||'lillesand', dept:f.Avdeling||'',
-    pm:f.PM||'', kam:f.KAM||'', phaseLog:pl, equipBookings:eb,
+    pm:f.PM||'', kam:f.KAM||'', phaseLog:pl, equipBookings:eb, resourceBookings:rb,
   };
   if(durDays>0){ o.durationDays=durDays; o.durationUnit=durUnit; o.durationValue=durVal; }
   // Sjekkliste-tilstand fra SharePoint (kun hvis kolonnen finnes – ellers behold minne-tilstand)
@@ -5090,6 +5092,14 @@ function renderExtraWidgets(){
 /* ═══════════════════════════════════
    PROJECTS LIST
 ═══════════════════════════════════ */
+function projBookBadges(p){
+  const eq=(p.equipBookings||[]).length;
+  const rs=(p.resourceBookings||[]).length;
+  let h='';
+  if(eq) h+=`<span title="Utstyr booket (${eq} booking${eq>1?'er':''})" style="margin-left:7px;font-size:11px;cursor:default">📦${eq>1?`<sup style="font-size:8px;color:var(--muted);font-weight:700">${eq}</sup>`:''}</span>`;
+  if(rs) h+=`<span title="Ressurser booket (${rs} booking${rs>1?'er':''})" style="margin-left:4px;font-size:11px;cursor:default">👷${rs>1?`<sup style="font-size:8px;color:var(--muted);font-weight:700">${rs}</sup>`:''}</span>`;
+  return h;
+}
 function renderProjects(){
   const container=document.getElementById('status-groups');
   container.innerHTML='';
@@ -5171,7 +5181,7 @@ function renderProjects(){
             </td>
             <td class="td-mono" style="font-size:11px;color:var(--muted);white-space:nowrap">${p.projectNr||'–'}</td>
             <td>
-              <div style="font-weight:500">${p.name}</div>
+              <div style="font-weight:500">${p.name}${projBookBadges(p)}</div>
             </td>
             <td>${p.dept&&deptMap[p.dept]?`<span class="dept-badge ${deptMap[p.dept].cls}">${deptMap[p.dept].name}</span>`:'–'}</td>
             <td class="td-muted">${p.customer||'–'}</td>
@@ -7652,6 +7662,7 @@ async function addResBooking(projectId) {
   if (new Date(to) < new Date(from)) { showToast('Sluttdato må være etter startdato', true); return; }
   if (!p.resourceBookings) p.resourceBookings = [];
   p.resourceBookings.push({ roleId, qty, from, to });
+  if (graphMode && !colKey('ResourceBookings')) showToast('NB: kolonnen «ResourceBookings» mangler på prosjektlista – ressurser lagres ikke og forsvinner ved oppdatering.', true);
   if (graphMode) await saveToLists(p);
   openEditModal(projectId, 'resources');
   showToast(`${roleMap[roleId]?.name} booket ✓`);
