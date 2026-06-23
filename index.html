@@ -3838,15 +3838,20 @@ function listBase(){return`/sites/${GRAPH_CONFIG.siteId}/lists/${GRAPH_CONFIG.li
    Brukes til å skrive valgfrie varighet-kolonner KUN hvis de finnes,
    slik at lagring ikke feiler før kolonnene er opprettet i SharePoint. */
 let listColumnNames = null;
+let listColMap = null; // normalisert navn/visningsnavn -> faktisk internt feltnavn
 async function ensureListColumns(){
   if(listColumnNames) return listColumnNames;
   try{
-    const d = await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${GRAPH_CONFIG.listId}/columns?$select=name`);
-    listColumnNames = new Set((d.value||[]).map(c=>c.name));
-  }catch(e){ listColumnNames = new Set(); }
+    const d = await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${GRAPH_CONFIG.listId}/columns?$select=name,displayName`);
+    const cols = d.value||[];
+    listColumnNames = new Set(cols.map(c=>c.name));
+    listColMap = {};
+    cols.forEach(c=>{ listColMap[_normCol(c.name)]=c.name; if(c.displayName) listColMap[_normCol(c.displayName)]=c.name; });
+  }catch(e){ listColumnNames = new Set(); listColMap = {}; }
   return listColumnNames;
 }
-function hasCol(n){ return !!(listColumnNames && listColumnNames.has(n)); }
+function colKey(n){ return (listColMap && listColMap[_normCol(n)]) || null; }
+function hasCol(n){ return !!colKey(n); }
 
 /* Debouncet lagring av ett prosjekt til SharePoint (samler raske endringer, f.eks. avhuking). */
 let _projSaveTimers = {};
@@ -4053,10 +4058,10 @@ function toFields(p){
   if(hasCol('Execution'))  f.Execution  = JSON.stringify(p.execution||{});
   if(hasCol('Ordrelenker')) f.Ordrelenker = JSON.stringify(p.orders||[]);
   if(hasCol('Tilbudsprosess')) f.Tilbudsprosess = JSON.stringify(p.quoteProcess||{});
-  // Per-prosjekt endringslogg + manuell logg – lagres som JSON kun hvis kolonnene finnes
-  if(hasCol('Endringslogg')) f.Endringslogg = JSON.stringify(p.projChangeLog||[]);
-  if(hasCol('Logg')) f.Logg = JSON.stringify(p.log||[]);
-  if(hasCol('Utsjekk')) f.Utsjekk = JSON.stringify(p.checkouts||[]);
+  // Per-prosjekt endringslogg + manuell logg + utsjekk – lagres via faktisk internt kolonnenavn hvis kolonnen finnes
+  { const k=colKey('Endringslogg'); if(k) f[k] = JSON.stringify(p.projChangeLog||[]); }
+  { const k=colKey('Logg'); if(k) f[k] = JSON.stringify(p.log||[]); }
+  { const k=colKey('Utsjekk'); if(k) f[k] = JSON.stringify(p.checkouts||[]); }
   return { fields:f };
 }
 
@@ -4084,9 +4089,9 @@ function fromItem(item){
   if(f.Execution!=null){ const ex=parseSPJson(f.Execution, {}); if(ex && Object.keys(ex).length) o.execution = ex; }
   if(f.Ordrelenker!=null){ o.orders = parseSPJson(f.Ordrelenker, []); }
   if(f.Tilbudsprosess!=null){ o.quoteProcess = parseSPJson(f.Tilbudsprosess, {}); }
-  if(f.Endringslogg!=null){ o.projChangeLog = parseSPJson(f.Endringslogg, []); }
-  if(f.Logg!=null){ o.log = parseSPJson(f.Logg, []); }
-  if(f.Utsjekk!=null){ o.checkouts = parseSPJson(f.Utsjekk, []); }
+  { const k=colKey('Endringslogg'); if(k && f[k]!=null) o.projChangeLog = parseSPJson(f[k], []); }
+  { const k=colKey('Logg'); if(k && f[k]!=null) o.log = parseSPJson(f[k], []); }
+  { const k=colKey('Utsjekk'); if(k && f[k]!=null) o.checkouts = parseSPJson(f[k], []); }
   return o;
 }
 let lastSyncTs = 0, _syncing = false;
@@ -4892,7 +4897,7 @@ function renderPmoKpis(){
 
   const active=projects.filter(p=>['fase1','fase2','fase3','fase4'].includes(p.phase));
   const pipe=active.reduce((s,p)=>s+p.value,0);
-  const contracted=projects.filter(p=>['fase3','fase4','aftermarket','fase5'].includes(p.phase)).reduce((s,p)=>s+p.value,0);
+  const contracted=projects.filter(p=>['fase3','fase4','aftermarket'].includes(p.phase)).reduce((s,p)=>s+p.value,0); // ekskl. avsluttede (fase5) og tapte
   const offers=projects.filter(p=>['fase2','fase3','fase4','aftermarket','fase5','joblost'].includes(p.phase)).length;
   const won=projects.filter(p=>['fase3','fase4','aftermarket','fase5'].includes(p.phase)).length;
   const hitRate=offers?Math.round(won/offers*100):0;
@@ -5583,42 +5588,17 @@ function renderWorldMap() {
     const size = hubProjs.length ? Math.min(48, 28 + hubProjs.length * 5) : 22;
     const isMain = hub.main;
 
+    const dot = hubProjs.length ? Math.min(34, 20 + hubProjs.length*3) : 16;
+    const fs = dot>=26?12:11;
+    const ring = isMain ? ',0 0 0 3px rgba(255,255,255,.22)' : '';
     const icon = L.divIcon({
       className: 'hub-marker',
-      html: `<div style="position:relative;display:flex;flex-direction:column;align-items:center;cursor:pointer;width:${size+24}px">
-        <!-- SVG hub icon: rounded pin with building inside -->
-        <svg width="${size}" height="${size*1.3}" viewBox="0 0 40 52" style="filter:drop-shadow(0 3px 6px rgba(0,0,0,.5))">
-          <!-- Outer pin shape -->
-          <path d="M20 0 C9 0 0 9 0 20 C0 32 20 52 20 52 C20 52 40 32 40 20 C40 9 31 0 20 0 Z"
-            fill="${color}" stroke="white" stroke-width="${isMain?3:2}"/>
-          ${isMain ? '<path d="M20 0 C9 0 0 9 0 20 C0 32 20 52 20 52 C20 52 40 32 40 20 C40 9 31 0 20 0 Z" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="6" transform="scale(1.08) translate(-1.6,-1.6)"/>' : ''}
-          <!-- White circle background for icon -->
-          <circle cx="20" cy="19" r="11" fill="white"/>
-          <!-- Building/HQ icon -->
-          <g transform="translate(13,11)">
-            <rect x="0" y="6" width="14" height="9" fill="${color}" rx="1"/>
-            <polygon points="0,6 7,0 14,6" fill="${color}"/>
-            <rect x="2.5" y="9" width="2" height="2.5" fill="white"/>
-            <rect x="6" y="9" width="2" height="2.5" fill="white"/>
-            <rect x="9.5" y="9" width="2" height="2.5" fill="white"/>
-            <rect x="5.5" y="12" width="3" height="3" fill="white"/>
-          </g>
-          ${hubProjs.length > 0 ? `<circle cx="32" cy="8" r="8" fill="#dc2626" stroke="white" stroke-width="2"/>
-            <text x="32" y="11.5" text-anchor="middle" fill="white" font-size="10" font-weight="700" font-family="Inter,sans-serif">${hubProjs.length}</text>` : ''}
-        </svg>
-        <!-- Label below -->
-        <div style="
-          margin-top:2px;padding:2px 8px;
-          background:rgba(11,17,32,.85);
-          border-radius:10px;
-          white-space:nowrap;font-size:10px;font-weight:600;color:white;
-          font-family:Inter,sans-serif;letter-spacing:.2px;
-          backdrop-filter:blur(4px);
-          border:1px solid rgba(255,255,255,.1);
-        ">${hub.flag} ${hub.name}${isMain ? ' ⭐' : ''}</div>
+      html: `<div style="display:flex;flex-direction:column;align-items:center;cursor:pointer">
+        <div style="width:${dot}px;height:${dot}px;border-radius:50%;background:${color};border:${isMain?3:2}px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)${ring};display:flex;align-items:center;justify-content:center;color:#fff;font-family:Inter,sans-serif;font-size:${fs}px;font-weight:700;line-height:1">${hubProjs.length||''}</div>
+        <div style="margin-top:3px;padding:1px 7px;background:rgba(11,17,32,.8);border-radius:8px;white-space:nowrap;font-size:10px;font-weight:600;color:#fff;font-family:Inter,sans-serif;border:1px solid rgba(255,255,255,.12)">${hub.flag} ${hub.name}</div>
       </div>`,
-      iconSize: [size + 24, size * 1.3 + 22],
-      iconAnchor: [(size+24)/2, size * 1.3 + 22],
+      iconSize: [120, dot + 26],
+      iconAnchor: [60, dot/2],
     });
 
     const popup = L.popup({ maxWidth: 280, className: 'dark-popup' }).setContent(`
@@ -5668,26 +5648,13 @@ function renderWorldMap() {
     const color = phaseMap[topPhase]?.color || '#6b7280';
     const size = Math.min(36, 18 + g.items.length * 4);
 
+    const dot = Math.min(30, 16 + g.items.length*3);
+    const fs = dot>=24?11:10;
     const icon = L.divIcon({
       className: 'project-marker',
-      html: `<div style="position:relative;cursor:pointer">
-        <svg width="${size}" height="${size*1.25}" viewBox="0 0 32 40" style="filter:drop-shadow(0 2px 5px rgba(0,0,0,.45))">
-          <!-- Tear-drop pin -->
-          <path d="M16 0 C7 0 0 7 0 16 C0 26 16 40 16 40 C16 40 32 26 32 16 C32 7 25 0 16 0 Z"
-            fill="${color}" stroke="white" stroke-width="2"/>
-          <!-- White inner circle -->
-          <circle cx="16" cy="15" r="9" fill="white"/>
-          <!-- Wrench icon (clean SVG) -->
-          <g transform="translate(8.5,7.5) scale(0.6)">
-            <path d="M22.7 19l-9.1-9.1c.3-.7.4-1.5.4-2.4 0-3.6-2.9-6.5-6.5-6.5-.7 0-1.4.1-2 .3l3.6 3.6L8.6 6.6 6.4 8.8 2.8 5.2C2.6 5.8 2.5 6.5 2.5 7.2c0 3.6 2.9 6.5 6.5 6.5.9 0 1.7-.1 2.4-.4l9.1 9.1c.4.4 1 .4 1.3 0l.9-.9c.4-.4.4-1 0-1.4z"
-              fill="${color}" stroke="${color}" stroke-width="1"/>
-          </g>
-          ${g.items.length > 1 ? `<circle cx="26" cy="6" r="6.5" fill="#dc2626" stroke="white" stroke-width="1.5"/>
-            <text x="26" y="9" text-anchor="middle" fill="white" font-size="8.5" font-weight="700" font-family="Inter,sans-serif">${g.items.length}</text>` : ''}
-        </svg>
-      </div>`,
-      iconSize: [size, size*1.25],
-      iconAnchor: [size/2, size*1.25],
+      html: `<div style="width:${dot}px;height:${dot}px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4);display:flex;align-items:center;justify-content:center;color:#fff;font-family:Inter,sans-serif;font-size:${fs}px;font-weight:700;line-height:1;cursor:pointer">${g.items.length>1?g.items.length:''}</div>`,
+      iconSize: [dot, dot],
+      iconAnchor: [dot/2, dot/2],
     });
 
     const popup = L.popup({ maxWidth: 260 }).setContent(`
@@ -6935,6 +6902,7 @@ async function createCheckout(projectId, bi){
       kostpris:c.kostpris, valuta:c.valuta, hskode:c.hskode, opprinnelse:c.opprinnelse }));
   const co={ id:'co'+Date.now(), unitId:String(unit.id), unitName:unit.name, typeName:unit.type, from:b.from, to:b.to, status:'plukkes', opprettet:new Date().toISOString(), lines };
   p.checkouts.push(co);
+  if(graphMode && !colKey('Utsjekk')){ showToast('NB: kolonnen «Utsjekk» mangler på prosjektlista – plukk/utsjekk lagres ikke og forsvinner ved oppdatering.', true); }
   if(typeof addProjChangeLog==='function') addProjChangeLog(projectId,'resource','📦',`Plukkliste opprettet for ${unit.name}`,'',unit.name);
   if(graphMode) await saveToLists(p);
   openCheckoutModal(projectId, co.id);
@@ -6946,6 +6914,7 @@ async function saveCheckout(){ const {p}=_getCheckout(); if(!p) return; if(graph
 async function checkoutUnit(){
   const {p,co}=_getCheckout(); if(!p||!co) return;
   if(!confirm('Sjekke ut enheten? Den settes til «utleid».')) return;
+  if(graphMode && !colKey('Utsjekk')){ showToast('Kolonnen «Utsjekk» finnes ikke på prosjektlista – status lagres ikke og forsvinner ved oppdatering. Opprett den (flere linjer, rik tekst = Nei).', true); }
   co.status='utsjekket'; co.utsjekketTs=new Date().toISOString();
   await _setUnitStatus(co.unitId,'utleid');
   if(typeof addProjChangeLog==='function') addProjChangeLog(p.id,'resource','📦',`Enhet sjekket ut: ${co.unitName}`,'',co.unitName);
@@ -10085,7 +10054,7 @@ function exportProjectsCSV() {
 function exportProjectsPDF() {
   const now = new Date().toLocaleDateString('no-NO',{day:'2-digit',month:'long',year:'numeric'});
   const active = projects.filter(p=>['fase1','fase2','fase3','fase4'].includes(p.phase));
-  const contracted = projects.filter(p=>['fase3','fase4','aftermarket','fase5'].includes(p.phase));
+  const contracted = projects.filter(p=>['fase3','fase4','aftermarket'].includes(p.phase)); // ekskl. avsluttede (fase5)
 
   const rows = PHASES.map(ph => {
     const group = projects.filter(p=>p.phase===ph.id);
@@ -14086,7 +14055,7 @@ NÅVÆRENDE DATA (oppdatert live):
 - Antall prosjekter: ${projects.length}
 - Prosjekter per fase: ${JSON.stringify(Object.fromEntries(PHASES.map(ph => [ph.label, projects.filter(p=>p.phase===ph.id).length])))}
 - Total pipeline-verdi: ${fmtS(projects.filter(p=>['fase1','fase2','fase3','fase4'].includes(p.phase)).reduce((s,p)=>s+p.value,0))}
-- Kontraktert verdi: ${fmtS(projects.filter(p=>['fase3','fase4','aftermarket','fase5'].includes(p.phase)).reduce((s,p)=>s+p.value,0))}
+- Kontraktert verdi: ${fmtS(projects.filter(p=>['fase3','fase4','aftermarket'].includes(p.phase)).reduce((s,p)=>s+p.value,0))}
 - Avdelinger: Offshore & Marine (${projects.filter(p=>p.dept==='offshore').length} prosjekter), Aquaculture (${projects.filter(p=>p.dept==='aqua').length} prosjekter)
 - Hubber: ${HUBS.map(h=>h.name+': '+projects.filter(p=>p.hub===h.id).length+' prosjekter').join(', ')}
 - Uløste sjekkliste-oppgaver: ${projects.flatMap(p=>Object.values(p.checklists||{}).flat()).filter(i=>!i.checked).length}
@@ -16215,7 +16184,7 @@ function renderExecutiveDashboard() {
   const activeProjs  = projects.filter(p => activePhases.includes(p.phase));
   const pipeline     = activeProjs.reduce((s,p)=>s+p.value, 0);
   const weighted     = activeProjs.reduce((s,p)=>s + p.value * (p.prob/100), 0);
-  const contracted   = projects.filter(p => ['fase3','fase4','aftermarket','fase5'].includes(p.phase)).reduce((s,p)=>s+p.value, 0);
+  const contracted   = projects.filter(p => ['fase3','fase4','aftermarket'].includes(p.phase)).reduce((s,p)=>s+p.value, 0); // ekskl. avsluttede (fase5)
   const won          = projects.filter(p => ['fase3','fase4','aftermarket','fase5'].includes(p.phase)).length;
   const lost         = projects.filter(p => p.phase === 'joblost').length;
   const winRate      = (won + lost) > 0 ? Math.round(won/(won+lost)*100) : 0;
@@ -16697,7 +16666,7 @@ function renderAISVessels() {
 
   projects.forEach(p => {
     if (!p.mmsi || !p.rig) return;
-    if (!['fase3','fase4','aftermarket','fase5'].includes(p.phase)) return; // only active projects
+    if (!['fase3','fase4','aftermarket'].includes(p.phase)) return; // kun aktive prosjekter (ikke avsluttede)
 
     const pos = getVesselPosition(p.mmsi, p);
     if (!pos) return;
@@ -16709,16 +16678,13 @@ function renderAISVessels() {
 
     const icon = L.divIcon({
       className: 'vessel-marker',
-      html: `<div style="position:relative" class="${isMoving?'vessel-pulse':''}">
-        <svg width="28" height="28" viewBox="0 0 32 32" style="transform:rotate(${rotation}deg);transform-origin:center">
-          <!-- Vessel triangle pointing in direction of travel -->
-          <path d="M16 2 L26 28 L16 23 L6 28 Z" fill="${color}" stroke="white" stroke-width="2"/>
-          <circle cx="16" cy="16" r="3" fill="white"/>
+      html: `<div class="${isMoving?'vessel-pulse':''}" style="width:20px;height:20px">
+        <svg width="20" height="20" viewBox="0 0 32 32" style="transform:rotate(${rotation}deg);transform-origin:center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))">
+          <path d="M16 3 L25 27 L16 22 L7 27 Z" fill="${color}" stroke="#fff" stroke-width="2"/>
         </svg>
-        <div style="position:absolute;top:-6px;right:-6px;background:#0891b2;color:white;border-radius:50%;width:14px;height:14px;font-size:8px;display:flex;align-items:center;justify-content:center;font-weight:700;border:2px solid white;font-family:'DM Mono',monospace">🛰</div>
       </div>`,
-      iconSize: [28, 28],
-      iconAnchor: [14, 14],
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
     });
 
     const m = L.marker([pos.lat, pos.lng], { icon }).addTo(worldMap);
