@@ -13051,15 +13051,30 @@ function autoAssignChecklists(p, newPhaseId) {
   if (!p) return;
   if (!p.checklists) p.checklists = {};
 
-  // Fase 0-sjekklisten gjelder KUN når prosjektet faktisk står i Fase 0.
-  // Settes prosjektet rett i fase 1/2/3 (eller er forbi), skal standard
-  // Fase 0-lista verken tildeles eller henge igjen.
-  if (newPhaseId === 'fase0' && p.phase !== 'fase0') {
+  // Fjern standard sjekklister for én fase (egendefinerte timestamp-maler røres ikke)
+  const _removePhaseLists = (phaseId) => {
+    const re = new RegExp('^' + phaseId + '(_(offshore|aqua|all))?$');
     let removed = 0;
-    Object.keys(p.checklists).forEach(k => {
-      if (/^fase0(_(offshore|aqua|all))?$/.test(k)) { delete p.checklists[k]; removed++; }
-    });
+    Object.keys(p.checklists).forEach(k => { if (re.test(k)) { delete p.checklists[k]; removed++; } });
     return removed;
+  };
+
+  // Fase 0-sjekklisten gjelder KUN når prosjektet faktisk står i Fase 0.
+  // Settes prosjektet rett i fase 1/2/3 (eller er forbi), skal den verken
+  // tildeles eller henge igjen.
+  if (newPhaseId === 'fase0' && p.phase !== 'fase0') {
+    return _removePhaseLists('fase0');
+  }
+
+  // Ikke aktiver sjekklister for en fase prosjektet ikke har nådd enda.
+  // Neste fase blir først aktiv når prosjektet faktisk flyttes dit.
+  // (curIdx>=0 hindrer at vi rører spesialtilstander som 'joblost'.)
+  {
+    const curIdx = PHASE_ORDER.indexOf(p.phase);
+    const newIdx = PHASE_ORDER.indexOf(newPhaseId);
+    if (curIdx >= 0 && newIdx > curIdx) {
+      return _removePhaseLists(newPhaseId);
+    }
   }
 
   const deptKey = p.dept || 'offshore';
