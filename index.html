@@ -13173,6 +13173,36 @@ function autoAssignChecklists(p, newPhaseId) {
     }
   });
 
+  // Rydd bort RESTPUNKTER som ligger på prosjektet under andre fase-nøkler enn de
+  // dept-matchede (f.eks. feil avdeling, eldre nøkler, eller punkter fjernet fra malen).
+  // Vises i sjekklista via "startsWith(fase)", så de må også fjernes her – ellers henger
+  // de igjen selv etter at de er slettet fra malen. Egendefinerte punkter beholdes.
+  if (!templateLoadError) {
+    const validTexts = new Set();
+    Object.entries(CHECKLIST_TEMPLATES_EXTENDED).forEach(([k, t]) => {
+      if ((k === newPhaseId || k.startsWith(newPhaseId + '_')) && (!t.dept || t.dept === deptKey || t.dept === 'all')) {
+        (t.items || []).forEach(it => validTexts.add(String((typeof it === 'object' ? it.text : it) || '').trim().toLowerCase()));
+      }
+    });
+    Object.keys(p.checklists).forEach(k => {
+      if (!(k === newPhaseId || k.startsWith(newPhaseId + '_'))) return;  // kun denne fasen
+      if (matchKeys.includes(k)) return;                                  // allerede håndtert over
+      const arr = p.checklists[k];
+      if (!Array.isArray(arr)) return;
+      const before = arr.length;
+      const cleaned = arr.filter(it => {
+        if (it && typeof it === 'object' && it.custom) return true;       // egendefinert – behold
+        const txt = String((typeof it === 'object' ? it.text : it) || '').trim().toLowerCase();
+        return validTexts.has(txt);                                        // behold kun hvis i gjeldende mal
+      });
+      if (cleaned.length !== before) {
+        changed += (before - cleaned.length);
+        if (cleaned.length === 0) delete p.checklists[k];
+        else p.checklists[k] = cleaned;
+      }
+    });
+  }
+
   return changed;
 }
 
