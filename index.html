@@ -1175,6 +1175,13 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
 .cl-item-row:last-child{border-bottom:none}
 .cl-item-drag{color:var(--muted);font-size:12px;cursor:grab;opacity:.5;flex-shrink:0}
 .cl-item-drag:hover{opacity:1}
+.cl-item-row[draggable="true"]{cursor:default}
+.cl-item-row.cl-dragging{opacity:.4}
+.cl-item-row.cl-drop-target{box-shadow:inset 0 2px 0 0 var(--accent2)}
+.cl-item-move{display:flex;flex-direction:column;gap:1px;flex-shrink:0}
+.cl-item-move button{background:none;border:none;color:var(--muted);font-size:9px;line-height:1;cursor:pointer;padding:1px 4px;opacity:.55;transition:opacity .12s,color .12s;border-radius:3px}
+.cl-item-move button:hover:not(:disabled){opacity:1;color:var(--accent2)}
+.cl-item-move button:disabled{opacity:.15;cursor:default}
 .cl-item-text{flex:1;font-size:13px}
 .cl-item-del{background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0 4px;line-height:1;transition:color .15s;flex-shrink:0}
 .cl-item-del:hover{color:#ef4444}
@@ -3891,6 +3898,7 @@ async function templateColMap(lid){
   cols.forEach(col=>{ byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name; });
   const map={ _found: cols.map(c=>c.name) };
   ['title','fasenokkel','rolle','rekkefolge','punkttype','bevis','aktiv','fristdager','pakrevd','gjentakelse'].forEach(k=>{ map[k]=byNorm[k]||null; });
+  map.avdeling = byNorm['avdeling']||byNorm['dept']||byNorm['department']||byNorm['avd']||null;
   if(!map.title) map.title='Title';
   return map;
 }
@@ -3909,7 +3917,7 @@ async function loadChecklistTemplatesFromSP(){
     const raw = (d.value||[]).filter(it=>it.fields && it.fields[cm.fasenokkel] && (!cm.aktiv || it.fields[cm.aktiv]!==false));
     if(!raw.length){ templatesFromSP = false; return false; } // tom liste (ikke importert ennå) – ikke en feil
     raw.sort((a,b)=>(parseInt(cm.rekkefolge?a.fields[cm.rekkefolge]:0)||0)-(parseInt(cm.rekkefolge?b.fields[cm.rekkefolge]:0)||0));
-    const built = {}, deadlines = {}, execBuilt = {}, execDeadlines = {};
+    const built = {}, deadlines = {}, execBuilt = {}, execDeadlines = {}, deptByKey = {};
     raw.forEach(it=>{
       const f=it.fields, key=f[cm.fasenokkel];
       if(key.indexOf('exec:')===0){
@@ -3928,12 +3936,14 @@ async function loadChecklistTemplatesFromSP(){
         if(cm.punkttype && f[cm.punkttype]) item.type=f[cm.punkttype];
         if(cm.bevis && f[cm.bevis]) item.evidence=f[cm.bevis];
         built[key].push(item);
+        if(cm.avdeling && f[cm.avdeling] && deptByKey[key]==null) deptByKey[key]=f[cm.avdeling];
         if(cm.fristdager && f[cm.fristdager]!=null && deadlines[key]==null) deadlines[key]=parseInt(f[cm.fristdager]);
       }
     });
     Object.keys(built).forEach(key=>{
       const meta = CHECKLIST_TEMPLATES_EXTENDED[key] || { dept: key.endsWith('_offshore')?'offshore':key.endsWith('_aqua')?'aqua':'all', name:key };
       const merged = { ...meta, items: built[key] };
+      if(deptByKey[key]) merged.dept = deptByKey[key];   // lagret avdeling overstyrer utledet
       if(deadlines[key]!=null) merged.deadline = { days: deadlines[key], label: deadlines[key]+' dager' };
       CHECKLIST_TEMPLATES_EXTENDED[key] = merged;
     });
@@ -12087,6 +12097,7 @@ async function addTemplateItem(key) {
     const fields = { [templateCm.title]:text, [templateCm.fasenokkel]:key, [templateCm.rekkefolge]:tmpl.items.length };
     if(templateCm.rolle) fields[templateCm.rolle]='';
     if(templateCm.aktiv) fields[templateCm.aktiv]=true;
+    if(templateCm.avdeling) fields[templateCm.avdeling]=tmpl.dept||'all';
     const id = await tmplAddRow(fields); if(id) item.spId = id;
   }
   openTemplateDetail(key);
@@ -12115,6 +12126,41 @@ function editTemplateItem(key, idx) {
   if(graphMode && templateCm && it2.spId) tmplPatchRow(it2.spId, { [templateCm.title]: t });  // lagre tekst
   openTemplateDetail(key);
   showToast('Punkt oppdatert ✓');
+}
+
+/* Endre hvilken avdeling malen gjelder for (lagres i kolonnen «Avdeling» på hver rad) */
+async function setTemplateDept(key, dept){
+  const tmpl = CHECKLIST_TEMPLATES_EXTENDED[key]; if(!tmpl) return;
+  tmpl.dept = dept;
+  renderChecklistAdmin();   // oppdaterer merkelapp + venstreliste
+  if(graphMode && templateCm && templateCm.avdeling){
+    for(const it of (tmpl.items||[])){ if(it && it.spId){ try{ await tmplPatchRow(it.spId, { [templateCm.avdeling]: dept }); }catch(e){} } }
+    showToast('Avdeling endret ✓');
+  } else if(graphMode){
+    showToast('Avdeling endret i økten – legg til kolonnen «Avdeling» for å lagre permanent', true);
+  } else {
+    showToast('Avdeling endret ✓');
+  }
+}
+
+/* Slett en hel sjekklistema (alle punkter). Egendefinerte maler forsvinner permanent;
+   innebygde standardmaler kan komme tilbake ved neste innlasting. */
+async function deleteTemplate(key){
+  const tmpl = CHECKLIST_TEMPLATES_EXTENDED[key]; if(!tmpl) return;
+  const n = Array.isArray(tmpl.items) ? tmpl.items.length : 0;
+  const builtIn = !/_\d{10,}$/.test(key);   // tidsstemplet nøkkel = egendefinert mal
+  let msg = `Slette hele malen «${tmpl.name}» med ${n} punkt${n===1?'':'er'}? Dette kan ikke angres.`;
+  if(builtIn) msg += '\n\nMerk: dette er en innebygd standardmal. Den kan dukke opp igjen (tom) ved neste innlasting.';
+  if(!confirm(msg)) return;
+  if(graphMode){
+    for(const it of (tmpl.items||[])){ if(it && it.spId){ try{ await tmplDeleteRow(it.spId); }catch(e){} } }
+  }
+  delete CHECKLIST_TEMPLATES_EXTENDED[key];
+  if(selectedTemplateKey===key) selectedTemplateKey=null;
+  const detail=document.getElementById('cl-admin-detail');
+  if(detail) detail.innerHTML='<div style="padding:24px;color:var(--muted);font-size:13px">Velg en mal til venstre for å redigere.</div>';
+  renderChecklistAdmin();
+  showToast('Mal slettet');
 }
 
 function duplicateTemplate(key) {
@@ -12538,8 +12584,10 @@ renderChecklistAdminDetail = function(key) {
       <div id="cl-items-list">
         ${stage.tasks.map((task, idx) => {
           const roleId = execRoleToId(task.role);
-          return `<div class="cl-item-row">
-            <span class="cl-item-drag">⠿</span>
+          return `<div class="cl-item-row" draggable="true"
+            ondragstart="clDragStart(event,'${key}',${idx})" ondragend="clDragEnd(event)"
+            ondragover="clDragOver(event,'${key}',${idx})" ondrop="clDrop(event,'${key}',${idx})">
+            <span class="cl-item-drag" title="Dra for å endre rekkefølge">⠿</span>
             <div style="flex:1">
               <div class="cl-item-text">${escHtml(task.text)}
                 ${task.req?'<span class="cl-req-pill">Påkrevd</span>':'<span class="cl-opt-pill">Valgfri</span>'}
@@ -12553,6 +12601,10 @@ renderChecklistAdminDetail = function(key) {
                 <span class="cl-repeat-toggle" onclick="cycleExecTaskRepeat('${stage.id}',${idx})" title="Veksle gjentakelse: Engangs → Daglig → Ukentlig">${execRepeatLabel(task.repeat)}</span>
               </div>
             </div>
+            <span class="cl-item-move">
+              <button onclick="moveClItem('${key}',${idx},-1)" title="Flytt opp" ${idx===0?'disabled':''}>▲</button>
+              <button onclick="moveClItem('${key}',${idx},1)" title="Flytt ned" ${idx===stage.tasks.length-1?'disabled':''}>▼</button>
+            </span>
             <button class="ci-comment-btn" onclick="editExecTaskText('${stage.id}',${idx})" title="Rediger tekst">✎</button>
             <button class="cl-item-del" onclick="deleteExecTask('${stage.id}',${idx})" title="Slett">×</button>
           </div>`;
@@ -12578,9 +12630,16 @@ renderChecklistAdminDetail = function(key) {
         <div style="font-size:15px;font-weight:600">${tmpl.name}</div>
         <span class="cl-dept-tag" style="background:${deptColor}22;color:${deptColor};margin-top:4px;display:inline-block">${deptLabel}</span>
       </div>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span style="font-size:12px;color:var(--muted)">${tmpl.items.length} punkter</span>
+        <select onchange="setTemplateDept('${key}',this.value)" title="Hvilken avdeling malen gjelder for"
+          style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:5px 8px;font-size:12px;cursor:pointer">
+          <option value="all" ${(!tmpl.dept||tmpl.dept==='all')?'selected':''}>Felles (alle avdelinger)</option>
+          <option value="offshore" ${tmpl.dept==='offshore'?'selected':''}>Offshore & Marine</option>
+          <option value="aqua" ${tmpl.dept==='aqua'?'selected':''}>Aquaculture</option>
+        </select>
         <button class="export-btn" onclick="duplicateTemplate('${key}')">⎘ Dupliser</button>
+        <button class="export-btn" onclick="deleteTemplate('${key}')" style="color:#ef4444;border-color:rgba(239,68,68,.4)">🗑 Slett mal</button>
       </div>
     </div>
 
@@ -12611,8 +12670,10 @@ renderChecklistAdminDetail = function(key) {
       ${tmpl.items.map((item, idx) => {
         const text = typeof item === 'object' ? item.text : item;
         const role = typeof item === 'object' ? (item.role||'') : '';
-        return `<div class="cl-item-row" id="clrow-${key}-${idx}">
-          <span class="cl-item-drag">⠿</span>
+        return `<div class="cl-item-row" id="clrow-${key}-${idx}" draggable="true"
+          ondragstart="clDragStart(event,'${key}',${idx})" ondragend="clDragEnd(event)"
+          ondragover="clDragOver(event,'${key}',${idx})" ondrop="clDrop(event,'${key}',${idx})">
+          <span class="cl-item-drag" title="Dra for å endre rekkefølge">⠿</span>
           <div style="flex:1">
             <div class="cl-item-text">${escHtml(text)}</div>
             <div style="display:flex;gap:4px;margin-top:4px">
@@ -12621,6 +12682,10 @@ renderChecklistAdminDetail = function(key) {
                 onclick="setItemRole('${key}',${idx},'${r.id}')">${r.name}</span>`).join('')}
             </div>
           </div>
+          <span class="cl-item-move">
+            <button onclick="moveClItem('${key}',${idx},-1)" title="Flytt opp" ${idx===0?'disabled':''}>▲</button>
+            <button onclick="moveClItem('${key}',${idx},1)" title="Flytt ned" ${idx===tmpl.items.length-1?'disabled':''}>▼</button>
+          </span>
           <button class="ci-comment-btn" onclick="editTemplateItem('${key}',${idx})" title="Rediger tekst">✎</button>
           <button class="cl-item-del" onclick="deleteTemplateItem('${key}',${idx})" title="Slett">×</button>
         </div>`;
@@ -12632,6 +12697,80 @@ renderChecklistAdminDetail = function(key) {
     </div>
   </div>`;
 };
+
+/* ═══════════════════════════════════
+   SJEKKLISTEMAL – REKKEFØLGE (drag & drop + opp/ned)
+═══════════════════════════════════ */
+let _clDragKey = null, _clDragIdx = null;
+
+// Henter rett array uansett om det er en fase-mal eller et Fase 4-steg
+function clItemsArray(key){
+  if (key && key.indexOf('exec:') === 0) {
+    const s = (typeof EXEC_STAGES !== 'undefined') ? EXEC_STAGES.find(x => x.id === key.slice(5)) : null;
+    return s ? s.tasks : null;
+  }
+  const t = CHECKLIST_TEMPLATES_EXTENDED[key];
+  return t ? t.items : null;
+}
+
+// Lagre ny rekkefølge til SharePoint (Rekkefolge = posisjon)
+async function persistClOrder(key){
+  if (!(graphMode && templateCm && templateCm.rekkefolge)) return;
+  const arr = clItemsArray(key); if (!arr) return;
+  for (let i = 0; i < arr.length; i++) {
+    const it = arr[i];
+    if (it && typeof it === 'object' && it.spId) {
+      try { await tmplPatchRow(it.spId, { [templateCm.rekkefolge]: i + 1 }); } catch(e){}
+    }
+  }
+}
+
+function _clReindexRows(key){
+  // Oppdater data-idx ikke nødvendig – vi re-rendrer hele lista etter flytting.
+}
+
+async function moveClItem(key, idx, dir){
+  const arr = clItemsArray(key); if (!arr) return;
+  const to = idx + dir;
+  if (to < 0 || to >= arr.length) return;
+  const m = arr.splice(idx, 1)[0];
+  arr.splice(to, 0, m);
+  renderChecklistAdminDetail(key);
+  await persistClOrder(key);
+}
+
+function clDragStart(ev, key, idx){
+  _clDragKey = key; _clDragIdx = idx;
+  try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', String(idx)); } catch(e){}
+  if (ev.currentTarget) ev.currentTarget.classList.add('cl-dragging');
+}
+function clDragEnd(ev){
+  if (ev && ev.currentTarget) ev.currentTarget.classList.remove('cl-dragging');
+  document.querySelectorAll('.cl-item-row.cl-drop-target').forEach(r => r.classList.remove('cl-drop-target'));
+  _clDragKey = null; _clDragIdx = null;
+}
+function clDragOver(ev, key, idx){
+  if (_clDragKey !== key) return;           // bytt rekkefølge kun innen samme liste
+  ev.preventDefault();
+  try { ev.dataTransfer.dropEffect = 'move'; } catch(e){}
+  const row = ev.currentTarget;
+  document.querySelectorAll('.cl-item-row.cl-drop-target').forEach(r => { if (r !== row) r.classList.remove('cl-drop-target'); });
+  if (row) row.classList.add('cl-drop-target');
+}
+async function clDrop(ev, key, idx){
+  ev.preventDefault();
+  const from = _clDragIdx, dragKey = _clDragKey;
+  clDragEnd(ev);
+  if (dragKey !== key || from === null || from === idx) return;
+  const arr = clItemsArray(key); if (!arr || !arr[idx]) return;
+  const target = arr[idx];               // raden vi slipper på
+  const m = arr.splice(from, 1)[0];       // ta ut det dratte punktet
+  let insertAt = arr.indexOf(target);     // sett inn rett før mål-raden
+  if (insertAt < 0) insertAt = arr.length;
+  arr.splice(insertAt, 0, m);
+  renderChecklistAdminDetail(key);
+  await persistClOrder(key);
+}
 
 function setItemRole(key, idx, roleId) {
   const tmpl = CHECKLIST_TEMPLATES_EXTENDED[key]; if (!tmpl) return;
