@@ -3899,6 +3899,7 @@ async function templateColMap(lid){
   const map={ _found: cols.map(c=>c.name) };
   ['title','fasenokkel','rolle','rekkefolge','punkttype','bevis','aktiv','fristdager','pakrevd','gjentakelse'].forEach(k=>{ map[k]=byNorm[k]||null; });
   map.avdeling = byNorm['avdeling']||byNorm['dept']||byNorm['department']||byNorm['avd']||null;
+  map.malnavn = byNorm['malnavn']||byNorm['navn']||byNorm['templatename']||byNorm['malname']||byNorm['maltittel']||null;
   if(!map.title) map.title='Title';
   return map;
 }
@@ -3917,7 +3918,7 @@ async function loadChecklistTemplatesFromSP(){
     const raw = (d.value||[]).filter(it=>it.fields && it.fields[cm.fasenokkel] && (!cm.aktiv || it.fields[cm.aktiv]!==false));
     if(!raw.length){ templatesFromSP = false; return false; } // tom liste (ikke importert ennå) – ikke en feil
     raw.sort((a,b)=>(parseInt(cm.rekkefolge?a.fields[cm.rekkefolge]:0)||0)-(parseInt(cm.rekkefolge?b.fields[cm.rekkefolge]:0)||0));
-    const built = {}, deadlines = {}, execBuilt = {}, execDeadlines = {}, deptByKey = {};
+    const built = {}, deadlines = {}, execBuilt = {}, execDeadlines = {}, deptByKey = {}, nameByKey = {};
     raw.forEach(it=>{
       const f=it.fields, key=f[cm.fasenokkel];
       if(key.indexOf('exec:')===0){
@@ -3937,6 +3938,7 @@ async function loadChecklistTemplatesFromSP(){
         if(cm.bevis && f[cm.bevis]) item.evidence=f[cm.bevis];
         built[key].push(item);
         if(cm.avdeling && f[cm.avdeling] && deptByKey[key]==null) deptByKey[key]=f[cm.avdeling];
+        if(cm.malnavn && f[cm.malnavn] && nameByKey[key]==null) nameByKey[key]=f[cm.malnavn];
         if(cm.fristdager && f[cm.fristdager]!=null && deadlines[key]==null) deadlines[key]=parseInt(f[cm.fristdager]);
       }
     });
@@ -3944,6 +3946,7 @@ async function loadChecklistTemplatesFromSP(){
       const meta = CHECKLIST_TEMPLATES_EXTENDED[key] || { dept: key.endsWith('_offshore')?'offshore':key.endsWith('_aqua')?'aqua':'all', name:key };
       const merged = { ...meta, items: built[key] };
       if(deptByKey[key]) merged.dept = deptByKey[key];   // lagret avdeling overstyrer utledet
+      if(nameByKey[key]) merged.name = nameByKey[key];   // lagret navn overstyrer utledet/standard
       if(deadlines[key]!=null) merged.deadline = { days: deadlines[key], label: deadlines[key]+' dager' };
       CHECKLIST_TEMPLATES_EXTENDED[key] = merged;
     });
@@ -12098,6 +12101,7 @@ async function addTemplateItem(key) {
     if(templateCm.rolle) fields[templateCm.rolle]='';
     if(templateCm.aktiv) fields[templateCm.aktiv]=true;
     if(templateCm.avdeling) fields[templateCm.avdeling]=tmpl.dept||'all';
+    if(templateCm.malnavn) fields[templateCm.malnavn]=tmpl.name||'';
     const id = await tmplAddRow(fields); if(id) item.spId = id;
   }
   openTemplateDetail(key);
@@ -12129,6 +12133,24 @@ function editTemplateItem(key, idx) {
 }
 
 /* Endre hvilken avdeling malen gjelder for (lagres i kolonnen «Avdeling» på hver rad) */
+/* Endre navnet på en mal (lagres i kolonnen «MalNavn» på hver rad) */
+async function renameTemplate(key){
+  const tmpl = CHECKLIST_TEMPLATES_EXTENDED[key]; if(!tmpl) return;
+  const navn = prompt('Nytt navn på sjekklista:', tmpl.name||'');
+  if(navn === null) return;
+  const t = navn.trim(); if(!t) return;
+  tmpl.name = t;
+  renderChecklistAdmin();   // oppdaterer tittel + venstreliste
+  if(graphMode && templateCm && templateCm.malnavn){
+    for(const it of (tmpl.items||[])){ if(it && it.spId){ try{ await tmplPatchRow(it.spId, { [templateCm.malnavn]: t }); }catch(e){} } }
+    showToast('Navn endret ✓');
+  } else if(graphMode){
+    showToast('Navn endret i økten – legg til kolonnen «MalNavn» for å lagre permanent', true);
+  } else {
+    showToast('Navn endret ✓');
+  }
+}
+
 async function setTemplateDept(key, dept){
   const tmpl = CHECKLIST_TEMPLATES_EXTENDED[key]; if(!tmpl) return;
   tmpl.dept = dept;
@@ -12417,7 +12439,10 @@ renderProjectChecklist = function(p) {
   if (!p.checklists) p.checklists = {};
   // Generér on-demand for alle faser (merger – bevarer eksisterende avhukinger).
   // Sikrer at sjekklista vises uten å bytte fase, og kommer tilbake etter refresh.
-  PHASES.filter(ph => ph.id !== 'joblost').forEach(ph => autoAssignChecklists(p, ph.id));
+  let _clSync = 0;
+  PHASES.filter(ph => ph.id !== 'joblost').forEach(ph => { _clSync += (autoAssignChecklists(p, ph.id) || 0); });
+  // Slo rolle-/mal-endringer igjennom på dette prosjektet → lagre korrigeringen
+  if (_clSync > 0 && graphMode && typeof saveToLists === 'function') { try { saveToLists(p); } catch(e){} }
 
   const deptTemplates = Object.entries(CHECKLIST_TEMPLATES_EXTENDED)
     .filter(([key, tmpl]) => !tmpl.dept || tmpl.dept === deptKey || tmpl.dept === 'all');
@@ -12627,7 +12652,7 @@ renderChecklistAdminDetail = function(key) {
   detail.innerHTML = `<div class="cl-edit-panel">
     <div class="cl-edit-header">
       <div>
-        <div style="font-size:15px;font-weight:600">${tmpl.name}</div>
+        <div style="font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px">${escHtml(tmpl.name)}<button class="ci-comment-btn" onclick="renameTemplate('${key}')" title="Endre navn på malen" style="font-size:13px">✎</button></div>
         <span class="cl-dept-tag" style="background:${deptColor}22;color:${deptColor};margin-top:4px;display:inline-block">${deptLabel}</span>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -12806,6 +12831,18 @@ function updateTemplateDeadline(key, days) {
 function autoAssignChecklists(p, newPhaseId) {
   if (!p) return;
   if (!p.checklists) p.checklists = {};
+
+  // Fase 0-sjekklisten gjelder KUN når prosjektet faktisk står i Fase 0.
+  // Settes prosjektet rett i fase 1/2/3 (eller er forbi), skal standard
+  // Fase 0-lista verken tildeles eller henge igjen.
+  if (newPhaseId === 'fase0' && p.phase !== 'fase0') {
+    let removed = 0;
+    Object.keys(p.checklists).forEach(k => {
+      if (/^fase0(_(offshore|aqua|all))?$/.test(k)) { delete p.checklists[k]; removed++; }
+    });
+    return removed;
+  }
+
   const deptKey = p.dept || 'offshore';
 
   // Find all template keys that match this phase (e.g. fase2, fase2_offshore, fase2_aqua)
@@ -12829,18 +12866,43 @@ function autoAssignChecklists(p, newPhaseId) {
     const existing = p.checklists[key] || [];
     const tmplItems = (tmpl.items || []).map(t => (typeof t === 'object' ? t : { text: t }));
     const tmplTexts = new Set(tmplItems.map(t => String(t.text || '').trim().toLowerCase()));
+    const tmplByText = {};
+    tmplItems.forEach(t => { tmplByText[String(t.text || '').trim().toLowerCase()] = t; });
 
     // Avstem mot malen:
-    //  - behold egendefinerte punkter (custom) alltid
-    //  - behold mal-punkter som fortsatt finnes i malen (bevarer avhuking)
+    //  - behold egendefinerte punkter (custom) alltid, uendret
+    //  - behold mal-punkter som fortsatt finnes i malen (bevarer avhuking),
+    //    men SYNK rolle/type/bevis/handling fra malen (slik at rolle-endringer slår igjennom)
     //  - fjern mal-punkter som er slettet fra malen – MEN bare når malene faktisk ble lastet
     //    (ikke ved lastefeil/fallback, for å unngå å miste data på en midlertidig feil)
     const canRemove = !templateLoadError;
-    const kept = existing.filter(it => {
-      const text = String((typeof it === 'object' ? it.text : it) || '').trim().toLowerCase();
-      if (it && typeof it === 'object' && it.custom) return true;   // egendefinert – aldri fjern
-      if (tmplTexts.has(text)) return true;                          // finnes fortsatt i malen
-      return !canRemove;                                             // ellers: fjern kun hvis trygt
+    let metaChanges = 0;
+    const kept = [];
+    existing.forEach(it => {
+      const isObj = it && typeof it === 'object';
+      const text = String((isObj ? it.text : it) || '').trim().toLowerCase();
+      if (isObj && it.custom) { kept.push(it); return; }      // egendefinert – aldri rør
+      const ti = tmplByText[text];
+      if (ti) {
+        if (isObj) {
+          // Synk metadata fra malen, men behold avhuking/id og annen instans-tilstand
+          const newRole = ti.role || '';
+          const newType = ti.type || it.type || 'check';
+          const newEvidence = ti.evidence || '';
+          const newAction = ti.action || '';
+          if ((it.role || '') !== newRole)      { it.role = newRole; metaChanges++; }
+          if ((it.type || 'check') !== newType) { it.type = newType; metaChanges++; }
+          if ((it.evidence || '') !== newEvidence) { it.evidence = newEvidence; metaChanges++; }
+          if ((it.action || '') !== newAction)  { it.action = newAction; metaChanges++; }
+          kept.push(it);
+        } else {
+          // streng-form → konverter til objekt med malens metadata
+          kept.push({ id:'ci'+Date.now()+Math.random(), text: ti.text, role: ti.role||'', type: ti.type||'check', evidence: ti.evidence||'', action: ti.action||'', checked:false, src:'tmpl' });
+          metaChanges++;
+        }
+      } else {
+        if (!canRemove) kept.push(it);   // ikke lenger i malen → fjern kun hvis trygt
+      }
     });
     const removed = existing.length - kept.length;
 
@@ -12853,9 +12915,9 @@ function autoAssignChecklists(p, newPhaseId) {
         evidence: t.evidence || '', action: t.action || '', checked: false, src: 'tmpl',
       }));
 
-    if (removed > 0 || toAdd.length > 0) {
+    if (removed > 0 || toAdd.length > 0 || metaChanges > 0) {
       p.checklists[key] = [...kept, ...toAdd];
-      changed += removed + toAdd.length;
+      changed += removed + toAdd.length + metaChanges;
     }
   });
 
