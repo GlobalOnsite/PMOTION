@@ -2686,6 +2686,23 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
 .role-kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px;transition:transform .12s}
 .role-kpi:hover{transform:translateY(-2px)}
 .role-kpi.hot{border-color:var(--rc);box-shadow:0 0 0 1px var(--rc),0 4px 16px color-mix(in srgb,var(--rc) 20%,transparent)}
+.role-kpi.kpi-click{cursor:pointer}
+.role-kpi.kpi-click:hover{border-color:var(--accent2);background:var(--card)}
+.kpi-arrow{color:var(--accent2);font-weight:800}
+.dl-wrap{display:flex;flex-direction:column;max-height:78vh}
+.dl-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 22px;border-bottom:1px solid var(--border)}
+.dl-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;display:flex;align-items:center;gap:10px}
+.dl-count{font-family:'DM Mono',monospace;font-size:13px;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:2px 10px}
+.dl-close{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:4px 8px;border-radius:8px}
+.dl-close:hover{background:var(--surface);color:var(--text)}
+.dl-list{overflow-y:auto;padding:10px 14px}
+.dl-row{display:flex;align-items:center;gap:12px;padding:12px 12px;border-radius:10px;cursor:pointer;transition:background .12s}
+.dl-row:hover{background:var(--surface)}
+.dl-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.dl-name{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dl-sub{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dl-arrow{color:var(--muted);font-size:20px;flex-shrink:0}
+.dl-row:hover .dl-arrow{color:var(--accent2)}
 .role-kpi-val{font-size:26px;font-weight:800;line-height:1;font-family:'DM Mono',monospace}
 .role-kpi-label{font-size:11px;color:var(--muted);margin-top:6px;text-transform:uppercase;letter-spacing:.4px}
 .role-dot{width:11px;height:11px;border-radius:50%;display:inline-block}
@@ -4717,26 +4734,33 @@ function renderRoleDashboard(){
   // Bygg KPI-er + handlinger per rolle
   let kpis=[], actionLabel='', actionView='';
   const cnt=(arr,f)=>arr.filter(f).length;
+  // Hjelpere for «klikk på tallet → vis prosjektene»
+  _dashDrills = [];
+  const _myRolesCL = (typeof getMyChecklistRoles==='function') ? getMyChecklistRoles() : [];
+  const byPhase = (...phs)=> P.filter(p=>phs.includes(p.phase));
+  const myOpenProjects = ()=> P.filter(p=>Object.entries(p.checklists||{}).some(([k,items])=>
+    (typeof checklistPhaseReached!=='function' || checklistPhaseReached(p,k)) &&
+    (items||[]).some(it=>!it.checked && it.role && _myRolesCL.includes(it.role))));
 
   if(roleId==='pmo' || roleId==='sitelead'){
-    const active = P.filter(p=>p.phase==='fase4').length;
+    const activeProjs = byPhase('fase4');
     const mine = myOpenChecklistItems();
-    const lateGate = P.filter(p=>{ const st=(typeof phaseChecklistStatus==='function')?phaseChecklistStatus(p):null; return st && st.locked===false && p.phase!=='fase5'; }).length;
+    const gateProjs = P.filter(p=>{ const st=(typeof phaseChecklistStatus==='function')?phaseChecklistStatus(p):null; return st && st.locked===false && p.phase!=='fase5'; });
     kpis=[
-      {label:'Aktive prosjekter', val:P.length, color:'#0891b2'},
-      {label:'Under gjennomføring', val:active, color:'#2563eb'},
-      {label:'Mine åpne sjekkpunkter', val:mine, color:'#d97706', hot:mine>0},
-      {label:'Klar for neste fase', val:lateGate, color:'#16a34a'},
+      {label:'Aktive prosjekter', val:P.length, color:'#0891b2', drill:{title:'Aktive prosjekter', projects:P}},
+      {label:'Under gjennomføring', val:activeProjs.length, color:'#2563eb', drill:{title:'Under gjennomføring (Fase 4)', projects:activeProjs}},
+      {label:'Mine åpne sjekkpunkter', val:mine, color:'#d97706', hot:mine>0, drill:{title:'Prosjekter med mine åpne sjekkpunkter', projects:myOpenProjects(), tab:'checklist'}},
+      {label:'Klar for neste fase', val:gateProjs.length, color:'#16a34a', drill:{title:'Klar for neste fase', projects:gateProjs}},
     ];
     actionLabel='Gå til prosjekter'; actionView='projects';
   } else if(roleId==='kam' || roleId==='bdm'){
     const newTk = cnt(T,t=>t.status==='new');
-    const tilbud = P.filter(p=>p.phase==='fase2').length;
-    const won = P.filter(p=>p.phase==='fase3'||p.phase==='fase4').length;
+    const tilbudP = byPhase('fase2');
+    const wonP = byPhase('fase3','fase4');
     kpis=[
       {label:'Nye henvendelser', val:newTk, color:'#2563eb', hot:newTk>0},
-      {label:'Tilbud ute (Fase 2)', val:tilbud, color:'#7c3aed'},
-      {label:'Vunnet / i arbeid', val:won, color:'#16a34a'},
+      {label:'Tilbud ute (Fase 2)', val:tilbudP.length, color:'#7c3aed', drill:{title:'Tilbud ute (Fase 2)', projects:tilbudP}},
+      {label:'Vunnet / i arbeid', val:wonP.length, color:'#16a34a', drill:{title:'Vunnet / i arbeid', projects:wonP}},
       {label:'Leads', val:LE.length, color:'#d97706'},
     ];
     actionLabel='Åpne CRM'; actionView='crm';
@@ -4746,15 +4770,15 @@ function renderRoleDashboard(){
     kpis=[
       {label:'Åpne risikoer', val:openR, color:'#dc2626', hot:openR>0},
       {label:'Høy risiko (≥12)', val:highR, color:'#dc2626', hot:highR>0},
-      {label:'Aktive prosjekter', val:P.length, color:'#0891b2'},
-      {label:'Mine sjekkpunkter (HSE)', val:myOpenChecklistItems(), color:'#d97706'},
+      {label:'Aktive prosjekter', val:P.length, color:'#0891b2', drill:{title:'Aktive prosjekter', projects:P}},
+      {label:'Mine sjekkpunkter (HSE)', val:myOpenChecklistItems(), color:'#d97706', drill:{title:'Prosjekter med mine åpne sjekkpunkter', projects:myOpenProjects(), tab:'checklist'}},
     ];
     actionLabel='Åpne avvik & HMS'; actionView='nonconform';
   } else if(roleId==='hr'){
     const ppl = safe(typeof personnel!=='undefined'?personnel:null);
     kpis=[
       {label:'Ansatte', val:ppl.length||62, color:'#db2777'},
-      {label:'Aktive prosjekter', val:P.length, color:'#0891b2'},
+      {label:'Aktive prosjekter', val:P.length, color:'#0891b2', drill:{title:'Aktive prosjekter', projects:P}},
       {label:'Hubber', val:(typeof HUBS!=='undefined'?HUBS.length:0), color:'#7c3aed'},
     ];
     actionLabel='Åpne personell'; actionView='personnel';
@@ -4764,39 +4788,44 @@ function renderRoleDashboard(){
     kpis=[
       {label:'Produksjon pågår', val:inProd, color:'#d97706', hot:inProd>0},
       {label:'I kø til produksjon', val:queued, color:'#2563eb'},
-      {label:'Aktive prosjekter', val:P.length, color:'#0891b2'},
-      {label:'Mine sjekkpunkter', val:myOpenChecklistItems(), color:'#16a34a', hot:myOpenChecklistItems()>0},
+      {label:'Aktive prosjekter', val:P.length, color:'#0891b2', drill:{title:'Aktive prosjekter', projects:P}},
+      {label:'Mine sjekkpunkter', val:myOpenChecklistItems(), color:'#16a34a', hot:myOpenChecklistItems()>0, drill:{title:'Prosjekter med mine åpne sjekkpunkter', projects:myOpenProjects(), tab:'checklist'}},
     ];
     actionLabel='Åpne produksjon'; actionView='production';
   } else if(roleId==='operation'){
     const inProd = cnt(PJ,j=>j.phase==='inprogress');
     kpis=[
-      {label:'Aktive prosjekter', val:P.length, color:'#0891b2'},
+      {label:'Aktive prosjekter', val:P.length, color:'#0891b2', drill:{title:'Aktive prosjekter', projects:P}},
       {label:'Produksjon pågår', val:inProd, color:'#d97706', hot:inProd>0},
       {label:'Ansatte å koordinere', val:(safe(typeof personnel!=='undefined'?personnel:null).length||62), color:'#0d9488'},
     ];
     actionLabel='Åpne ressurser'; actionView='resources';
   } else if(roleId==='ceo'){
-    const tilbud = P.filter(p=>p.phase==='fase2').length;
-    const won = P.filter(p=>p.phase==='fase3'||p.phase==='fase4').length;
+    const tilbudP = byPhase('fase2');
+    const wonP = byPhase('fase3','fase4');
     const totVal = P.reduce((s,p)=>s+(p.value||0),0);
     kpis=[
-      {label:'Aktive prosjekter', val:P.length, color:'#0891b2'},
-      {label:'Pipeline-verdi', val:(totVal? (Math.round(totVal/1000)+'k') : '–'), color:'#16a34a'},
-      {label:'Tilbud ute', val:tilbud, color:'#7c3aed'},
-      {label:'I arbeid', val:won, color:'#2563eb'},
+      {label:'Aktive prosjekter', val:P.length, color:'#0891b2', drill:{title:'Aktive prosjekter', projects:P}},
+      {label:'Pipeline-verdi', val:(totVal? (Math.round(totVal/1000)+'k') : '–'), color:'#16a34a', drill:{title:'Pipeline – alle aktive prosjekter', projects:P}},
+      {label:'Tilbud ute', val:tilbudP.length, color:'#7c3aed', drill:{title:'Tilbud ute (Fase 2)', projects:tilbudP}},
+      {label:'I arbeid', val:wonP.length, color:'#2563eb', drill:{title:'I arbeid (Fase 3–4)', projects:wonP}},
     ];
     actionLabel='Se rapporter'; actionView='reports';
   } else {
-    kpis=[{label:'Aktive prosjekter', val:P.length, color:'#0891b2'}];
+    kpis=[{label:'Aktive prosjekter', val:P.length, color:'#0891b2', drill:{title:'Aktive prosjekter', projects:P}}];
     actionLabel='Gå til prosjekter'; actionView='projects';
   }
 
-  const kpiHtml = kpis.map(k=>`
-    <div class="role-kpi ${k.hot?'hot':''}">
+  const kpiHtml = kpis.map(k=>{
+    let di = -1;
+    if(k.drill && Array.isArray(k.drill.projects) && k.drill.projects.length){ di = _dashDrills.push(k.drill)-1; }
+    const clickable = di>=0;
+    return `
+    <div class="role-kpi ${k.hot?'hot':''}${clickable?' kpi-click':''}" ${clickable?`onclick="openDashDrill(${di})" title="Vis prosjektene"`:''}>
       <div class="role-kpi-val" style="color:${k.color}">${k.val}</div>
-      <div class="role-kpi-label">${escHtml(k.label)}</div>
-    </div>`).join('');
+      <div class="role-kpi-label">${escHtml(k.label)}${clickable?' <span class="kpi-arrow">›</span>':''}</div>
+    </div>`;
+  }).join('');
 
   el.innerHTML = `
     <div class="role-panel" style="--rc:${role.color}">
@@ -7515,6 +7544,39 @@ function openProjInfoFallback(id){
   const modalEl=document.getElementById('modal-content');
   try { modalEl.innerHTML = renderProjInfoForm(p); }
   catch(e){ modalEl.innerHTML = '<div style="padding:32px;color:var(--muted)">Kunne ikke vise redigeringsskjema.</div>'; }
+}
+
+/* ── Dashbord drill-ned: klikk på et nøkkeltall → vis de faktiske prosjektene ── */
+let _dashDrills = [];
+function openDashDrill(di){
+  const d = _dashDrills[di]; if(!d) return;
+  showProjectListModal(d.title, d.projects, d.tab || 'overview');
+}
+function showProjectListModal(title, projList, tab){
+  const modalEl = document.getElementById('modal-content'); if(!modalEl) return;
+  const list = Array.isArray(projList) ? projList : [];
+  const rows = list.map(p=>{
+    const ph = phaseMap[p.phase];
+    const sub = [ p.projectNr ? ('#'+p.projectNr) : '', ph?ph.label:(p.phase||''), p.value?fmtKr(p.value):'' ].filter(Boolean).join(' · ');
+    return `<div class="dl-row" onclick="openEditModal('${p.id}','${tab||'overview'}')">
+      <span class="dl-dot" style="background:${ph?ph.color:'#64748b'}"></span>
+      <div style="flex:1;min-width:0">
+        <div class="dl-name">${escHtml(p.name||'Uten navn')}</div>
+        <div class="dl-sub">${escHtml(sub)}</div>
+      </div>
+      <span class="dl-arrow">›</span>
+    </div>`;
+  }).join('');
+  modalEl.innerHTML = `<div class="dl-wrap">
+    <div class="dl-head">
+      <div class="dl-title">${escHtml(title)} <span class="dl-count">${list.length}</span></div>
+      <button class="dl-close" onclick="closeModal()" title="Lukk">✕</button>
+    </div>
+    <div class="dl-list">${rows || '<div style="padding:28px;text-align:center;color:var(--muted);font-size:13px">Ingen prosjekter her akkurat nå.</div>'}</div>
+  </div>`;
+  const modalBox = modalEl.closest('.modal') || modalEl.parentElement;
+  if(modalBox) modalBox.classList.remove('pw-modal');
+  document.getElementById('modal-overlay').classList.add('open');
 }
 
 function openEditModal(id,activeTab='overview'){
