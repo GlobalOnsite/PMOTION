@@ -4702,7 +4702,8 @@ function renderRoleDashboard(){
     if(!myRoles.length) return 0;
     let n=0;
     P.forEach(p=>{
-      Object.values(p.checklists||{}).forEach(items=>{
+      Object.entries(p.checklists||{}).forEach(([phaseKey,items])=>{
+        if(typeof checklistPhaseReached==='function' && !checklistPhaseReached(p, phaseKey)) return;
         (items||[]).forEach(it=>{ if(!it.checked && it.role && myRoles.includes(it.role)) n++; });
       });
     });
@@ -8658,12 +8659,30 @@ function setTaskFilter(filter, btn) {
 }
 
 /* Collect all unchecked items across projects */
+/* Har prosjektet nådd denne sjekkliste-fasen? Fremtidige faser teller ikke,
+   og Fase 0 teller kun mens prosjektet faktisk står i Fase 0. */
+function checklistPhaseReached(p, phaseKey){
+  const phaseId = String(phaseKey||'').split('_')[0];
+  if (phaseId === 'fase0') return p.phase === 'fase0';
+  const ci = PHASE_ORDER.indexOf(p.phase);
+  const ki = PHASE_ORDER.indexOf(phaseId);
+  if (ci < 0 || ki < 0) return true;   // ukjent fase (f.eks. egendefinert/joblost) → ikke filtrer bort
+  return ki <= ci;                     // kun nåværende + passerte faser
+}
+/* Flate ut kun sjekklistepunkter i faser prosjektet har nådd */
+function reachedChecklistItems(p){
+  return Object.entries(p.checklists||{})
+    .filter(([k]) => checklistPhaseReached(p, k))
+    .flatMap(([,items]) => Array.isArray(items) ? items : []);
+}
+
 function collectTasks(filterFn) {
   const result = [];
   projects.forEach(p => {
     if (!p.checklists) return;
     Object.entries(p.checklists).forEach(([phaseId, items]) => {
       if (!Array.isArray(items)) return;
+      if (!checklistPhaseReached(p, phaseId)) return;   // hopp over faser prosjektet ikke har nådd
       items.forEach((item, idx) => {
         if (filterFn && !filterFn(p, phaseId, item)) return;
         result.push({ item, idx, phaseId, project: p });
@@ -13172,8 +13191,9 @@ function renderProjectDashboard(p, activeTab) {
   const rt = p.rigType ? (RIG_TYPES[p.rigType]||{label:'Ukjent'}) : null;
 
   // KPIs
-  const totalTasks  = Object.values(p.checklists||{}).flat().length;
-  const doneTasks   = Object.values(p.checklists||{}).flat().filter(i=>i.checked).length;
+  const _reached    = (typeof reachedChecklistItems==='function') ? reachedChecklistItems(p) : Object.values(p.checklists||{}).flat();
+  const totalTasks  = _reached.length;
+  const doneTasks   = _reached.filter(i=>i.checked).length;
   const taskPct     = totalTasks ? Math.round(doneTasks/totalTasks*100) : 0;
   const resCount    = (p.resourceBookings||[]).reduce((s,b)=>s+b.qty,0);
   const eqCount     = (p.equipBookings||[]).length;
