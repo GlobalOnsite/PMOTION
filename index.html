@@ -3068,6 +3068,7 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
       <div class="view-title" style="margin:0">Ressurs-Gantt</div>
       <div style="display:flex;align-items:center;gap:8px">
+        <button class="cal-nav-btn" onclick="openResTypesModal()" style="font-size:11px" title="Vedlikehold ressurstyper og rater">⚙️ Ressurstyper</button>
         <div class="rg-view-switcher">
           <button class="rg-view-btn active" id="vbtn-month" onclick="setResView('month',this)">Måned</button>
           <button class="rg-view-btn" id="vbtn-week" onclick="setResView('week',this)">Uke</button>
@@ -3851,6 +3852,8 @@ async function ensureListColumns(){
   return listColumnNames;
 }
 function colKey(n){ return (listColMap && listColMap[_normCol(n)]) || null; }
+function colKeyAny(names){ for(const n of names){ const k=colKey(n); if(k) return k; } return null; }
+const RES_COL_NAMES = ['ResourceBookings','Ressursbookinger','Ressursbooking','Ressurser','Bemanning','Ressursbestilling'];
 function hasCol(n){ return !!colKey(n); }
 
 /* Debouncet lagring av ett prosjekt til SharePoint (samler raske endringer, f.eks. avhuking). */
@@ -4062,7 +4065,7 @@ function toFields(p){
   { const k=colKey('Endringslogg'); if(k) f[k] = JSON.stringify(p.projChangeLog||[]); }
   { const k=colKey('Logg'); if(k) f[k] = JSON.stringify(p.log||[]); }
   { const k=colKey('Utsjekk'); if(k) f[k] = JSON.stringify(p.checkouts||[]); }
-  { const k=colKey('ResourceBookings'); if(k) f[k] = JSON.stringify(p.resourceBookings||[]); }
+  { const k=colKeyAny(RES_COL_NAMES); if(k) f[k] = JSON.stringify(p.resourceBookings||[]); }
   return { fields:f };
 }
 
@@ -4070,7 +4073,7 @@ function fromItem(item){
   const f=item.fields; let pl={},eb=[],rb=[];
   try{pl=JSON.parse(f.PhaseLog||'{}');}catch(e){}
   try{eb=JSON.parse(f.EquipBookings||'[]');}catch(e){}
-  { const k=colKey('ResourceBookings'); if(k && f[k]!=null){ try{ rb=parseSPJson(f[k],[]); }catch(e){} } }
+  { const k=colKeyAny(RES_COL_NAMES); if(k && f[k]!=null){ try{ rb=parseSPJson(f[k],[]); }catch(e){} } }
   const months = parseInt(f.Varighet)||0;
   // Eksakt varighet hvis nye kolonner finnes, ellers fall tilbake til måneder (eldre rader)
   let durUnit, durVal, durDays;
@@ -4105,10 +4108,18 @@ async function loadFromLists(silent){
   setSyncStatus('loading', silent?'Synker...':'Laster...');
   try {
     await ensureListColumns();
+    try {
+      const want=['EquipBookings','Checklists','Endringslogg','Logg','Utsjekk'];
+      const missing=want.filter(n=>!colKey(n));
+      if(!colKeyAny(RES_COL_NAMES)) missing.push('ResourceBookings');
+      console.log('%cPMOTION – prosjektkolonner funnet:','color:#3b82f6;font-weight:700', [...(listColumnNames||[])].sort());
+      if(missing.length) console.warn('PMOTION – mangler kolonner på prosjektlista (data lagres ikke for disse):', missing.join(', '));
+    } catch(e){}
     await loadRoleAssignment();              // hent rolletildeling (styrer hvilken rolle innlogget bruker får)
     await loadChecklistTemplatesFromSP();   // hent sjekkliste-maler fra SharePoint (fallback: hardkodet)
     await loadEquipmentFromSP();             // hent utstyrskatalog fra SharePoint (fallback: hardkodet)
     await loadUnitsFromSP();                  // hent unike utstyrsenheter fra SharePoint
+    await loadResTypesFromSP();               // hent ressurstyper + rater fra SharePoint (fallback: standardroller)
     await loadContentsFromSP();               // hent utstyrsinnhold (varelinjer pr enhet/mal)
     await loadEmployeesFromGraph();          // hent alle ansatte fra Microsoft 365 (Graph)
     await loadStaffBookings();               // hent bemanning (prosjekt/ferie/avspasering) fra SharePoint
@@ -7546,16 +7557,157 @@ async function deleteProject(id){
 /* ═══════════════════════════════════
    ROLES & RESOURCE DATA
 ═══════════════════════════════════ */
-const ROLES = [
-  {id:'site_lead',     name:'Site Lead',                   color:'#7c3aed', bg:'rgba(124,58,237,.15)'},
-  {id:'foreman',       name:'Formann',                     color:'#2563eb', bg:'rgba(37,99,235,.15)'},
-  {id:'worker',        name:'Arbeider',                    color:'#16a34a', bg:'rgba(22,163,74,.15)'},
-  {id:'hose_assembly', name:'Hose Assembly',               color:'#d97706', bg:'rgba(217,119,6,.15)'},
-  {id:'rat_supervisor',name:'RAT Supervisor',              color:'#0891b2', bg:'rgba(8,145,178,.15)'},
-  {id:'rat_personnel', name:'Multi Discipline RAT Personell', color:'#db2777', bg:'rgba(219,39,119,.15)'},
+const DEFAULT_ROLES = [
+  {id:'site_lead',     name:'Site Lead',                     color:'#7c3aed'},
+  {id:'foreman',       name:'Formann',                       color:'#2563eb'},
+  {id:'worker',        name:'Arbeider',                      color:'#16a34a'},
+  {id:'hose_assembly', name:'Hose Assembly',                 color:'#d97706'},
+  {id:'rat_supervisor',name:'RAT Supervisor',                color:'#0891b2'},
+  {id:'rat_personnel', name:'Multi Discipline RAT Personell',color:'#db2777'},
 ];
+function _hexToRgba(hex,a){ const h=String(hex||'#3b82f6').replace('#',''); const x=h.length===3?h.split('').map(c=>c+c).join(''):h; const n=parseInt(x,16); return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`; }
+const RES_TYPE_COLORS=['#7c3aed','#2563eb','#16a34a','#d97706','#0891b2','#db2777','#dc2626','#0d9488','#9333ea','#ca8a04'];
+const _fmtNum = n => (n||0).toLocaleString('nb-NO',{maximumFractionDigits:0});
+let ROLES = DEFAULT_ROLES.map(r => ({...r, bg:_hexToRgba(r.color,.15), telaris:'', dagNOK:0, dagEUR:0, timeNOK:0, timeEUR:0}));
 const roleMap = {};
-ROLES.forEach(r => roleMap[r.id] = r);
+function rebuildRoleMap(){ for(const k in roleMap) delete roleMap[k]; ROLES.forEach(r => roleMap[r.id] = r); }
+rebuildRoleMap();
+
+/* ── Ressurstyper i SharePoint (vedlikeholdbare + rater) ── */
+const RES_TYPE_LIST_TITLE='PMOTIONRessurstyper';
+let resTypeListId=null, resTypeCm=null;
+async function resolveResTypeList(){
+  if(resTypeListId) return resTypeListId;
+  try{ const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists?$filter=displayName eq '${RES_TYPE_LIST_TITLE}'&$select=id`); resTypeListId=((d.value||[])[0]||{}).id||null; }
+  catch(e){ resTypeListId=null; }
+  return resTypeListId;
+}
+async function resTypeColMap(lid){
+  let cols=[]; try{ const c=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${lid}/columns`); cols=c.value||[]; }catch(e){}
+  const byNorm={}, types={}, choices={};
+  cols.forEach(col=>{ byNorm[_normCol(col.name)]=col.name; if(col.displayName) byNorm[_normCol(col.displayName)]=col.name;
+    let t='text'; if(col.boolean)t='boolean'; else if(col.number||col.currency)t='number'; else if(col.dateTime)t='dateTime'; else if(col.choice){t='choice';choices[col.name]=(col.choice&&col.choice.choices)||[];} types[col.name]=t; });
+  const m={_type:types,_choices:choices};
+  m.title=byNorm['title']||'Title';
+  m.rolleid=byNorm['rolleid']||byNorm['rolle_id']||byNorm['id']||null;
+  m.farge=byNorm['farge']||byNorm['color']||null;
+  m.dagnok=byNorm['dagnok']||byNorm['dagratenok']||byNorm['dagrate_nok']||null;
+  m.dageur=byNorm['dageur']||byNorm['dagrateeur']||byNorm['dagrate_eur']||null;
+  m.timenok=byNorm['timenok']||byNorm['timeratenok']||byNorm['timerate_nok']||null;
+  m.timeeur=byNorm['timeeur']||byNorm['timerateeur']||byNorm['timerate_eur']||null;
+  m.aktiv=byNorm['aktiv']||byNorm['active']||null;
+  m.telaris=byNorm['telarisitem']||byNorm['telaris']||byNorm['telarisitemnr']||byNorm['telarisnr']||byNorm['telarisitemnr.']||null;
+  return m;
+}
+async function _resTypeCtx(){ const lid=await resolveResTypeList(); if(!lid) return null; if(!resTypeCm) resTypeCm=await resTypeColMap(lid); return {lid,cm:resTypeCm}; }
+async function loadResTypesFromSP(){
+  const ctx=await _resTypeCtx(); if(!ctx) return; // liste finnes ikke – behold standardroller
+  let items=[]; try{ const d=await gGet(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items?expand=fields&$top=200`); items=d.value||[]; }catch(e){ return; }
+  const cm=ctx.cm;
+  items.forEach(it=>{ const f=it.fields||{};
+    const rid=(cm.rolleid&&f[cm.rolleid])|| _normCol(f[cm.title]||'');
+    if(!rid) return;
+    const ex=ROLES.find(r=>r.id===rid); const o=ex||{id:rid};
+    o.name=(cm.title?f[cm.title]:'')||o.name||rid;
+    o.color=(cm.farge?f[cm.farge]:'')||o.color||'#3b82f6'; o.bg=_hexToRgba(o.color,.15);
+    o.dagNOK=parseFloat(cm.dagnok?f[cm.dagnok]:0)||0;
+    o.dagEUR=parseFloat(cm.dageur?f[cm.dageur]:0)||0;
+    o.timeNOK=parseFloat(cm.timenok?f[cm.timenok]:0)||0;
+    o.timeEUR=parseFloat(cm.timeeur?f[cm.timeeur]:0)||0;
+    o.active=cm.aktiv? _truthy(f[cm.aktiv]) : true;
+    o.telaris=(cm.telaris?f[cm.telaris]:'')||'';
+    o._spId=it.id;
+    if(!ex) ROLES.push(o);
+  });
+  rebuildRoleMap();
+}
+function _resTypeFields(cm,r){
+  const f={ [cm.title||'Title']: r.name||'' };
+  const set=(col,val)=>{ if(col){ const cv=_coerceCol(cm,col,val); if(cv!==null&&cv!==undefined) f[col]=cv; } };
+  set(cm.rolleid, r.id); set(cm.farge, r.color);
+  set(cm.dagnok, r.dagNOK||0); set(cm.dageur, r.dagEUR||0);
+  set(cm.timenok, r.timeNOK||0); set(cm.timeeur, r.timeEUR||0);
+  set(cm.telaris, r.telaris||'');
+  if(cm.aktiv) set(cm.aktiv, r.active!==false);
+  return f;
+}
+async function saveResType(r){
+  const ctx=await _resTypeCtx(); if(!ctx){ showToast('Opprett lista «'+RES_TYPE_LIST_TITLE+'» først',true); return false; }
+  try{
+    if(r._spId){ await gPatch(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${r._spId}/fields`, _resTypeFields(ctx.cm,r)); }
+    else { const res=await gPost(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items`, {fields:_resTypeFields(ctx.cm,r)}); r._spId=res&&res.id; }
+    return true;
+  }catch(e){ showToast('Kunne ikke lagre rate: '+((e&&e.message)||''),true); return false; }
+}
+function openResTypesModal(){
+  const canEdit=(typeof roleCan==='function')?roleCan('resources'):true;
+  const rows=ROLES.map(r=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--border)">
+    <span style="width:10px;height:10px;border-radius:50%;background:${r.color};flex-shrink:0"></span>
+    <div style="flex:1;min-width:0">
+      <div style="font-weight:500;font-size:13px">${escHtml(r.name)}${r.telaris?` <span style="font-size:10px;color:var(--muted);font-weight:400">· Telaris ${escHtml(r.telaris)}</span>`:''}</div>
+      <div style="font-size:11px;color:var(--muted)">Dag: ${_fmtNum(r.dagNOK)} NOK / ${_fmtNum(r.dagEUR)} EUR${(r.timeNOK||r.timeEUR)?` &nbsp;·&nbsp; Time: ${_fmtNum(r.timeNOK)} NOK / ${_fmtNum(r.timeEUR)} EUR`:''}</div>
+    </div>
+    ${canEdit?`<button class="cal-nav-btn" style="font-size:11px" onclick="openResTypeEdit('${r.id}')">Endre</button>`:''}
+  </div>`).join('');
+  document.getElementById('modal-content').innerHTML=`
+    <div class="modal-title">Ressurstyper &amp; rater</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Vedlikehold roller og rater (NOK/EUR). Ratene brukes til å estimere personellkostnad på prosjekter.</div>
+    <div style="max-height:48vh;overflow-y:auto;margin-bottom:14px">${rows||'<div style="color:var(--muted);font-size:12px">Ingen ressurstyper.</div>'}</div>
+    ${canEdit?`<button class="modal-btn" style="width:100%" onclick="openResTypeEdit(null)">+ Ny ressurstype</button>`:'<div style="font-size:11px;color:var(--muted)">Du har ikke redigeringstilgang.</div>'}`;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+function openResTypeEdit(id){
+  const isDefault = id && DEFAULT_ROLES.some(d=>d.id===id);
+  const r=id?ROLES.find(x=>x.id===id):{id:'',name:'',color:RES_TYPE_COLORS[ROLES.length%RES_TYPE_COLORS.length],telaris:'',dagNOK:0,dagEUR:0,timeNOK:0,timeEUR:0};
+  if(!r) return;
+  const inp="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:13px;box-sizing:border-box";
+  const lbl="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;font-weight:600;margin:10px 0 4px";
+  document.getElementById('modal-content').innerHTML=`
+    <div class="modal-title">${id?'Endre ressurstype':'Ny ressurstype'}</div>
+    <div style="${lbl}">Navn *</div><input id="rt-name" value="${escAttr(r.name)}" style="${inp}">
+    <div style="display:flex;gap:12px;align-items:flex-end">
+      <div><div style="${lbl}">Farge</div><input id="rt-color" type="color" value="${r.color}" style="width:60px;height:34px;border:1px solid var(--border);border-radius:8px;background:var(--bg);cursor:pointer"></div>
+      <div style="flex:1"><div style="${lbl}">Telaris item nr</div><input id="rt-telaris" value="${escAttr(r.telaris||'')}" placeholder="f.eks. 10042" style="${inp}"></div>
+    </div>
+    <div style="display:flex;gap:12px">
+      <div style="flex:1"><div style="${lbl}">Dagrate NOK</div><input id="rt-dagnok" type="number" step="any" value="${r.dagNOK||''}" style="${inp}"></div>
+      <div style="flex:1"><div style="${lbl}">Dagrate EUR</div><input id="rt-dageur" type="number" step="any" value="${r.dagEUR||''}" style="${inp}"></div>
+    </div>
+    <div style="display:flex;gap:12px">
+      <div style="flex:1"><div style="${lbl}">Timerate NOK</div><input id="rt-timenok" type="number" step="any" value="${r.timeNOK||''}" style="${inp}"></div>
+      <div style="flex:1"><div style="${lbl}">Timerate EUR</div><input id="rt-timeeur" type="number" step="any" value="${r.timeEUR||''}" style="${inp}"></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px">
+      <button class="modal-btn" style="flex:1" onclick="saveResTypeFromModal('${id||''}')">Lagre</button>
+      ${(id&&!isDefault)?`<button class="modal-btn danger" style="flex:1" onclick="deleteResType('${id}')">Slett</button>`:''}
+      <button class="modal-btn" style="flex:1;background:var(--surface);color:var(--text);border:1px solid var(--border)" onclick="openResTypesModal()">Avbryt</button>
+    </div>`;
+  document.getElementById('modal-overlay').classList.add('open');
+}
+async function saveResTypeFromModal(id){
+  const g=x=>document.getElementById(x);
+  const name=(g('rt-name').value||'').trim();
+  if(!name){ showToast('Navn er påkrevd',true); return; }
+  let r;
+  if(id){ r=ROLES.find(x=>x.id===id); if(!r) return; }
+  else { const rid=(_normCol(name)||'rolle')+'_'+Date.now().toString(36); r={id:rid}; ROLES.push(r); }
+  r.name=name; r.color=g('rt-color').value||'#3b82f6'; r.bg=_hexToRgba(r.color,.15);
+  r.telaris=(g('rt-telaris').value||'').trim();
+  r.dagNOK=parseFloat(g('rt-dagnok').value)||0; r.dagEUR=parseFloat(g('rt-dageur').value)||0;
+  r.timeNOK=parseFloat(g('rt-timenok').value)||0; r.timeEUR=parseFloat(g('rt-timeeur').value)||0;
+  r.active=true; rebuildRoleMap();
+  const ok=await saveResType(r);
+  openResTypesModal();
+  if(ok) showToast('Ressurstype lagret ✓');
+  if(typeof renderResGantt==='function'){ try{ renderResGantt(); }catch(e){} }
+}
+async function deleteResType(id){
+  const r=ROLES.find(x=>x.id===id); if(!r) return;
+  if(!confirm(`Slett ressurstypen «${r.name}»? Eksisterende bookinger med denne typen vil vise «ukjent».`)) return;
+  if(r._spId){ const ctx=await _resTypeCtx(); if(ctx){ try{ await gDelete(`/sites/${GRAPH_CONFIG.siteId}/lists/${ctx.lid}/items/${r._spId}`); }catch(e){ showToast('Kunne ikke slette: '+((e&&e.message)||''),true); return; } } }
+  ROLES=ROLES.filter(x=>x.id!==id); rebuildRoleMap();
+  openResTypesModal(); showToast('Ressurstype slettet');
+}
 
 // Seed demo resource bookings on existing projects
 (function seedResources() {
@@ -7583,17 +7735,26 @@ function renderProjectResources(p) {
     bookings.forEach((b, bi) => {
       const role = roleMap[b.roleId];
       if (!role) return;
+      const days=daysBetween(b.from,b.to);
+      const cNOK=(role.dagNOK||0)*b.qty*days, cEUR=(role.dagEUR||0)*b.qty*days;
+      const costStr=(cNOK||cEUR)?` &nbsp;·&nbsp; est. ${_fmtNum(cNOK)} NOK / ${_fmtNum(cEUR)} EUR`:'';
       html += `<div class="res-booking-item">
         <div class="res-booking-qty" style="background:${role.bg};color:${role.color}">${b.qty}</div>
         <div style="flex:1">
           <div class="res-booking-role" style="color:${role.color}">${role.name}</div>
-          <div class="res-booking-meta">${fmtD(b.from)} – ${fmtD(b.to)} &nbsp;·&nbsp; ${daysBetween(b.from,b.to)} dager</div>
+          <div class="res-booking-meta">${fmtD(b.from)} – ${fmtD(b.to)} &nbsp;·&nbsp; ${days} dager${costStr}</div>
         </div>
         <button onclick="editResBooking('${p.id}',${bi})" style="background:rgba(255,255,255,.08);border:none;color:var(--muted);border-radius:6px;padding:5px 10px;cursor:pointer;font-size:11px;margin-right:4px">Endre</button>
         <button onclick="removeResBooking('${p.id}',${bi})" style="background:rgba(220,38,38,.15);border:none;color:#dc2626;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:11px">Fjern</button>
       </div>`;
     });
     html += `</div>`;
+    // Estimert personellkostnad (basert på dagrater)
+    let totNOK=0, totEUR=0;
+    bookings.forEach(b=>{ const role=roleMap[b.roleId]; if(!role) return; const days=daysBetween(b.from,b.to); totNOK+=(role.dagNOK||0)*b.qty*days; totEUR+=(role.dagEUR||0)*b.qty*days; });
+    if(totNOK||totEUR){
+      html += `<div style="margin:6px 0 4px;font-size:12px;color:var(--muted)">Estimert personellkostnad: <strong style="color:var(--text)">${_fmtNum(totNOK)} NOK</strong> / <strong style="color:var(--text)">${_fmtNum(totEUR)} EUR</strong> <span style="opacity:.6">(dagrate × antall × dager)</span></div>`;
+    }
 
     // Summary by role
     const summary = {};
@@ -7662,7 +7823,7 @@ async function addResBooking(projectId) {
   if (new Date(to) < new Date(from)) { showToast('Sluttdato må være etter startdato', true); return; }
   if (!p.resourceBookings) p.resourceBookings = [];
   p.resourceBookings.push({ roleId, qty, from, to });
-  if (graphMode && !colKey('ResourceBookings')) showToast('NB: kolonnen «ResourceBookings» mangler på prosjektlista – ressurser lagres ikke og forsvinner ved oppdatering.', true);
+  if (graphMode && !colKeyAny(RES_COL_NAMES)) showToast('NB: ressurs-kolonnen mangler på prosjektlista – ressurser lagres ikke og forsvinner ved oppdatering. Opprett kolonnen «ResourceBookings».', true);
   if (graphMode) await saveToLists(p);
   openEditModal(projectId, 'resources');
   showToast(`${roleMap[roleId]?.name} booket ✓`);
