@@ -3676,6 +3676,29 @@ function projEndDate(p){
 }
 /* ISO-dato (YYYY-MM-DD) for sluttdato, eller '' */
 function projEndISO(p){ const d=projEndDate(p); return d?d.toISOString().split('T')[0]:''; }
+/* ── Kontraktert verdi som faller innenfor ett kalenderår ──────────
+   Et prosjekt som strekker seg over årsskiftet fordeles forholdsmessig
+   etter varighet, slik at kun årets andel av verdien telles.
+   - Mangler startdato: hele verdien regnes i inneværende år (unngår undertelling).
+   - Mangler varighet: hele verdien regnes i startåret (punkt i tid). */
+function contractedInYear(p, year){
+  const val = (p && p.value) || 0;
+  if(!val) return 0;
+  if(!p.startDate) return val;                         // ukjent startdato → hele verdien i år
+  const start = new Date(p.startDate);
+  if(isNaN(start)) return val;
+  const yStart = new Date(year, 0, 1).getTime();
+  const yEnd   = new Date(year, 11, 31, 23, 59, 59, 999).getTime();
+  const days   = projDurationDays(p);
+  const s = start.getTime();
+  if(days <= 0) return (s >= yStart && s <= yEnd) ? val : 0;   // ingen varighet → hele verdien i startåret
+  const e = s + days * 86400000;                        // sluttidspunkt
+  const ovStart = Math.max(s, yStart);
+  const ovEnd   = Math.min(e, yEnd);
+  const ov = ovEnd - ovStart;
+  if(ov <= 0) return 0;                                  // ingen overlapp med året
+  return Math.round(val * (ov / (e - s)));               // årets andel etter varighet
+}
 /* {value,unit} for skjema – utleder fra lagret enhet, ellers måneder */
 function durationParts(p){
   if(p.durationUnit && (p.durationValue||p.durationValue===0))
@@ -3878,6 +3901,7 @@ function saveState(p){ if(p) queueProjectSave(p); }
    Malene (definisjonene) bor nå i SharePoint og kan redigeres av PMO direkte i lista.
    Lastes ved oppstart og overstyrer de hardkodede; faller tilbake til hardkodet hvis lista mangler/er tom. */
 const TEMPLATE_LIST_TITLE = 'PMOTIONSjekklistemaler';
+const DELETED_TMPL_KEY = '__deleted_template__';   // gravstein-markør: slettede maler holdes borte ved innlasting
 let templateListId = null;
 async function resolveTemplateList(){
   if(templateListId) return templateListId;
@@ -3906,6 +3930,7 @@ async function templateColMap(lid){
 let templatesFromSP = false;    // true når malene faktisk ble hentet fra SharePoint
 let templateLoadError = false;  // true når henting feilet → reservemaler vises (kan være utdaterte)
 let templateCm = null;          // cachet kolonne-mapping for mal-lista (brukes ved redigering)
+let deletedTemplateKeys = new Set();  // maler markert som slettet (gravsteiner) – holdes borte selv om de finnes i kildekoden
 async function loadChecklistTemplatesFromSP(){
   templateLoadError = false;
   try{
@@ -3919,8 +3944,14 @@ async function loadChecklistTemplatesFromSP(){
     if(!raw.length){ templatesFromSP = false; return false; } // tom liste (ikke importert ennå) – ikke en feil
     raw.sort((a,b)=>(parseInt(cm.rekkefolge?a.fields[cm.rekkefolge]:0)||0)-(parseInt(cm.rekkefolge?b.fields[cm.rekkefolge]:0)||0));
     const built = {}, deadlines = {}, execBuilt = {}, execDeadlines = {}, deptByKey = {}, nameByKey = {};
+    const deletedKeys = new Set();
     raw.forEach(it=>{
       const f=it.fields, key=f[cm.fasenokkel];
+      if(key === DELETED_TMPL_KEY){
+        // Gravstein-rad: malen med denne nøkkelen er slettet og skal holdes borte
+        const dk = f[cm.title]; if(dk) deletedKeys.add(dk);
+        return;
+      }
       if(key.indexOf('exec:')===0){
         // Fase 4-steg-oppgave → EXEC_STAGES. Bruker SharePoint-radens id som stabil oppgave-id.
         const sid=key.slice(5); if(!execBuilt[sid]) execBuilt[sid]=[];
@@ -3950,6 +3981,9 @@ async function loadChecklistTemplatesFromSP(){
       if(deadlines[key]!=null) merged.deadline = { days: deadlines[key], label: deadlines[key]+' dager' };
       CHECKLIST_TEMPLATES_EXTENDED[key] = merged;
     });
+    // Fjern maler som er markert slettet (gravsteiner) – også de innebygde fra kildekoden
+    deletedTemplateKeys = deletedKeys;
+    deletedKeys.forEach(k => { delete CHECKLIST_TEMPLATES_EXTENDED[k]; });
     if(typeof EXEC_STAGES!=='undefined'){
       Object.keys(execBuilt).forEach(sid=>{
         const stage = EXEC_STAGES.find(s=>s.id===sid);
@@ -4924,6 +4958,8 @@ function renderPmoKpis(){
   const active=projects.filter(p=>['fase1','fase2','fase3','fase4'].includes(p.phase));
   const pipe=active.reduce((s,p)=>s+p.value,0);
   const contracted=projects.filter(p=>['fase3','fase4','aftermarket'].includes(p.phase)).reduce((s,p)=>s+p.value,0); // ekskl. avsluttede (fase5) og tapte
+  const yearNow=new Date().getFullYear();
+  const contractedYear=projects.filter(p=>['fase3','fase4','aftermarket'].includes(p.phase)).reduce((s,p)=>s+contractedInYear(p,yearNow),0); // årets andel, fordelt over årsskifte etter varighet
   const offers=projects.filter(p=>['fase2','fase3','fase4','aftermarket','fase5','joblost'].includes(p.phase)).length;
   const won=projects.filter(p=>['fase3','fase4','aftermarket','fase5'].includes(p.phase)).length;
   const hitRate=offers?Math.round(won/offers*100):0;
@@ -4933,6 +4969,7 @@ function renderPmoKpis(){
     <div class="pmo-kpi" style="--kc:#3b82f6"><div class="pmo-kpi-val">${projects.length}</div><div class="pmo-kpi-label">Prosjekter</div><div class="pmo-kpi-sub">${active.length} aktive</div></div>
     <div class="pmo-kpi" style="--kc:#06b6d4"><div class="pmo-kpi-val">${fmtS(pipe)}</div><div class="pmo-kpi-label">Pipeline</div><div class="pmo-kpi-sub">Fase 1–4</div></div>
     <div class="pmo-kpi" style="--kc:#22c55e"><div class="pmo-kpi-val">${fmtS(contracted)}</div><div class="pmo-kpi-label">Kontraktert</div><div class="pmo-kpi-sub">Fase 3+</div></div>
+    <div class="pmo-kpi" style="--kc:#15803d"><div class="pmo-kpi-val">${fmtS(contractedYear)}</div><div class="pmo-kpi-label">Kontraktert i år</div><div class="pmo-kpi-sub">${yearNow} · fordelt over årsskifte</div></div>
     <div class="pmo-kpi" style="--kc:#0891b2"><div class="pmo-kpi-val">${inExecution}</div><div class="pmo-kpi-label">Under gjennomføring</div><div class="pmo-kpi-sub">Fase 4</div></div>
     <div class="pmo-kpi" style="--kc:#8b5cf6"><div class="pmo-kpi-val">${hitRate}%</div><div class="pmo-kpi-label">Hit rate</div><div class="pmo-kpi-sub">Tilbud → PO</div></div>`;
 }
@@ -12170,19 +12207,25 @@ async function setTemplateDept(key, dept){
 async function deleteTemplate(key){
   const tmpl = CHECKLIST_TEMPLATES_EXTENDED[key]; if(!tmpl) return;
   const n = Array.isArray(tmpl.items) ? tmpl.items.length : 0;
-  const builtIn = !/_\d{10,}$/.test(key);   // tidsstemplet nøkkel = egendefinert mal
-  let msg = `Slette hele malen «${tmpl.name}» med ${n} punkt${n===1?'':'er'}? Dette kan ikke angres.`;
-  if(builtIn) msg += '\n\nMerk: dette er en innebygd standardmal. Den kan dukke opp igjen (tom) ved neste innlasting.';
+  const msg = `Slette hele malen «${tmpl.name}» med ${n} punkt${n===1?'':'er'}? Dette kan ikke angres.`;
   if(!confirm(msg)) return;
   if(graphMode){
+    // 1) fjern alle punkt-rader for malen
     for(const it of (tmpl.items||[])){ if(it && it.spId){ try{ await tmplDeleteRow(it.spId); }catch(e){} } }
+    // 2) skriv en gravstein slik at malen holdes borte ved neste innlasting (også innebygde standardmaler)
+    if(templateCm && templateCm.fasenokkel && typeof tmplAddRow==='function'){
+      const tomb = { [templateCm.fasenokkel]: DELETED_TMPL_KEY, [templateCm.title]: key };
+      if(templateCm.aktiv) tomb[templateCm.aktiv] = true;
+      try{ await tmplAddRow(tomb); }catch(e){}
+    }
   }
+  deletedTemplateKeys.add(key);
   delete CHECKLIST_TEMPLATES_EXTENDED[key];
   if(selectedTemplateKey===key) selectedTemplateKey=null;
   const detail=document.getElementById('cl-admin-detail');
   if(detail) detail.innerHTML='<div style="padding:24px;color:var(--muted);font-size:13px">Velg en mal til venstre for å redigere.</div>';
   renderChecklistAdmin();
-  showToast('Mal slettet');
+  showToast('Mal slettet ✓');
 }
 
 function duplicateTemplate(key) {
@@ -16563,6 +16606,8 @@ function renderExecutiveDashboard() {
   const pipeline     = activeProjs.reduce((s,p)=>s+p.value, 0);
   const weighted     = activeProjs.reduce((s,p)=>s + p.value * (p.prob/100), 0);
   const contracted   = projects.filter(p => ['fase3','fase4','aftermarket'].includes(p.phase)).reduce((s,p)=>s+p.value, 0); // ekskl. avsluttede (fase5)
+  const execYearNow  = new Date().getFullYear();
+  const contractedYear = projects.filter(p => ['fase3','fase4','aftermarket'].includes(p.phase)).reduce((s,p)=>s+contractedInYear(p,execYearNow), 0); // årets andel (fordelt over årsskifte)
   const won          = projects.filter(p => ['fase3','fase4','aftermarket','fase5'].includes(p.phase)).length;
   const lost         = projects.filter(p => p.phase === 'joblost').length;
   const winRate      = (won + lost) > 0 ? Math.round(won/(won+lost)*100) : 0;
@@ -16632,6 +16677,12 @@ function renderExecutiveDashboard() {
         <div class="exec-stat-val">${fmtSCompact(contracted)}</div>
         <div class="exec-stat-lbl">Kontraktert</div>
         <div class="exec-stat-trend" style="color:#4ade80">${projects.filter(p=>['fase3','fase4'].includes(p.phase)).length} aktive PO</div>
+      </div>
+      <div class="exec-stat" style="--c1:#16a34a;--c2:#15803d">
+        <div class="exec-stat-icon">📅</div>
+        <div class="exec-stat-val">${fmtSCompact(contractedYear)}</div>
+        <div class="exec-stat-lbl">Kontraktert i år</div>
+        <div class="exec-stat-trend" style="color:#4ade80">${execYearNow} · fordelt etter varighet</div>
       </div>
       <div class="exec-stat" style="--c1:#8b5cf6;--c2:#a78bfa">
         <div class="exec-stat-icon">📊</div>
