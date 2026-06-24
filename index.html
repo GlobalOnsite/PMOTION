@@ -11982,141 +11982,23 @@ function toggleMyClRole(id){
 
 
 const CHECKLIST_TEMPLATES_EXTENDED = {
-  // ── FELLES / ALL ────────────────
-  fase0: { dept:'all', name:'Fase 0 – Ikke mottatt forespørsel', deadline: PHASE_DEADLINES.fase0, items: [
-    { text:'Identifiser potensiell kunde og prosjektmulighet', role:'kam' },
-    { text:'Kartlegg kundebehov og markedsposisjon',           role:'kam' },
-    { text:'Vurder Global Onsites kapasitet og kompetanse',    role:'pmo' },
-    { text:'Forbered første kontaktpunkt med kunde',           role:'kam' },
-  ]},
-  fase1: { dept:'all', name:'Fase 1 – Mottatt forespørsel', deadline: PHASE_DEADLINES.fase1, items: [
-    { text:'Bekreft mottak av forespørsel til kunde',          role:'kam' },
-    { text:'Last opp mottatt forespørsel fra kunde (bevis)',   role:'kam', type:'attachment', evidence:'Forespørsel/RFQ' },
-    { text:'Gjennomgå scope og krav i forespørselen',          role:'pm' },
-    { text:'Identifiser nødvendige ressurser og utstyr',       role:'pm' },
-    { text:'Vurder risiko og gjennomførbarhet',                role:'pmo' },
-    { text:'Opprett prosjekt i systemet med korrekt info',     role:'pmo' },
-    { text:'Tildel prosjektleder (Site Lead)',                 role:'pmo' },
-    { text:'Planlegg tilbudsarbeid og sett intern frist',      role:'kam' },
-  ]},
-  fase2_offshore: { dept:'offshore', name:'Fase 2 – Tilbud (Offshore & Marine)', deadline: PHASE_DEADLINES.fase2_offshore, items: [
-    { text:'Utarbeid komplett tilbudsdokument',                      role:'pm' },
-    { text:'Prisvurdering og marginkalkyle godkjent av ledelse',     role:'finance' },
-    { text:'Sjekk tilgjengelighet på offshore-personell',            role:'pmo' },
-    { text:'Sjekk offshore sertifikater (BOSIET, NOGEPA, OPITO)',    role:'hse' },
-    { text:'Sjekk tilgjengelighet på ROV / dykke-utstyr',           role:'pmo' },
-    { text:'Vurder rigg-type og logistikk',                         role:'pm' },
-    { text:'Send tilbud til kunde innen avtalt frist',              role:'kam' },
-    { text:'Last opp oversendt tilbud (bevis)',                     role:'kam', type:'attachment', evidence:'Tilbudsdokument' },
-    { text:'Bekreft mottak av tilbud med kunde',                    role:'kam' },
-    { text:'Logg tilbudsdato i faseline',                           role:'pmo' },
-  ]},
-  fase2_aqua: { dept:'aqua', name:'Fase 2 – Tilbud (Aquaculture)', deadline: PHASE_DEADLINES.fase2_aqua, items: [
-    { text:'Utarbeid komplett tilbudsdokument for oppdrett',          role:'pm' },
-    { text:'Prisvurdering og marginkalkyle godkjent av ledelse',      role:'finance' },
-    { text:'Sjekk tilgjengelighet på Aquaculture-personell',         role:'pmo' },
-    { text:'Vurder spesialutstyr for oppdrettsmiljø',                role:'pm' },
-    { text:'Sjekk nødvendige sertifikater (drukning, HMS havbruk)',  role:'hse' },
-    { text:'Vurder sesong og vær-vindu for operasjon',               role:'pm' },
-    { text:'Send tilbud til kunde innen avtalt frist',               role:'kam' },
-    { text:'Last opp oversendt tilbud (bevis)',                      role:'kam', type:'attachment', evidence:'Tilbudsdokument' },
-    { text:'Bekreft mottak av tilbud med kunde',                     role:'kam' },
-  ]},
-  fase3_offshore: { dept:'offshore', name:'Fase 3 – PO / Kontrakt (Offshore)', deadline: PHASE_DEADLINES.fase3_offshore, items: [
-    { text:'Motta og gjennomgå PO / kontrakt',                       role:'kam' },
-    { text:'Kontraktsdokumenter signert av begge parter',            role:'kam' },
-    { text:'Last opp signert PO / kontrakt (bevis)',                 role:'kam', type:'attachment', evidence:'PO/Kontrakt' },
-    { text:'Kickoff-møte internt gjennomført',                       role:'pm' },
-    { text:'Book offshore-personell i ressurssystemet',              role:'pmo' },
-    { text:'Book nødvendig utstyr fra hub',                         role:'pmo' },
-    { text:'Bestill rigg / helikoptertransport / OSV',               role:'pm' },
-    { text:'Sikkerhetsgjennomgang og risikovurdering (JSA)',         role:'hse' },
-    { text:'Verifiser sertifikater: BOSIET, HUET, Medic, NOGEPA',   role:'hse' },
-    { text:'Sjekk offshore insurance og indemnity clauses',          role:'finance' },
-    { text:'Briefing til personell om scope og sikkerhet',           role:'hse' },
-    { text:'Informer hub om prosjektoppstart',                       role:'pmo' },
-    // ── Fra Prosjektgjennomføring-malen: HR / SCM / Operation ──
-    { text:'CV, fagbrev, sertifikater og referanser kontrollert',    role:'hr' },
-    { text:'HMS-kurs, verneutstyr og sikkerhetsinstruks bekreftet',  role:'hr' },
-    { text:'Helsesertifikat og påkrevde vaksiner kontrollert',       role:'hr' },
-    { text:'Arbeids-/oppdragsavtale og betingelser signert',         role:'hr' },
-    { text:'Kundens adgangskrav, ID-kort og site-registrering fullført', role:'hr' },
-    { text:'Bestill nødvendige deler og utstyr fra leverandør',      role:'scm' },
-    { text:'Sett opp rotasjonsplan, roller og ansvar',               role:'operation' },
-    { text:'Bestill reise, transport og overnatting',                role:'operation' },
-  ]},
-  fase3_aqua: { dept:'aqua', name:'Fase 3 – PO / Kontrakt (Aquaculture)', deadline: PHASE_DEADLINES.fase3_aqua, items: [
-    { text:'Motta og gjennomgå PO / kontrakt',                       role:'kam' },
-    { text:'Kontraktsdokumenter signert av begge parter',            role:'kam' },
-    { text:'Last opp signert PO / kontrakt (bevis)',                 role:'kam', type:'attachment', evidence:'PO/Kontrakt' },
-    { text:'Kickoff-møte med oppdrettskunde',                        role:'pm' },
-    { text:'Book Aquaculture-spesialister',                          role:'pmo' },
-    { text:'Sjekk nødvendig utstyr for oppdrett',                    role:'pmo' },
-    { text:'Koordiner med havbruksmyndigheter',                      role:'pm' },
-    { text:'Risikovurdering for merd-operasjon',                     role:'hse' },
-    { text:'Sjekk dyrevelferd og miljøkrav',                         role:'hse' },
-    { text:'Informer hub om prosjektoppstart',                       role:'pmo' },
-    // ── Fra Prosjektgjennomføring-malen: HR / SCM / Operation ──
-    { text:'CV, fagbrev, sertifikater og referanser kontrollert',    role:'hr' },
-    { text:'HMS-kurs, verneutstyr og sikkerhetsinstruks bekreftet',  role:'hr' },
-    { text:'Helsesertifikat og påkrevde vaksiner kontrollert',       role:'hr' },
-    { text:'Arbeids-/oppdragsavtale og betingelser signert',         role:'hr' },
-    { text:'Kundens adgangskrav, ID-kort og site-registrering fullført', role:'hr' },
-    { text:'Bestill nødvendige deler og utstyr fra leverandør',      role:'scm' },
-    { text:'Sett opp rotasjonsplan, roller og ansvar',               role:'operation' },
-    { text:'Bestill reise, transport og overnatting',                role:'operation' },
-  ]},
-  fase4_offshore: { dept:'offshore', name:'Fase 4 – Gjennomføring (Offshore)', deadline: PHASE_DEADLINES.fase4_offshore, items: [
-    { text:'Last opp mobiliseringsinfo fra kunde (HMS-krav m.m.)',   role:'pm', type:'attachment', evidence:'Kunde-mobiliseringsinfo' },
-    { text:'Last opp reisedokumenter / flybilletter (bevis)',        role:'pm', type:'attachment', evidence:'Reisedokumenter' },
-    { text:'Send mobiliserings-e-post til personell',                role:'pm', type:'action', action:'mobEmail' },
-    { text:'Mobilisering av offshore-personell bekreftet',            role:'pm' },
-    { text:'Utstyr transportert og verifisert på lokasjon',          role:'foreman' },
-    { text:'POB (Personnel On Board) registrert',                    role:'hse' },
-    { text:'Daglige toolbox talks gjennomført og loggført',          role:'hse' },
-    { text:'Ukentlig fremdriftsrapport til kunde',                   role:'pm' },
-    { text:'Registrere timer daglig i systemet',                     role:'foreman' },
-    { text:'Avvik og HMS-hendelser loggført',                        role:'hse' },
-    { text:'Vedlikehold og inspeksjon av utstyr i felt',             role:'foreman' },
-    { text:'Eventuelle scope-endringer (MOC) dokumentert',           role:'pm' },
-    // ── Fra Prosjektgjennomføring-malen: SCM / Operation ──
-    { text:'Kontroll av deler og utstyr før sending',               role:'scm' },
-    { text:'Alt utstyr og deler pakket og klart for sending',       role:'scm', type:'attachment', evidence:'Pakkliste' },
-    { text:'Verifiser flushing-/trykktestutstyr (testpumpe, kalibrerte manometre, flenser, høytrykkslanger, oppsamling)', role:'scm' },
-    { text:'Bekreft bemanning og kapasitet mot plan',               role:'operation' },
-  ]},
-  fase4_aqua: { dept:'aqua', name:'Fase 4 – Gjennomføring (Aquaculture)', deadline: PHASE_DEADLINES.fase4_aqua, items: [
-    { text:'Mobilisering av Aquaculture-team bekreftet',              role:'pm' },
-    { text:'Utstyr verifisert og klart for merd-operasjon',          role:'foreman' },
-    { text:'Daglige HMS-gjennomganger loggført',                     role:'hse' },
-    { text:'Overvåking av fiskevelferd under operasjon',             role:'hse' },
-    { text:'Fremdriftsrapport til oppdrettskunde',                   role:'pm' },
-    { text:'Registrere timer daglig i systemet',                     role:'foreman' },
-    { text:'Avvik og HMS-hendelser loggført',                        role:'hse' },
-    { text:'Eventuelle scope-endringer dokumentert',                 role:'pm' },
-    // ── Fra Prosjektgjennomføring-malen: SCM / Operation ──
-    { text:'Kontroll av deler og utstyr før sending',               role:'scm' },
-    { text:'Alt utstyr og deler pakket og klart for sending',       role:'scm', type:'attachment', evidence:'Pakkliste' },
-    { text:'Bekreft bemanning og kapasitet mot plan',               role:'operation' },
-  ]},
-  aftermarket: { dept:'all', name:'Fase 5 – Ettermarked & service', deadline: PHASE_DEADLINES.aftermarket, items: [
-    { text:'Etabler kontakt med kunde om videre samarbeid',           role:'kam' },
-    { text:'Kartlegg behov for service, vedlikehold og reservedeler', role:'kam' },
-    { text:'Send tilbud om serviceavtale eller oppfølgingsprosjekt',  role:'kam' },
-    { text:'Avtal oppfølgingsmøte med kunde',                         role:'kam' },
-    { text:'Dokumentér resultat og videre oppfølging',               role:'pmo' },
-  ]},
-  fase5: { dept:'all', name:'Fase 6 – Prosjekt avsluttet', deadline: PHASE_DEADLINES.fase5, items: [
-    { text:'Ferdigstillelsesrapport sendt til kunde',                 role:'pm' },
-    { text:'Kunde-aksept og sign-off mottatt',                       role:'kam' },
-    { text:'Demobilisering av personell bekreftet',                  role:'pm' },
-    { text:'Utstyr tilbakeført og kontrollert til hub',              role:'foreman' },
-    { text:'Faktura sendt til kunde',                                role:'finance' },
-    { text:'Betaling mottatt og bokført i Tripletex',                role:'finance' },
-    { text:'Intern erfaringsgjennomgang (lessons learned)',           role:'pmo' },
-    { text:'Prosjektdokumentasjon arkivert',                         role:'pmo' },
-    { text:'Avslutt prosjekt i Tripletex',                           role:'finance' },
-  ]},
+  // ─────────────────────────────────────────────────────────────────
+  // Sjekkliste-PUNKTENE er FJERNET fra kildekoden og hentes nå KUN fra
+  // SharePoint (lista PMOTIONSjekklistemaler). Her står bare visningsnavn,
+  // avdeling og frist per fase, slik at fasene vises riktig i appen.
+  // Konsekvens: sletter du alt i en sjekkliste, kommer det IKKE tilbake.
+  // (Avdeling/navn overstyres uansett av kolonnene Avdeling/MalNavn i SP.)
+  // ─────────────────────────────────────────────────────────────────
+  fase0:          { dept:'all',      name:'Fase 0 – Ikke mottatt forespørsel',    deadline: PHASE_DEADLINES.fase0,          items: [] },
+  fase1:          { dept:'all',      name:'Fase 1 – Mottatt forespørsel',         deadline: PHASE_DEADLINES.fase1,          items: [] },
+  fase2_offshore: { dept:'offshore', name:'Fase 2 – Tilbud (Offshore & Marine)',  deadline: PHASE_DEADLINES.fase2_offshore, items: [] },
+  fase2_aqua:     { dept:'aqua',     name:'Fase 2 – Tilbud (Aquaculture)',        deadline: PHASE_DEADLINES.fase2_aqua,     items: [] },
+  fase3_offshore: { dept:'offshore', name:'Fase 3 – PO / Kontrakt (Offshore)',    deadline: PHASE_DEADLINES.fase3_offshore, items: [] },
+  fase3_aqua:     { dept:'aqua',     name:'Fase 3 – PO / Kontrakt (Aquaculture)', deadline: PHASE_DEADLINES.fase3_aqua,     items: [] },
+  fase4_offshore: { dept:'offshore', name:'Fase 4 – Gjennomføring (Offshore)',    deadline: PHASE_DEADLINES.fase4_offshore, items: [] },
+  fase4_aqua:     { dept:'aqua',     name:'Fase 4 – Gjennomføring (Aquaculture)', deadline: PHASE_DEADLINES.fase4_aqua,     items: [] },
+  aftermarket:    { dept:'all',      name:'Fase 5 – Ettermarked & service',       deadline: PHASE_DEADLINES.aftermarket,    items: [] },
+  fase5:          { dept:'all',      name:'Fase 6 – Prosjekt avsluttet',          deadline: PHASE_DEADLINES.fase5,          items: [] },
 };
 
 // loadChecklistTemplate – konsolidert til én aktiv versjon (bruker utvidede maler)
@@ -17914,49 +17796,13 @@ function savePickup() {
    4-stegs prosess med sjekklister
 ═══════════════════════════════════ */
 const EXEC_STAGES = [
-  {
-    id: 'startup', num: 1, title: 'Oppstart',
-    desc: 'Etablering av prosjektgrunnlag, team og kundekontakt før arbeidet planlegges i detalj.',
-    tasks: [
-      { id: 's1t1', text: 'Kontrakt/PO gjennomgått og bekreftet', role: 'PMO', req: true },
-      { id: 's1t2', text: 'Prosjektteam tildelt (Site Lead, personell)', role: 'PMO', req: true },
-      { id: 's1t3', text: 'Kick-off møte avholdt', role: 'Site Lead', req: true },
-      { id: 's1t4', text: 'Kundekontakt etablert', role: 'KAM', req: false },
-    ],
-  },
-  {
-    id: 'planning', num: 2, title: 'Planlegging',
-    desc: 'Detaljert planlegging av arbeid, ressurser, HMS og logistikk før mobilisering.',
-    tasks: [
-      { id: 's2t1', text: 'Detaljert arbeidsplan utarbeidet', role: 'Site Lead', req: true },
-      { id: 's2t2', text: 'Ressurser og utstyr booket', role: 'PMO', req: true },
-      { id: 's2t3', text: 'HMS/JSA gjennomgang', role: 'HSE', req: true },
-      { id: 's2t4', text: 'Logistikk og transport planlagt', role: 'Site Lead', req: true },
-      { id: 's2t5', text: 'Sertifikater verifisert (BOSIET etc.)', role: 'HSE', req: true },
-    ],
-  },
-  {
-    id: 'execution', num: 3, title: 'Gjennomføring',
-    desc: 'Selve utførelsen av arbeidet med kontinuerlig oppfølging av fremdrift, HMS og kvalitet.',
-    tasks: [
-      { id: 's3t1', text: 'Mobilisering fullført', role: 'Site Lead', req: true },
-      { id: 's3t2', text: 'Daglig fremdriftsrapportering (daily report)', role: 'Site Lead', req: true, repeat: 'daily' },
-      { id: 's3t3', text: 'HMS-observasjoner logget', role: 'HSE', req: false },
-      { id: 's3t4', text: 'Kvalitetskontroll underveis', role: 'Site Lead', req: true },
-      { id: 's3t5', text: 'Kundegodkjenning av delleveranser', role: 'KAM', req: false },
-    ],
-  },
-  {
-    id: 'handover', num: 4, title: 'Overlevering og Avslutning',
-    desc: 'Avsluttende leveranse, dokumentasjon, demobilisering og erfaringsoverføring.',
-    tasks: [
-      { id: 's4t1', text: 'Sluttinspeksjon gjennomført', role: 'Site Lead', req: true },
-      { id: 's4t2', text: 'Dokumentasjon overlevert kunde', role: 'PMO', req: true },
-      { id: 's4t3', text: 'Demobilisering', role: 'Site Lead', req: true },
-      { id: 's4t4', text: 'Sluttfaktura sendt', role: 'Økonomi', req: true },
-      { id: 's4t5', text: 'Erfaringer/lessons learned dokumentert', role: 'PMO', req: false },
-    ],
-  },
+  // Fase 4-OPPGAVENE er fjernet fra kildekoden og hentes kun fra SharePoint
+  // (exec:<stegid>-radene i PMOTIONSjekklistemaler). Selve stegene beholdes
+  // for strukturen i Fase 4-flyten. Sletter du oppgaver, kommer de IKKE tilbake.
+  { id: 'startup',   num: 1, title: 'Oppstart',                  desc: 'Etablering av prosjektgrunnlag, team og kundekontakt før arbeidet planlegges i detalj.', tasks: [] },
+  { id: 'planning',  num: 2, title: 'Planlegging',               desc: 'Detaljert planlegging av arbeid, ressurser, HMS og logistikk før mobilisering.',         tasks: [] },
+  { id: 'execution', num: 3, title: 'Gjennomføring',             desc: 'Selve utførelsen av arbeidet med kontinuerlig oppfølging av fremdrift, HMS og kvalitet.', tasks: [] },
+  { id: 'handover',  num: 4, title: 'Overlevering og Avslutning', desc: 'Avsluttende leveranse, dokumentasjon, demobilisering og erfaringsoverføring.',           tasks: [] },
 ];
 
 const EXEC_ROLE_COLORS = {
