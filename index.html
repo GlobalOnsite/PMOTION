@@ -4217,10 +4217,10 @@ const USER_ROLES = [
   { id:'scm',       name:'SCM',              mandate:'Superbruker på innkjøp, lager og produksjon', color:'#2563eb', superOf:['production','equipment','vendors','resources'], clRoles:['scm'], home:'production' },
   { id:'kam',       name:'KAM',              mandate:'Superbruker på CRM/salg',              color:'#7c3aed', superOf:['crm','salesinbox','tickets'], clRoles:['kam'], home:'crm' },
   { id:'hr',        name:'HR',               mandate:'Superbruker på personelldokumentasjon',color:'#db2777', superOf:['personnel','competence','docs'], clRoles:['hr'], home:'personnel' },
-  { id:'hseq',      name:'HSEQ',             mandate:'Superbruker på sikkerhet og kvalitet', color:'#dc2626', superOf:['risk','nonconform','docs','reports','competence'], clRoles:['hse'], home:'nonconform' },
+  { id:'hseq',      name:'HSEQ',             mandate:'Superbruker på sikkerhet og kvalitet', color:'#dc2626', superOf:['risk','nonconform','docs','reports','competence'], clRoles:['hse','hr'], home:'nonconform' },
   { id:'sitelead',  name:'Site Lead/Formann',mandate:'Bruker av site-relevante funksjoner',  color:'#16a34a', superOf:[], clRoles:['pm','foreman'], home:'projects' },
-  { id:'ceo',       name:'CEO',              mandate:'Superbruker på økonomisiden',          color:'#d97706', superOf:['reports','crm','projects'], clRoles:['finance'], home:'dashboard', econ:true },
-  { id:'bdm',       name:'BDM',              mandate:'Superbruker av CRM',                   color:'#9333ea', superOf:['crm','salesinbox'], clRoles:['kam'], home:'crm' },
+  { id:'ceo',       name:'CEO',              mandate:'Superbruker på økonomisiden',          color:'#d97706', superOf:['reports','crm','projects'], clRoles:['finance','ceo'], home:'dashboard', econ:true },
+  { id:'bdm',       name:'BDM',              mandate:'Superbruker av CRM',                   color:'#9333ea', superOf:['crm','salesinbox'], clRoles:['kam','bdm'], home:'crm' },
   { id:'operation', name:'Operation',        mandate:'Superbruker på personellkoordinering', color:'#0d9488', superOf:['resources','personnel','tasks','equipment'], clRoles:['operation'], home:'resources' },
 ];
 const userRoleMap = {};
@@ -10772,18 +10772,23 @@ const PHASE_DEADLINES = {
 
 /* ── CHECKLIST ROLES ─────────────────────────────────── */
 const CL_ROLES = [
-  { id:'kam',     name:'KAM',         color:'#7c3aed', bg:'rgba(124,58,237,.2)' },
-  { id:'pm',      name:'Site Lead',   color:'#2563eb', bg:'rgba(37,99,235,.2)' },
-  { id:'foreman', name:'Formann',     color:'#16a34a', bg:'rgba(22,163,74,.2)' },
-  { id:'pmo',     name:'PMO',         color:'#0891b2', bg:'rgba(8,145,178,.2)' },
-  { id:'hse',     name:'HSE',         color:'#dc2626', bg:'rgba(220,38,38,.2)' },
-  { id:'finance', name:'Økonomi',     color:'#d97706', bg:'rgba(217,119,6,.2)' },
-  { id:'scm',       name:'SCM',       color:'#0369a1', bg:'rgba(3,105,161,.2)' },
-  { id:'hr',        name:'HR',        color:'#db2777', bg:'rgba(219,39,119,.2)' },
-  { id:'operation', name:'Operation', color:'#0d9488', bg:'rgba(13,148,136,.2)' },
+  { id:'pmo',       name:'PMO',                 color:'#0891b2', bg:'rgba(8,145,178,.2)' },
+  { id:'kam',       name:'Salg (KAM)',          color:'#7c3aed', bg:'rgba(124,58,237,.2)' },
+  { id:'scm',       name:'SCM',                 color:'#0369a1', bg:'rgba(3,105,161,.2)' },
+  { id:'hse',       name:'HSEQ',                color:'#dc2626', bg:'rgba(220,38,38,.2)' },   // sammenslått HSE + HR
+  { id:'pm',        name:'Site Lead / Formann', color:'#2563eb', bg:'rgba(37,99,235,.2)' },   // sammenslått Site Lead + Formann
+  { id:'operation', name:'Operation',           color:'#0d9488', bg:'rgba(13,148,136,.2)' },
+  { id:'finance',   name:'Økonomi',             color:'#d97706', bg:'rgba(217,119,6,.2)' },
+  { id:'ceo',       name:'CEO',                 color:'#334155', bg:'rgba(51,65,85,.2)' },
+  { id:'bdm',       name:'BDM',                 color:'#9333ea', bg:'rgba(147,51,234,.2)' },
 ];
 const clRoleMap = {};
 CL_ROLES.forEach(r => clRoleMap[r.id] = r);
+// Aliaser for sammenslåtte roller: de gamle id-ene peker til den nye samlerollen,
+// slik at eksisterende sjekklistepunkter med rolle «foreman» eller «hr» fortsatt
+// vises riktig og kan hukes av – inntil de eventuelt flyttes manuelt.
+clRoleMap['foreman'] = clRoleMap['pm'];   // Formann → Site Lead / Formann
+clRoleMap['hr']      = clRoleMap['hse'];  // HR → HSEQ
 
 /* ── RIGGTYPER (manglet definisjon – forårsaket "RIG_TYPES is not defined") ── */
 const RIG_TYPES = {
