@@ -97,6 +97,11 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
 .project-table{width:100%;border-collapse:collapse}
 .project-table thead th{font-size:10px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;padding:8px 18px;text-align:left;border-bottom:1px solid var(--border)}
 .project-table tbody tr{border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s}
+.project-table tbody tr.proj-alert-row{background:rgba(220,38,38,.07);box-shadow:inset 3px 0 0 0 #ef4444}
+.project-table tbody tr.proj-alert-row:hover{background:rgba(220,38,38,.12)}
+.proj-alert-line{font-size:11px;color:#ef4444;font-weight:600;margin-top:3px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.proj-followup-btn{background:rgba(22,163,74,.15);color:#22c55e;border:1px solid rgba(22,163,74,.4);border-radius:6px;font-size:10px;font-weight:700;padding:2px 8px;cursor:pointer;white-space:nowrap}
+.proj-followup-btn:hover{background:rgba(22,163,74,.28)}
 .project-table tbody tr:last-child{border-bottom:none}
 .project-table tbody tr:hover{background:rgba(255,255,255,.03)}
 .project-table td{padding:10px 18px;font-size:13px;white-space:nowrap}
@@ -1147,6 +1152,7 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
 
 /* ── CHECKLIST COMMENTS ─────────────────────────────── */
 .ci-comment-btn{background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;padding:2px 6px;border-radius:4px;transition:all .15s;white-space:nowrap}
+.ci-del-btn:hover{color:#ef4444;background:rgba(220,38,38,.12)}
 .ci-comment-btn:hover{background:rgba(59,130,246,.12);color:var(--accent2)}
 .ci-comment-wrap{margin:4px 0 4px 28px;display:none}
 .ci-comment-wrap.open{display:block}
@@ -3697,6 +3703,53 @@ function projEndDate(p){
 }
 /* ISO-dato (YYYY-MM-DD) for sluttdato, eller '' */
 function projEndISO(p){ const d=projEndDate(p); return d?d.toISOString().split('T')[0]:''; }
+
+/* ── Varsler i prosjektoversikten ──────────────────────────────────
+   - Fase 2 (Tilbud): rødt + «følg opp» når det har gått ≥14 dager siden
+     tilbudet ble sendt (eller siden forrige bekreftede oppfølging).
+   - Fase 1 (Mottatt forespørsel): rødt når prosjektet har ligget >5 dager. */
+const FOLLOWUP_DAYS = 14;
+const FASE1_MAX_DAYS = 5;
+function _daysSinceISO(iso){
+  if(!iso) return null;
+  const d = new Date(iso); if(isNaN(d)) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86400000);
+}
+function projOverviewAlert(p){
+  if(!p) return null;
+  if(p.phase === 'fase2'){
+    const entered = (p.phaseLog && p.phaseLog['fase2']) || p.updatedAt || p.startDate || '';
+    const followed = (p.phaseLog && p.phaseLog['_offerFollowUp']) || '';
+    // referansedato = seneste av «sendt» og «sist fulgt opp»
+    let ref = entered;
+    if(followed && (!entered || new Date(followed) > new Date(entered))) ref = followed;
+    const d = _daysSinceISO(ref);
+    if(d != null && d >= FOLLOWUP_DAYS){
+      return { red:true, type:'followup', days:d,
+        msg: followed ? `Følg opp tilbudet igjen – ${d} dager siden sist` : `Tilbud sendt for ${d} dager siden – følg opp kunde` };
+    }
+    return null;
+  }
+  if(p.phase === 'fase1'){
+    const entered = (p.phaseLog && p.phaseLog['fase1']) || p.updatedAt || p.startDate || '';
+    const d = _daysSinceISO(entered);
+    if(d != null && d > FASE1_MAX_DAYS){
+      return { red:true, type:'fase1', days:d, msg:`${d} dager i Fase 1 – over grensen på ${FASE1_MAX_DAYS} dager` };
+    }
+    return null;
+  }
+  return null;
+}
+/* Bekreft at tilbudet er fulgt opp med kunde → nullstiller varselet i 2 nye uker */
+function confirmOfferFollowUp(projId){
+  const p = projects.find(x=>x.id===projId); if(!p) return;
+  if(!p.phaseLog) p.phaseLog = {};
+  p.phaseLog['_offerFollowUp'] = new Date().toISOString();
+  if(typeof logChange==='function') logChange(getCurrentUser(),'Tilbud','Oppfølging bekreftet med kunde',p.name,'','16a34a');
+  if(graphMode && typeof saveToLists==='function') saveToLists(p);
+  showToast('✅ Oppfølging bekreftet – varselet er nullstilt i 2 uker');
+  if(typeof renderAll==='function') renderAll();
+}
 /* ── Kontraktert verdi som faller innenfor ett kalenderår ──────────
    Et prosjekt som strekker seg over årsskiftet fordeles forholdsmessig
    etter varighet, slik at kun årets andel av verdien telles.
@@ -5269,14 +5322,15 @@ function renderProjects(){
         ${group.length===0?(hasActiveFilter()?'<div class="empty-state">Ingen prosjekter matcher filteret i denne fasen</div>':'<div class="empty-state">Ingen prosjekter i denne fasen</div>'):`
         <table class="project-table">
           <thead><tr><th style="width:28px"></th><th>Nr.</th><th>Prosjektnavn</th><th>Avdeling</th><th>Kunde</th><th>PM / KAM</th><th>Lokasjon</th><th>Sannsynlighet</th><th>Startdato</th><th>Estimert verdi</th></tr></thead>
-          <tbody>${group.map(p=>`<tr class="proj-drag-row" id="prow-${p.id}"
+          <tbody>${group.map(p=>{ const _al=projOverviewAlert(p); return `<tr class="proj-drag-row ${_al?'proj-alert-row':''}" id="prow-${p.id}"
               onclick="projRowClick(event,'${p.id}')">
             <td style="width:28px;padding:0 0 0 8px">
-              <span class="proj-phase-dot" title="Fase styres av sjekklisten" style="color:${phaseMap[p.phase]?.color||'var(--muted)'}">●</span>
+              <span class="proj-phase-dot" title="${_al?escHtml(_al.msg):'Fase styres av sjekklisten'}" style="color:${_al?'#ef4444':(phaseMap[p.phase]?.color||'var(--muted)')}">●</span>
             </td>
             <td class="td-mono" style="font-size:11px;color:var(--muted);white-space:nowrap">${p.projectNr||'–'}</td>
             <td>
               <div style="font-weight:500">${p.name}${projBookBadges(p)}</div>
+              ${_al?`<div class="proj-alert-line">⚠ ${escHtml(_al.msg)}${_al.type==='followup'?` <button class="proj-followup-btn" onclick="event.stopPropagation();confirmOfferFollowUp('${p.id}')">✓ Bekreft oppfølging</button>`:''}</div>`:''}
             </td>
             <td>${p.dept&&deptMap[p.dept]?`<span class="dept-badge ${deptMap[p.dept].cls}">${deptMap[p.dept].name}</span>`:'–'}</td>
             <td class="td-muted">${p.customer||'–'}</td>
@@ -5289,7 +5343,7 @@ function renderProjects(){
             <td>${['fase3','fase4','aftermarket','fase5','joblost'].includes(p.phase) ? '<span class="td-muted" style="font-size:11px;opacity:.5">–</span>' : `<div class="prob-bar"><div class="prob-track"><div class="prob-fill" style="width:${p.prob}%;background:${probColor(p.prob)}"></div></div><span class="td-mono" style="color:${probColor(p.prob)};font-size:11px">${p.prob}%</span></div>`}</td>
             <td class="td-muted td-mono">${fmtD(p.startDate)}</td>
             <td class="td-mono" style="color:#60a5fa">${fmtS(p.value)}</td>
-          </tr>`).join('')}</tbody>
+          </tr>`}).join('')}</tbody>
         </table>`}
       </div>`;
     container.appendChild(div);
@@ -11104,6 +11158,22 @@ function removeItemEvidence(projectId, phaseKey, idx, fileIdx){
   _refreshProjTab(p,'checklist');
 }
 
+/* Fjern ETT sjekklistepunkt permanent fra ETT prosjekt (uansett kilde: mal, rest eller egendefinert).
+   Brukes når et punkt henger igjen etter at det er fjernet/slettet fra malen. Kun PMO. */
+function removeProjectChecklistItem(projectId, phaseKey, idx){
+  const p = projects.find(pr=>pr.id===projectId); if(!p) return;
+  const arr = p.checklists?.[phaseKey]; if(!Array.isArray(arr)) return;
+  const item = arr[idx]; if(!item) return;
+  const txt = (typeof item==='object' ? item.text : item) || 'punktet';
+  if(!confirm(`Fjern «${txt}» fra dette prosjektet?\n\nDette fjerner punktet kun fra ${p.name}, ikke fra malen.`)) return;
+  arr.splice(idx,1);
+  if(arr.length===0) delete p.checklists[phaseKey];
+  if(typeof logChange==='function') logChange(getCurrentUser(),'Sjekkliste','Punkt fjernet',p.name,txt,'b91c1c');
+  if(graphMode && typeof saveToLists==='function') saveToLists(p);
+  _refreshProjTab(p,'checklist');
+  showToast('Punkt fjernet fra prosjektet ✓');
+}
+
 /* Re-render en fane i prosjekt-dashbordet (eller fall tilbake til redigeringsmodal) */
 function _refreshProjTab(p, tab){
   const c=document.getElementById('proj-dash-content');
@@ -12033,6 +12103,7 @@ function renderProjectChangeLog(p) {
   if (!p.projChangeLog.length && p.id.startsWith('demo-') && p.phaseLog && Object.keys(p.phaseLog).length) {
     Object.entries(p.phaseLog).sort((a,b)=>new Date(a[1])-new Date(b[1])).forEach(([phId, ts]) => {
       const ph = phaseMap[phId];
+      if(!ph) return;   // hopp over ikke-fase-nøkler (f.eks. _offerFollowUp)
       p.projChangeLog.push({ ts, user:'System', type:'phase', icon:'🔄', what:`Fase endret til ${ph?.label||phId}`, from:'', to:ph?.label||phId });
     });
   }
@@ -12733,6 +12804,7 @@ renderProjectChecklist = function(p) {
               </div>
               <button class="ci-comment-btn" onclick="event.stopPropagation();toggleCommentBox('${p.id}','${key}',${idx})"
                 title="Kommentar" style="${item.comment?'color:var(--accent2)':''}">💬${item.comment?' ✓':''}</button>
+              ${(typeof isPMO==='function' && isPMO()) ? `<button class="ci-comment-btn ci-del-btn" onclick="event.stopPropagation();removeProjectChecklistItem('${p.id}','${key}',${idx})" title="Fjern dette punktet fra prosjektet">🗑</button>` : ''}
             </div>
             <div class="ci-comment-wrap" id="ci-comment-${p.id}-${key}-${idx}">
               <textarea class="ci-comment-box" placeholder="Skriv kommentar...">${escHtml(item.comment||'')}</textarea>
