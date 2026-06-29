@@ -1153,6 +1153,11 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
 /* ── CHECKLIST COMMENTS ─────────────────────────────── */
 .ci-comment-btn{background:none;border:none;color:var(--muted);font-size:11px;cursor:pointer;padding:2px 6px;border-radius:4px;transition:all .15s;white-space:nowrap}
 .ci-del-btn:hover{color:#ef4444;background:rgba(220,38,38,.12)}
+.ci-skip-btn:hover{color:#f59e0b;background:rgba(245,158,11,.12)}
+.checklist-item.skipped{opacity:.55}
+.checklist-item.skipped .ci-label{text-decoration:line-through;color:var(--muted)}
+.ci-box.skipped{background:rgba(148,163,184,.15);border-color:#94a3b8;color:#94a3b8}
+.ci-skip-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;background:rgba(148,163,184,.15);color:#94a3b8;font-family:'DM Mono',monospace;margin-left:4px}
 .ci-comment-btn:hover{background:rgba(59,130,246,.12);color:var(--accent2)}
 .ci-comment-wrap{margin:4px 0 4px 28px;display:none}
 .ci-comment-wrap.open{display:block}
@@ -4778,7 +4783,7 @@ function renderRoleDashboard(){
     P.forEach(p=>{
       Object.entries(p.checklists||{}).forEach(([phaseKey,items])=>{
         if(typeof checklistPhaseReached==='function' && !checklistPhaseReached(p, phaseKey)) return;
-        (items||[]).forEach(it=>{ if(!it.checked && it.role && myRoles.includes(it.role)) n++; });
+        (items||[]).forEach(it=>{ if(!it.checked && !it.skipped && it.role && myRoles.includes(it.role)) n++; });
       });
     });
     return n;
@@ -8804,6 +8809,7 @@ function collectTasks(filterFn) {
       if (!Array.isArray(items)) return;
       if (!checklistPhaseReached(p, phaseId)) return;   // hopp over faser prosjektet ikke har nådd
       items.forEach((item, idx) => {
+        if (item && item.skipped) return;                 // hopp over punkter merket «ikke relevant»
         if (filterFn && !filterFn(p, phaseId, item)) return;
         result.push({ item, idx, phaseId, project: p });
       });
@@ -11301,9 +11307,35 @@ function uploadProjectDoc(projId){
 }
 
 // Action handler (demo). 'mobEmail' = mobiliserings-epost.
+/* Merk et punkt som «ikke relevant» for dette prosjektet (eller angre). Teller ikke som
+   åpen oppgave og blokkerer ikke faseovergang. Krever samme rolle som å huke av (eller PMO). */
+function toggleSkipChecklistItem(projectId, phaseKey, idx){
+  const p = projects.find(pr=>pr.id===projectId); if(!p) return;
+  const item = p.checklists?.[phaseKey]?.[idx]; if(!item) return;
+  if(!canCheckChecklistItem(item)){
+    const r = clRoleMap[item.role];
+    showToast('🔒 Kun ' + (r?r.name:item.role) + ' kan endre dette punktet', true);
+    return;
+  }
+  if(item.skipped){
+    item.skipped=false; item.skippedBy=null; item.skippedAt=null;
+    if(typeof logChange==='function') logChange(getCurrentUser(),'Sjekkliste','Punkt gjort relevant igjen',p.name,(item.text||''),'64748b');
+    showToast('Punktet er relevant igjen');
+  } else {
+    item.skipped=true; item.skippedBy=getCurrentUser(); item.skippedAt=new Date().toISOString();
+    item.checked=false; item.checkedBy=''; item.checkedAt=''; item.checkedDate='';   // kan ikke være avhuket og hoppet over samtidig
+    if(typeof logChange==='function') logChange(getCurrentUser(),'Sjekkliste','Punkt merket «ikke relevant»',p.name,(item.text||''),'64748b');
+    showToast('Punktet er merket «ikke relevant»');
+  }
+  if(graphMode && typeof saveToLists==='function') saveToLists(p);
+  _refreshProjTab(p,'checklist');
+}
+
 function toggleChecklistItem(projectId, phaseKey, idx){
   const p = projects.find(pr => pr.id === projectId); if(!p) return;
   const item = p.checklists?.[phaseKey]?.[idx]; if(!item) return;
+
+  if(item.skipped){ showToast('Punktet er merket «ikke relevant». Gjør det relevant igjen for å kunne huke av.', true); return; }
 
   if(!item.checked){
     // Respect role + evidence gates when checking ON
@@ -12786,24 +12818,27 @@ renderProjectChecklist = function(p) {
           const role = clRoleMap[item.role];
           const isOverdue = info?.status === 'overdue' && !item.checked;
           return `<div>
-            <div class="checklist-item ${item.checked?'checked':''} ${(!item.checked && !canCheckChecklistItem(item))?'role-locked':''}"
+            <div class="checklist-item ${item.checked?'checked':''} ${item.skipped?'skipped':''} ${(!item.checked && !item.skipped && !canCheckChecklistItem(item))?'role-locked':''}"
               onclick="toggleChecklistItem('${p.id}','${key}',${idx})"
-              ${(itemNeedsEvidence(item) && !item.checked) ? `ondragover="dragOverEvidence(event)" ondragleave="dragLeaveEvidence(event)" ondrop="dropItemEvidence(event,'${p.id}','${key}',${idx})"` : ''}>
-              <div class="ci-box ${item.checked?'checked':''}">${item.checked?'✓':''}</div>
+              ${(itemNeedsEvidence(item) && !item.checked && !item.skipped) ? `ondragover="dragOverEvidence(event)" ondragleave="dragLeaveEvidence(event)" ondrop="dropItemEvidence(event,'${p.id}','${key}',${idx})"` : ''}>
+              <div class="ci-box ${item.checked?'checked':''} ${item.skipped?'skipped':''}">${item.checked?'✓':(item.skipped?'⊘':'')}</div>
               <div style="flex:1">
-                <div class="ci-label ${isOverdue&&!item.checked?'':''}">
+                <div class="ci-label">
                   ${escHtml(item.text)}
                 </div>
                 <div class="cl-item-meta">
                   ${role ? ciRoleBadge(item.role) : ''}
-                  ${renderItemEvidence(p, key, idx, item)}
-                  ${itemIsAction(item) && !item.checked ? `<button class="ci-evidence-btn action" onclick="event.stopPropagation();runItemAction('${p.id}','${key}',${idx})">⚡ ${escHtml(item.actionLabel||'Utfør')}</button>` : ''}
-                  ${item.checkedBy ? `<span class="ci-meta">✓ ${item.checkedBy} · ${fmtDT(item.checkedAt)}</span>` : ''}
+                  ${item.skipped
+                    ? `<span class="ci-skip-badge">⊘ Ikke relevant${item.skippedBy?` · ${escHtml(item.skippedBy)}`:''}</span>`
+                    : `${renderItemEvidence(p, key, idx, item)}
+                       ${itemIsAction(item) && !item.checked ? `<button class="ci-evidence-btn action" onclick="event.stopPropagation();runItemAction('${p.id}','${key}',${idx})">⚡ ${escHtml(item.actionLabel||'Utfør')}</button>` : ''}
+                       ${item.checkedBy ? `<span class="ci-meta">✓ ${item.checkedBy} · ${fmtDT(item.checkedAt)}</span>` : ''}`}
                 </div>
                 ${item.comment ? `<div class="ci-comment-display"><span class="ci-comment-author">${item.commentBy||''}:</span> ${escHtml(item.comment)}</div>` : ''}
               </div>
               <button class="ci-comment-btn" onclick="event.stopPropagation();toggleCommentBox('${p.id}','${key}',${idx})"
                 title="Kommentar" style="${item.comment?'color:var(--accent2)':''}">💬${item.comment?' ✓':''}</button>
+              ${(!item.checked && canCheckChecklistItem(item)) ? `<button class="ci-comment-btn ci-skip-btn" onclick="event.stopPropagation();toggleSkipChecklistItem('${p.id}','${key}',${idx})" title="${item.skipped?'Gjør punktet relevant igjen':'Merk punktet som ikke relevant for dette prosjektet'}">${item.skipped?'↩':'⊘'}</button>` : ''}
               ${(typeof isPMO==='function' && isPMO()) ? `<button class="ci-comment-btn ci-del-btn" onclick="event.stopPropagation();removeProjectChecklistItem('${p.id}','${key}',${idx})" title="Fjern dette punktet fra prosjektet">🗑</button>` : ''}
             </div>
             <div class="ci-comment-wrap" id="ci-comment-${p.id}-${key}-${idx}">
@@ -13293,7 +13328,7 @@ function renderProjectDashboard(p, activeTab) {
 
   // KPIs
   const _reached    = (typeof reachedChecklistItems==='function') ? reachedChecklistItems(p) : Object.values(p.checklists||{}).flat();
-  const totalTasks  = _reached.length;
+  const totalTasks  = _reached.filter(i=>!i.skipped).length;
   const doneTasks   = _reached.filter(i=>i.checked).length;
   const taskPct     = totalTasks ? Math.round(doneTasks/totalTasks*100) : 0;
   const resCount    = (p.resourceBookings||[]).reduce((s,b)=>s+b.qty,0);
@@ -13480,7 +13515,8 @@ function phaseChecklistStatus(p) {
   const matchKeys = Object.keys(CHECKLIST_TEMPLATES_EXTENDED)
     .filter(k => k === p.phase || k.startsWith(p.phase + '_'));
   // Only consider checklists actually assigned to the project for its current phase
-  const items = matchKeys.flatMap(k => p.checklists?.[k] || []);
+  // Punkter merket «ikke relevant» (skipped) holdes utenfor – de blokkerer ikke fasen.
+  const items = matchKeys.flatMap(k => p.checklists?.[k] || []).filter(i => i && !i.skipped);
   const total = items.length;
   const done  = items.filter(i => i.checked).length;
   const unchecked = items.filter(i => !i.checked);
