@@ -102,6 +102,11 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
 .proj-alert-line{font-size:11px;color:#ef4444;font-weight:600;margin-top:3px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .proj-followup-btn{background:rgba(22,163,74,.15);color:#22c55e;border:1px solid rgba(22,163,74,.4);border-radius:6px;font-size:10px;font-weight:700;padding:2px 8px;cursor:pointer;white-space:nowrap}
 .proj-followup-btn:hover{background:rgba(22,163,74,.28)}
+.proj-lost-btn{background:rgba(220,38,38,.12);color:#f87171;border:1px solid rgba(220,38,38,.4);border-radius:6px;font-size:10px;font-weight:700;padding:2px 8px;cursor:pointer;white-space:nowrap}
+.proj-lost-btn:hover{background:rgba(220,38,38,.25)}
+.proj-alert-line.high{color:#f87171}
+.project-table tbody tr.proj-alert-row-high{background:rgba(220,38,38,.14);box-shadow:inset 4px 0 0 0 #dc2626}
+.project-table tbody tr.proj-alert-row-high:hover{background:rgba(220,38,38,.2)}
 .project-table tbody tr:last-child{border-bottom:none}
 .project-table tbody tr:hover{background:rgba(255,255,255,.03)}
 .project-table td{padding:10px 18px;font-size:13px;white-space:nowrap}
@@ -3574,8 +3579,8 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
 ═══════════════════════════════════ */
 const PHASES = [
   {id:'fase0',label:'Fase 0',desc:'Ikke mottatt forespørsel', color:'#6b7280',bg:'rgba(107,114,128,.15)'},
-  {id:'fase1',label:'Fase 1',desc:'Mottatt forespørsel',      color:'#d97706',bg:'rgba(217,119,6,.15)'},
-  {id:'fase2',label:'Fase 2',desc:'Prosjekt er tilbudt',      color:'#2563eb',bg:'rgba(37,99,235,.15)'},
+  {id:'fase1',label:'Fase 1',desc:'Mottatt forespørsel og lag tilbud', color:'#d97706',bg:'rgba(217,119,6,.15)'},
+  {id:'fase2',label:'Fase 2',desc:'Tilbud ute hos kunde',      color:'#2563eb',bg:'rgba(37,99,235,.15)'},
   {id:'fase3',label:'Fase 3',desc:'Mottatt PO / kontrakt',    color:'#16a34a',bg:'rgba(22,163,74,.15)'},
   {id:'fase4',label:'Fase 4',desc:'Prosjektgjennomføring',    color:'#0891b2',bg:'rgba(8,145,178,.15)'},
   {id:'aftermarket',label:'Fase 5',desc:'Ettermarked & service',color:'#db2777',bg:'rgba(219,39,119,.15)'},
@@ -3718,6 +3723,8 @@ function projEndISO(p){ const d=projEndDate(p); return d?d.toISOString().split('
    - Fase 1 (Mottatt forespørsel): rødt når prosjektet har ligget >5 dager. */
 const FOLLOWUP_DAYS = 14;
 const FASE1_MAX_DAYS = 5;
+const LOST_RISK_DAYS = 42;        // ≥6 uker totalt i Fase 2 → høy risiko for tap
+const LOST_RISK_FOLLOWUPS = 3;    // ≥3 bekreftede oppfølginger uten å komme videre → høy risiko
 function _daysSinceISO(iso){
   if(!iso) return null;
   const d = new Date(iso); if(isNaN(d)) return null;
@@ -3728,12 +3735,19 @@ function projOverviewAlert(p){
   if(p.phase === 'fase2'){
     const entered = (p.phaseLog && p.phaseLog['fase2']) || p.updatedAt || p.startDate || '';
     const followed = (p.phaseLog && p.phaseLog['_offerFollowUp']) || '';
+    const fuCount = (p.phaseLog && +p.phaseLog['_offerFollowUpCount']) || 0;
     // referansedato = seneste av «sendt» og «sist fulgt opp»
     let ref = entered;
     if(followed && (!entered || new Date(followed) > new Date(entered))) ref = followed;
-    const d = _daysSinceISO(ref);
+    const d = _daysSinceISO(ref);                 // dager siden sendt / sist oppfølgt
+    const totalDays = _daysSinceISO(entered);     // totalt i Fase 2
+    const highRisk = (totalDays != null && totalDays >= LOST_RISK_DAYS) || (fuCount >= LOST_RISK_FOLLOWUPS);
+    if(highRisk){
+      return { red:true, type:'followup', highRisk:true, days:d, totalDays, fuCount,
+        msg: `Høy risiko for tap – ${totalDays!=null?totalDays+' dager i Fase 2':''}${fuCount?`, ${fuCount} oppfølging${fuCount>1?'er':''}`:''}. Vurder å markere som tapt.` };
+    }
     if(d != null && d >= FOLLOWUP_DAYS){
-      return { red:true, type:'followup', days:d,
+      return { red:true, type:'followup', highRisk:false, days:d,
         msg: followed ? `Følg opp tilbudet igjen – ${d} dager siden sist` : `Tilbud sendt for ${d} dager siden – følg opp kunde` };
     }
     return null;
@@ -3753,10 +3767,19 @@ function confirmOfferFollowUp(projId){
   const p = projects.find(x=>x.id===projId); if(!p) return;
   if(!p.phaseLog) p.phaseLog = {};
   p.phaseLog['_offerFollowUp'] = new Date().toISOString();
+  p.phaseLog['_offerFollowUpCount'] = ((+p.phaseLog['_offerFollowUpCount']) || 0) + 1;
   if(typeof logChange==='function') logChange(getCurrentUser(),'Tilbud','Oppfølging bekreftet med kunde',p.name,'','16a34a');
   if(graphMode && typeof saveToLists==='function') saveToLists(p);
   showToast('✅ Oppfølging bekreftet – varselet er nullstilt i 2 uker');
   if(typeof renderAll==='function') renderAll();
+}
+/* Marker prosjektet som tapt (Fase 2 → Tapt) rett fra varselet */
+function markOfferLost(projId){
+  const p = projects.find(x=>x.id===projId); if(!p) return;
+  if(!confirm(`Marker «${p.name}» som TAPT?\n\nProsjektet flyttes til «Tapt» og tas ut av den aktive pipelinen.`)) return;
+  if(typeof quickChangePhase==='function'){ quickChangePhase(projId, 'joblost', { silent:true }); }
+  else { p.phase='joblost'; if(graphMode && typeof saveToLists==='function') saveToLists(p); if(typeof renderAll==='function') renderAll(); }
+  showToast('Prosjektet er markert som tapt');
 }
 /* ── Kontraktert verdi som faller innenfor ett kalenderår ──────────
    Et prosjekt som strekker seg over årsskiftet fordeles forholdsmessig
@@ -5330,7 +5353,7 @@ function renderProjects(){
         ${group.length===0?(hasActiveFilter()?'<div class="empty-state">Ingen prosjekter matcher filteret i denne fasen</div>':'<div class="empty-state">Ingen prosjekter i denne fasen</div>'):`
         <table class="project-table">
           <thead><tr><th style="width:28px"></th><th>Nr.</th><th>Prosjektnavn</th><th>Avdeling</th><th>Kunde</th><th>PM / KAM</th><th>Lokasjon</th><th>Sannsynlighet</th><th>Startdato</th><th>Estimert verdi</th></tr></thead>
-          <tbody>${group.map(p=>{ const _al=projOverviewAlert(p); return `<tr class="proj-drag-row ${_al?'proj-alert-row':''}" id="prow-${p.id}"
+          <tbody>${group.map(p=>{ const _al=projOverviewAlert(p); return `<tr class="proj-drag-row ${_al?'proj-alert-row':''} ${_al&&_al.highRisk?'proj-alert-row-high':''}" id="prow-${p.id}"
               onclick="projRowClick(event,'${p.id}')">
             <td style="width:28px;padding:0 0 0 8px">
               <span class="proj-phase-dot" title="${_al?escHtml(_al.msg):'Fase styres av sjekklisten'}" style="color:${_al?'#ef4444':(phaseMap[p.phase]?.color||'var(--muted)')}">●</span>
@@ -5338,7 +5361,7 @@ function renderProjects(){
             <td class="td-mono" style="font-size:11px;color:var(--muted);white-space:nowrap">${p.projectNr||'–'}</td>
             <td>
               <div style="font-weight:500">${p.name}${projBookBadges(p)}</div>
-              ${_al?`<div class="proj-alert-line">⚠ ${escHtml(_al.msg)}${_al.type==='followup'?` <button class="proj-followup-btn" onclick="event.stopPropagation();confirmOfferFollowUp('${p.id}')">✓ Bekreft oppfølging</button>`:''}</div>`:''}
+              ${_al?`<div class="proj-alert-line ${_al.highRisk?'high':''}">${_al.highRisk?'🔴':'⚠'} ${escHtml(_al.msg)}${_al.type==='followup'?` <button class="proj-followup-btn" onclick="event.stopPropagation();confirmOfferFollowUp('${p.id}')">✓ Bekreft oppfølging</button> <button class="proj-lost-btn" onclick="event.stopPropagation();markOfferLost('${p.id}')">✕ Marker som tapt</button>`:''}</div>`:''}
             </td>
             <td>${p.dept&&deptMap[p.dept]?`<span class="dept-badge ${deptMap[p.dept].cls}">${deptMap[p.dept].name}</span>`:'–'}</td>
             <td class="td-muted">${p.customer||'–'}</td>
