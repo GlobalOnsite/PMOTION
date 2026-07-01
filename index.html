@@ -1185,6 +1185,8 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
 .cl-item-row:hover{background:rgba(255,255,255,.02)}
 .cl-item-row:last-child{border-bottom:none}
 .cl-item-drag{color:var(--muted);font-size:12px;cursor:grab;opacity:.5;flex-shrink:0}
+.cl-move-phase{background:rgba(255,255,255,.04);color:var(--muted);border:1px solid var(--border);border-radius:12px;font-size:10px;padding:2px 6px;cursor:pointer;font-family:inherit}
+.cl-move-phase:hover{color:var(--accent2);border-color:var(--accent2)}
 .cl-item-drag:hover{opacity:1}
 .cl-item-row[draggable="true"]{cursor:default}
 .cl-item-row.cl-dragging{opacity:.4}
@@ -3596,6 +3598,7 @@ const phaseMap = {};
 PHASES.forEach(p => phaseMap[p.id] = p);
 
 const PHASE_ORDER = ['fase0','fase1','fase2','fase3','fase4','aftermarket','fase5'];
+const PHASE_SHORT = { fase0:'Fase 0', fase1:'Fase 1', fase2:'Fase 2', fase3:'Fase 3', fase4:'Fase 4', aftermarket:'Fase 5', fase5:'Fase 6' };
 
 /* ═══════════════════════════════════
    HUBS
@@ -13021,6 +13024,12 @@ renderChecklistAdminDetail = function(key) {
               ${(()=>{ const needsEv=(typeof item==='object' && item.type==='attachment'); const evLbl=(typeof item==='object' && item.evidence)||'Dokumentasjon';
                 return `<span class="cl-req-toggle" onclick="toggleTemplateItemEvidence('${key}',${idx})" title="Krev at det lastes opp en fil som bevis før punktet kan fullføres" style="${needsEv?'background:rgba(8,145,178,.15);color:#22d3ee;border-color:rgba(8,145,178,.4)':''}">${needsEv?'📎 Krever bevis':'📎 Krev bevis'}</span>${needsEv?`<span class="cl-repeat-toggle" onclick="editTemplateItemEvidenceLabel('${key}',${idx})" title="Endre hva slags bevis som kreves">«${escHtml(evLbl)}» ✎</span>`:''}`;
               })()}
+              ${(()=>{ const curPhase=key.split('_')[0];
+                return `<select class="cl-move-phase" title="Flytt punktet til en annen fase" onchange="if(this.value){moveTemplateItemToPhase('${key}',${idx},this.value)};this.selectedIndex=0">
+                  <option value="">⇄ Flytt til…</option>
+                  ${PHASE_ORDER.filter(ph=>ph!==curPhase).map(ph=>`<option value="${ph}">${PHASE_SHORT[ph]||ph}</option>`).join('')}
+                </select>`;
+              })()}
             </div>
           </div>
           <span class="cl-item-move">
@@ -13114,6 +13123,53 @@ async function clDrop(ev, key, idx){
 }
 
 /* Veksle om et mal-punkt krever opplastet fil som bevis (type attachment ↔ check) */
+/* Finn hvilken mal-nøkkel et punkt skal til når det flyttes til en annen fase,
+   med hensyn til avdeling (offshore/aqua/all) og hvilke maler som finnes. */
+function _targetKeyForPhase(phaseId, srcDept){
+  const cands = [phaseId + '_' + srcDept, phaseId, phaseId + '_all'];
+  for(const c of cands){ if(CHECKLIST_TEMPLATES_EXTENDED[c]) return c; }
+  // fasen har avdelings-varianter → behold avdeling; ellers generisk nøkkel
+  if(CHECKLIST_TEMPLATES_EXTENDED[phaseId + '_offshore'] || CHECKLIST_TEMPLATES_EXTENDED[phaseId + '_aqua']){
+    return (srcDept === 'all' || !srcDept) ? phaseId : phaseId + '_' + srcDept;
+  }
+  return phaseId;
+}
+/* Flytt ETT malpunkt fra én fase til en annen. Endrer rad-nøkkelen (Fasenokkel) i
+   SharePoint, slik at avstemmingen oppdaterer eksisterende prosjekter automatisk:
+   punktet fjernes fra gammel fase og legges til i ny fase på prosjektene. */
+function moveTemplateItemToPhase(sourceKey, idx, targetPhaseId){
+  const src = CHECKLIST_TEMPLATES_EXTENDED[sourceKey]; if(!src || !Array.isArray(src.items)) return;
+  const item = src.items[idx]; if(!item) return;
+  const srcDept = src.dept || 'all';
+  const targetKey = _targetKeyForPhase(targetPhaseId, srcDept);
+  if(targetKey === sourceKey) return;
+  // opprett mål-malen i minnet om den ikke finnes ennå
+  if(!CHECKLIST_TEMPLATES_EXTENDED[targetKey]){
+    CHECKLIST_TEMPLATES_EXTENDED[targetKey] = {
+      dept: (targetKey.endsWith('_offshore')?'offshore':targetKey.endsWith('_aqua')?'aqua':'all'),
+      name: (PHASE_SHORT[targetPhaseId] || (phaseMap[targetPhaseId]?.label) || targetKey),
+      items: []
+    };
+  }
+  const tgt = CHECKLIST_TEMPLATES_EXTENDED[targetKey];
+  const itemObj = (typeof item === 'object') ? item : { text:item, role:'', type:'check' };
+  const txt = itemObj.text || 'punktet';
+  if(!confirm(`Flytte «${txt}» fra ${PHASE_SHORT[sourceKey.split('_')[0]]||sourceKey} til ${PHASE_SHORT[targetPhaseId]||targetPhaseId}?\n\nDette oppdaterer også eksisterende prosjekter ved neste innlasting.`)) return;
+  // flytt i minnet
+  src.items.splice(idx, 1);
+  tgt.items.push(itemObj);
+  // persister til SharePoint: endre radens Fasenokkel (+ rekkefølge + evt. avd/navn på ny mal)
+  if(graphMode && templateCm && itemObj.spId){
+    const fields = { [templateCm.fasenokkel]: targetKey };
+    if(templateCm.rekkefolge) fields[templateCm.rekkefolge] = tgt.items.length;
+    if(templateCm.avdeling)   fields[templateCm.avdeling]   = tgt.dept || 'all';
+    if(templateCm.malnavn)    fields[templateCm.malnavn]    = tgt.name || '';
+    try{ tmplPatchRow(itemObj.spId, fields); }catch(e){}
+  }
+  renderChecklistAdmin();
+  showToast(`Punkt flyttet til ${PHASE_SHORT[targetPhaseId]||targetPhaseId} ✓`);
+}
+
 function toggleTemplateItemEvidence(key, idx){
   const tmpl = CHECKLIST_TEMPLATES_EXTENDED[key]; if(!tmpl) return;
   let item = tmpl.items[idx];
@@ -13497,6 +13553,12 @@ function isPMO() {
   const stored = localStorage.getItem('pmotionRolePMO');
   return stored === null ? true : stored === 'true';
 }
+/* KAM (Salg) – får flytte prosjektet ett steg videre i salgsfasene (Fase 0–3)
+   når sjekklista i fasen er fullført (selve sjekkliste-kravet håndheves av GATE 2). */
+function isSalesRole() {
+  try { const r = (typeof getCurrentRole==='function') ? getCurrentRole() : null; return r === 'kam'; }
+  catch(e){ return false; }
+}
 function setPMORole(v) {
   localStorage.setItem('pmotionRolePMO', v ? 'true' : 'false');
   showToast(v ? '🔑 PMO-rolle aktivert' : '👤 Standardbruker-rolle');
@@ -13542,8 +13604,10 @@ function quickChangePhase(projId, newPhase, opts){
   const isLost = newPhase === 'joblost';
 
   // ── GATE 1: PMO authority (only for forward moves & lost is allowed by anyone) ──
-  if (isForward && !isPMO()) {
-    alert('🔒 Kun PMO har myndighet til å godkjenne overgang til neste fase.\n\nKontakt PMO for å flytte prosjektet videre.');
+  // KAM (Salg) får flytte ett steg videre fra salgsfasene (Fase 0–3); sjekkliste-kravet i GATE 2 gjelder fortsatt.
+  const salesMayAdvance = isForward && isSalesRole() && (toIdx === fromIdx + 1) && ['fase0','fase1','fase2','fase3'].includes(p.phase);
+  if (isForward && !isPMO() && !salesMayAdvance) {
+    alert('🔒 Kun PMO kan godkjenne denne overgangen.\n\nKAM (Salg) kan flytte prosjektet videre i Fase 0–3 når alle sjekklistepunktene i fasen er fullført. Kontakt PMO for øvrige overganger.');
     return;
   }
 
