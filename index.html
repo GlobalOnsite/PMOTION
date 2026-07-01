@@ -6062,6 +6062,7 @@ async function unitColMap(lid){
   map.csc=byNorm['csc']||byNorm['cscgodkjent']||byNorm['cscgodkjenning']||null;
   map.highcube=byNorm['highcube']||byNorm['hc']||byNorm['highcubecontainer']||null;
   map.sideapning=byNorm['sideapning']||byNorm['fullsideapning']||byNorm['sideopening']||byNorm['fullsideopening']||null;
+  map.verdi=byNorm['verdi']||byNorm['value']||byNorm['pris']||byNorm['kostnad']||byNorm['nyverdi']||byNorm['verdinok']||byNorm['verdi(nok)']||null;
   return map;
 }
 async function _unitCtx(){ const lid=await resolveUnitList(); if(!lid) return null; if(!unitCm) unitCm=await unitColMap(lid); return {lid,cm:unitCm}; }
@@ -6089,6 +6090,7 @@ async function loadUnitsFromSP(){
       csc:_truthy(cm.csc?f[cm.csc]:false),
       highcube:_truthy(cm.highcube?f[cm.highcube]:false),
       sideapning:_truthy(cm.sideapning?f[cm.sideapning]:false),
+      verdi:parseFloat(cm.verdi?f[cm.verdi]:0)||0,
     };});
     UNITS.sort((a,b)=> a.type.localeCompare(b.type,'nb') || a.name.localeCompare(b.name,'nb'));
     return true;
@@ -6124,12 +6126,13 @@ function _unitFields(cm,u){
   set(cm.csc,!!u.csc);
   set(cm.highcube,!!u.highcube);
   set(cm.sideapning,!!u.sideapning);
+  set(cm.verdi,u.verdi);
   return f;
 }
 async function deleteUnit_PLACEHOLDER(){}
 function openUnitModal(id){
   if(!(typeof roleCan==='function' && roleCan('equipment'))){ showToast('Du har ikke tilgang til å endre enheter', true); return; }
-  const u = id ? UNITS.find(x=>x.id===id) : { name:'', type:'', hub:(HUBS[0]||{}).id||'', status:'tilgjengelig', serial:'', certExp:'', maintLast:'', maintNext:'', note:'', readiness:'rod', mal:'', vekt:0, dnv271:false, csc:false, highcube:false, sideapning:false };
+  const u = id ? UNITS.find(x=>x.id===id) : { name:'', type:'', hub:(HUBS[0]||{}).id||'', status:'tilgjengelig', serial:'', certExp:'', maintLast:'', maintNext:'', note:'', readiness:'rod', mal:'', vekt:0, dnv271:false, csc:false, highcube:false, sideapning:false, verdi:0 };
   if(!u) return;
   const typeNames=[...new Set(INVENTORY.map(i=>i.name))].sort((a,b)=>a.localeCompare(b,'nb'));
   const inp="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);font-size:13px;box-sizing:border-box";
@@ -6160,6 +6163,7 @@ function openUnitModal(id){
     <div style="display:flex;gap:12px">
       <div style="flex:2"><div style="${lbl}">Mål (L×B×H)</div><input id="un-mal" value="${escAttr(u.mal||'')}" placeholder="f.eks. 6058×2438×2896 mm" style="${inp}"></div>
       <div style="flex:1"><div style="${lbl}">Vekt (kg)</div><input id="un-vekt" type="number" step="any" value="${u.vekt||''}" style="${inp}"></div>
+      <div style="flex:1"><div style="${lbl}">Verdi (NOK)</div><input id="un-verdi" type="number" step="any" min="0" value="${u.verdi||''}" placeholder="f.eks. 250000" style="${inp}"></div>
     </div>
     <div style="${lbl}">Godkjenninger</div>
     <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:13px;padding:2px 0 2px">
@@ -6195,6 +6199,7 @@ async function saveUnit(id){
     csc:!!(g('un-csc')||{}).checked,
     highcube:!!(g('un-highcube')||{}).checked,
     sideapning:!!(g('un-sideapning')||{}).checked,
+    verdi:parseFloat((g('un-verdi')||{}).value)||0,
   };
   if(!u.name){ showToast('ID-nummer er påkrevd', true); return; }
   if(!u.type){ showToast('Velg utstyrstype', true); return; }
@@ -6442,6 +6447,99 @@ async function setUnitReadiness(unitId,key){
   await _applyReadiness(unitId,key); renderEquipUnits(); showToast('Klargjøring oppdatert ✓');
 }
 function _daysUntil(d){ if(!d) return null; const t=new Date(d); if(isNaN(t)) return null; const now=new Date(); now.setHours(0,0,0,0); t.setHours(0,0,0,0); return Math.round((t-now)/86400000); }
+/* Kategoriser en enhet ut fra utstyrstypen: Container, Verktøykasse eller Øvrig utstyr. */
+function unitCategory(u){
+  const t=String(u&&u.type||'').toLowerCase();
+  if(/container|kontainer/.test(t)) return 'Container';
+  if(/verkt|toolbox/.test(t)) return 'Verktøykasse';
+  return 'Øvrig utstyr';
+}
+/* Verdirapport: alle containere og verktøykasser med verdi, antall og totaler.
+   Åpnes som en utskriftsvennlig rapport (kan lagres som PDF via nettleseren). */
+function openEquipValueReport(){
+  if(!UNITS.length){ showToast('Ingen enheter registrert ennå', true); return; }
+  const hubName=h=>{const x=HUBS.find(z=>z.id===h);return x?x.name:(h||'–');};
+  const nok=n=>Math.round(n||0).toLocaleString('nb-NO')+' kr';
+  const esc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const cats={'Container':[], 'Verktøykasse':[], 'Øvrig utstyr':[]};
+  UNITS.forEach(u=>{ cats[unitCategory(u)].push(u); });
+  const sum=arr=>arr.reduce((s,u)=>s+(u.verdi||0),0);
+  const withVal=arr=>arr.filter(u=>u.verdi>0).length;
+
+  // Én seksjon (kategori) med per-type undersummer + enhetsrader + kategoritotal
+  const section=(title, arr, color)=>{
+    if(!arr.length) return '';
+    const byType={}; arr.forEach(u=>{ (byType[u.type||'(uten type)']=byType[u.type||'(uten type)']||[]).push(u); });
+    const typeKeys=Object.keys(byType).sort((a,b)=>a.localeCompare(b,'nb'));
+    let rows='';
+    typeKeys.forEach(tk=>{
+      const us=byType[tk].slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'nb'));
+      rows+=`<tr class="typerow"><td colspan="4">${esc(tk)} <span class="muted">· ${us.length} stk</span></td><td class="num">${nok(sum(us))}</td></tr>`;
+      us.forEach(u=>{
+        rows+=`<tr>
+          <td>${esc(u.name)}</td>
+          <td>${esc(hubName(u.hub))}</td>
+          <td>${esc(u.serial||'–')}</td>
+          <td>${esc((UNIT_STATUS[u.status]||UNIT_STATUS.tilgjengelig).label)}</td>
+          <td class="num">${u.verdi>0?nok(u.verdi):'<span class="muted">ikke satt</span>'}</td>
+        </tr>`;
+      });
+    });
+    return `<h2 style="border-left:5px solid ${color}">${title} <span class="muted">· ${arr.length} enheter · sum ${nok(sum(arr))}</span></h2>
+      <table>
+        <thead><tr><th>ID-nummer</th><th>Hub</th><th>Serienr.</th><th>Status</th><th class="num">Verdi (NOK)</th></tr></thead>
+        <tbody>${rows}</tbody>
+        <tfoot><tr><td colspan="4">Sum ${esc(title.toLowerCase())} (${arr.length} enheter, ${withVal(arr)} med verdi)</td><td class="num">${nok(sum(arr))}</td></tr></tfoot>
+      </table>`;
+  };
+
+  const cont=cats['Container'], verk=cats['Verktøykasse'], ovrig=cats['Øvrig utstyr'];
+  const grandCV=sum(cont)+sum(verk);
+  const now=new Date();
+  const dstr=now.toLocaleDateString('nb-NO',{day:'2-digit',month:'long',year:'numeric'});
+
+  const html=`<!DOCTYPE html><html lang="nb"><head><meta charset="utf-8"><title>Verdirapport – Containere og verktøykasser</title>
+  <style>
+    *{box-sizing:border-box} body{font-family:'Segoe UI',Arial,sans-serif;color:#1a2233;margin:0;padding:32px 40px;background:#fff}
+    h1{font-size:22px;margin:0 0 2px} .sub{color:#667085;font-size:13px;margin-bottom:20px}
+    h2{font-size:15px;margin:26px 0 8px;padding-left:10px}
+    .muted{color:#98a2b3;font-weight:400}
+    .cards{display:flex;gap:14px;flex-wrap:wrap;margin:14px 0 8px}
+    .card{border:1px solid #e4e7ec;border-radius:10px;padding:12px 16px;min-width:170px}
+    .card .l{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#667085}
+    .card .v{font-size:20px;font-weight:700;margin-top:2px}
+    table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:6px}
+    th,td{text-align:left;padding:6px 10px;border-bottom:1px solid #eaecf0}
+    th{background:#f9fafb;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:#667085}
+    td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    tr.typerow td{background:#f2f7fb;font-weight:600}
+    tfoot td{font-weight:700;border-top:2px solid #cfd4dc;background:#fbfcfd}
+    .grand{margin-top:24px;padding:16px 20px;background:#0f2f3d;color:#fff;border-radius:10px;display:flex;justify-content:space-between;align-items:center;font-size:16px}
+    .grand strong{font-size:22px}
+    .toolbar{margin-bottom:18px}
+    .btn{background:#0891b2;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600}
+    .note{color:#98a2b3;font-size:11px;margin-top:18px}
+    @media print{.toolbar{display:none} body{padding:0}}
+  </style></head><body>
+    <div class="toolbar"><button class="btn" onclick="window.print()">🖨️ Skriv ut / lagre som PDF</button></div>
+    <h1>Verdirapport – Containere og verktøykasser</h1>
+    <div class="sub">Global Onsite AS · PMOTION · Generert ${esc(dstr)}</div>
+    <div class="cards">
+      <div class="card"><div class="l">Containere</div><div class="v">${cont.length}</div><div class="muted">${nok(sum(cont))}</div></div>
+      <div class="card"><div class="l">Verktøykasser</div><div class="v">${verk.length}</div><div class="muted">${nok(sum(verk))}</div></div>
+      <div class="card"><div class="l">Samlet antall</div><div class="v">${cont.length+verk.length}</div><div class="muted">containere + verktøykasser</div></div>
+      <div class="card" style="border-color:#0891b2"><div class="l">Samlet verdi</div><div class="v" style="color:#0891b2">${nok(grandCV)}</div></div>
+    </div>
+    ${section('Containere', cont, '#2563eb')}
+    ${section('Verktøykasser', verk, '#d97706')}
+    <div class="grand"><span>Samlet verdi – containere og verktøykasser</span><strong>${nok(grandCV)}</strong></div>
+    ${ovrig.length?`<h2 style="border-left:5px solid #6b7280;margin-top:30px">Øvrig utstyr (til info) <span class="muted">· ${ovrig.length} enheter · sum ${nok(sum(ovrig))}</span></h2>
+      <div class="muted" style="font-size:12px">Ikke medregnet i totalen over. ${withVal(ovrig)} av ${ovrig.length} har registrert verdi.</div>`:''}
+    <div class="note">Verdi er hentet fra feltet «Verdi (NOK)» per enhet. Enheter uten registrert verdi telles i antall, men bidrar med 0 kr i summene. Kategorisering skjer automatisk ut fra utstyrstypen (navn som inneholder «container» eller «verktøykasse»).</div>
+  </body></html>`;
+  openHtmlBlob(html);
+}
+
 function renderEquipUnits(){
   const host=document.getElementById('equip-units'); if(!host) return;
   const canEdit=(typeof roleCan==='function') && roleCan('equipment');
@@ -6449,12 +6547,14 @@ function renderEquipUnits(){
   const sel="padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);font-size:12px";
   const byStatus=k=>UNITS.filter(u=>u.status===k).length;
   const byRead=k=>UNITS.filter(u=>(u.readiness||'rod')===k).length;
+  const totVerdi=UNITS.reduce((s,u)=>s+(u.verdi||0),0);
   const summary=`<div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:8px;font-size:12px">
     <span><strong>${UNITS.length}</strong> enheter</span>
     <span style="color:#16a34a">${byStatus('tilgjengelig')} tilgjengelig</span>
     <span style="color:#d97706">${byStatus('utleid')} utleid</span>
     <span style="color:#3b82f6">${byStatus('vedlikehold')} vedlikehold</span>
     <span style="color:#6b7280">${byStatus('utrangert')} utrangert</span>
+    ${totVerdi?`<span style="color:#60a5fa">Samlet verdi: <strong>${Math.round(totVerdi).toLocaleString('nb-NO')} kr</strong></span>`:''}
   </div>
   <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;font-size:12px;align-items:center">
     <span style="font-weight:600;color:var(--muted)">Klargjøring:</span>
@@ -6465,6 +6565,7 @@ function renderEquipUnits(){
   const toolbar=`<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
     ${canEdit?`<button class="modal-btn" onclick="openUnitModal()">+ Ny enhet</button>`:''}
     ${canEdit?`<button class="modal-btn" style="background:#7c3aed" onclick="openContentTemplates()">📋 Innholdsmaler</button>`:''}
+    <button class="modal-btn" style="background:#0891b2" onclick="openEquipValueReport()" title="Rapport over containere og verktøykasser med verdi">📊 Verdirapport</button>
     <div style="flex:1"></div>
     <select onchange="setUnitFilter('hub',this.value)" style="${sel}">
       <option value="all">Alle hubber</option>
@@ -6491,7 +6592,7 @@ function renderEquipUnits(){
   const readChip=u=>{ const r=READINESS[u.readiness||'rod']; return `<span class="un-badge" style="background:${r.bg};color:${r.color}">● ${r.short}</span>`; };
   const readDots=u=>['gronn','gul','rod'].map(k=>{ const r=READINESS[k]; const active=(u.readiness||'rod')===k; return `<button onclick="setUnitReadiness('${u.id}','${k}')" title="${r.label}" style="width:15px;height:15px;border-radius:50%;border:2px solid ${active?'var(--text)':'transparent'};background:${r.dot};opacity:${active?1:.3};cursor:pointer;padding:0;margin:0">​</button>`; }).join('');
   const specChips=u=>{ let s=''; if(u.dnv271) s+=`<span class="un-chip un-chip-ok">DNV 2.7-1</span>`; if(u.csc) s+=`<span class="un-chip un-chip-ok">CSC</span>`; if(u.highcube) s+=`<span class="un-chip">High Cube</span>`; if(u.sideapning) s+=`<span class="un-chip">Full sideåpning</span>`; return s; };
-  const specLine=u=>{ const b=[]; if(u.mal) b.push('Mål: '+escHtml(u.mal)); if(u.vekt) b.push('Vekt: '+u.vekt+' kg'); return b.length?`<div style="font-size:11px;color:var(--muted);margin-top:3px">${b.join(' · ')}</div>`:''; };
+  const specLine=u=>{ const b=[]; if(u.mal) b.push('Mål: '+escHtml(u.mal)); if(u.vekt) b.push('Vekt: '+u.vekt+' kg'); if(u.verdi) b.push('Verdi: '+Math.round(u.verdi).toLocaleString('nb-NO')+' kr'); return b.length?`<div style="font-size:11px;color:var(--muted);margin-top:3px">${b.join(' · ')}</div>`:''; };
   const body=typeKeys.map(tk=>{
     const rows=groups[tk].map(u=>{
       const st=UNIT_STATUS[u.status]||UNIT_STATUS.tilgjengelig;
