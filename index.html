@@ -7318,9 +7318,13 @@ function pfBasics(p){return`<div class="modal-grid">
     <div class="f" style="grid-column:1/-1"><label>Beskrivelse</label><textarea id="m-description" rows="3" placeholder="Kort beskrivelse av prosjektet – scope, bakgrunn, mål...">${p.description||''}</textarea></div>
   </div>`;}
 
-function pfStatus(p){return`<div class="modal-grid">
+function pfStatus(p){
+  const isNew = !p || !p.id;   // nytt prosjekt (wizard) sender inn {} uten id
+  const phaseList = isNew ? PHASES.filter(ph=>ph.id==='fase0'||ph.id==='fase1') : PHASES;
+  return`<div class="modal-grid">
     <div class="f"><label>Status / Fase</label>
-      <select id="m-phase">${PHASES.map(ph=>`<option value="${ph.id}" ${ph.id===(p.phase||'fase0')?'selected':''}>${ph.label} – ${ph.desc}</option>`).join('')}</select>
+      <select id="m-phase">${phaseList.map(ph=>`<option value="${ph.id}" ${ph.id===(p.phase||'fase0')?'selected':''}>${ph.label} – ${ph.desc}</option>`).join('')}</select>
+      ${isNew?`<div style="font-size:11px;color:var(--muted);margin-top:4px">Nye prosjekter opprettes i Fase 0 eller 1. Senere faser aktiveres etter hvert som prosjektet flyttes videre.</div>`:''}
     </div>
     <div class="f"><label>Sannsynlighet (%)</label><input id="m-prob" type="number" min="0" max="100" value="${p.prob||0}"></div>
     <div class="f"><label>Avdeling</label>
@@ -7530,12 +7534,16 @@ function wizGoTo(i){
 async function saveNewProject(){
   const data=getFormData();
   if(!data.name){alert('Prosjektnavn er påkrevd');return;}
+  // Nye prosjekter kan kun opprettes i Fase 0 eller Fase 1
+  if(data.phase!=='fase0' && data.phase!=='fase1'){ data.phase='fase0'; }
   const p={id:'demo-'+Date.now(),...data,phaseLog:{},equipBookings:[],checklists:{},resourceBookings:[],log:[],projChangeLog:[]};
+  p.phaseLog[p.phase]=new Date().toISOString();   // tidsstemple startfasen
   // Loggfør opprettelsen (tid + innlogget bruker) for sporbarhet
   p.projChangeLog.push({ ts:new Date().toISOString(), user:getCurrentUser(), type:'create', icon:'✨', what:'Prosjekt opprettet', from:'', to:p.name });
   if(typeof logChange==='function') logChange(getCurrentUser(),'Prosjekt',`${p.name}: Opprettet`,'–',p.name,'16a34a');
-  // Auto-assign checklist for starting phase
-  const addedNew = autoAssignChecklists(p, p.phase);
+  // Tildel sjekklister KUMULATIVT for alle faser opp til og med startfasen
+  // (guarden i autoAssignChecklists hopper over fremtidige faser av seg selv)
+  let addedNew=0; PHASES.filter(ph=>ph.id!=='joblost').forEach(ph=> addedNew += (autoAssignChecklists(p, ph.id)||0));
   if(graphMode){
     const saved=await saveToLists(p);
     if(saved){
@@ -12826,6 +12834,14 @@ saveEdit = async function(id) {
   const oldPhase = p.phase;
   const phaseChanged = data.phase !== p.phase;
   Object.assign(p, data);
+  // Ved direkte faseendring: tidsstemple ny fase og tildel sjekklister kumulativt
+  // for alle faser opp til og med gjeldende – slik at f.eks. Fase 1/2-punktene
+  // også kommer med når prosjektet settes rett i Fase 3.
+  if (phaseChanged) {
+    if(!p.phaseLog) p.phaseLog={};
+    if(!p.phaseLog[p.phase]) p.phaseLog[p.phase]=new Date().toISOString();
+    PHASES.filter(ph=>ph.id!=='joblost').forEach(ph=> autoAssignChecklists(p, ph.id));
+  }
   changes.forEach(c => addProjChangeLog(id, c.type, c.icon, c.what, c.from, c.to));
 
   if (graphMode) {
