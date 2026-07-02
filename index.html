@@ -116,10 +116,10 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
 .prob-track{flex:1;height:4px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
 .prob-fill{height:100%;border-radius:2px}
 /* GANTT */
-.gantt-wrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow-x:auto}
-.gantt-inner{min-width:900px}
+.gantt-wrap{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.gantt-inner{min-width:0}
 .gantt-header{display:flex;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:10}
-.gantt-label-col{width:220px;flex-shrink:0;height:41px;box-sizing:border-box;display:flex;align-items:center;padding:0 18px;font-size:11px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid var(--border)}
+.gantt-label-col{width:220px;flex-shrink:0;height:41px;box-sizing:border-box;display:flex;align-items:center;padding:0 18px;font-size:11px;font-weight:500;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:8;background:var(--surface)}
 .gantt-months{flex:1;display:flex}
 .gantt-month{flex:1;text-align:center;font-size:11px;color:var(--muted);padding:10px 4px;font-family:'DM Mono',monospace;border-right:1px solid var(--border)}
 .gantt-month:last-child{border-right:none}
@@ -2146,7 +2146,7 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
 @media (hover: none) and (pointer: coarse) {
   * { -webkit-tap-highlight-color: transparent; }
   .modal, .ai-messages, .pers-list, .crm-sidebar,
-  .kanban-board, .gantt-wrap, .res-gantt-wrap, .pers-gantt-scroll,
+  .kanban-board, .gantt-wrap, .gantt-scroll, .res-gantt-wrap, .pers-gantt-scroll,
   .alerts-list { -webkit-overflow-scrolling: touch; }
 }
 
@@ -2648,7 +2648,7 @@ body.pmotion-readonly #pers-show-hidden { display:none !important; }
 /* layout: fixed name column + horizontally scrolling timeline */
 .gantt-flex{display:flex;align-items:stretch}
 .gantt-namecol{flex-shrink:0;width:220px;border-right:1px solid var(--border);background:var(--surface);position:sticky;left:0;z-index:6}
-.gantt-scroll{flex:1;overflow-x:auto}
+.gantt-scroll{overflow:auto}
 .gantt-col{display:flex;flex-direction:column}
 .gantt-tl-header{display:flex;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--surface);z-index:5}
 .gantt-unit{flex-shrink:0;text-align:center;font-size:11px;color:var(--muted);padding:8px 2px;font-family:'DM Mono',monospace;border-right:1px solid var(--border);line-height:1.3}
@@ -5521,7 +5521,12 @@ function renderGantt(){
   }
   nameCol+=`</div>`;
 
-  document.getElementById('gantt-inner').innerHTML=`<div class="gantt-flex">${nameCol}<div class="gantt-scroll">${head}</div></div>`;
+  document.getElementById('gantt-inner').innerHTML=`<div class="gantt-scroll"><div class="gantt-flex">${nameCol}${head}</div></div>`;
+  // Frys dato-raden og navnekolonnen: la scroll-området ha en skjermtilpasset høyde,
+  // slik at scrollingen skjer inne i Gantt-en og de sticky-elementene fester seg.
+  const _gsc=document.querySelector('#gantt-inner .gantt-scroll');
+  if(_gsc){ const _t=_gsc.getBoundingClientRect().top; _gsc.style.maxHeight=Math.max(300, window.innerHeight-_t-24)+'px'; }
+  if(!window._ganttResizeBound){ window._ganttResizeBound=true; window.addEventListener('resize',()=>{ const g=document.querySelector('#gantt-inner .gantt-scroll'); if(g&&g.offsetParent){ const t=g.getBoundingClientRect().top; g.style.maxHeight=Math.max(300, window.innerHeight-t-24)+'px'; } }); }
 
   // Render phase filter chips + sync zoom/dept controls
   renderGanttPhaseFilter();
