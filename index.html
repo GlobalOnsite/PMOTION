@@ -506,6 +506,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
 .filter-count{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;align-self:flex-end;padding-bottom:8px;white-space:nowrap}
 /* dept badge */
 .dept-badge{display:inline-block;font-size:10px;font-weight:600;font-family:'DM Mono',monospace;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.intern-badge{display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap;background:rgba(139,92,246,.18);color:#c4b5fd;margin-left:6px}
 .dept-offshore{background:rgba(8,145,178,.18);color:#22d3ee}
 .dept-aqua{background:rgba(22,163,74,.18);color:#4ade80}
 /* person pill */
@@ -3615,6 +3616,18 @@ const DEPARTMENTS = [
 const deptMap = {};
 DEPARTMENTS.forEach(d => deptMap[d.id] = d);
 
+/* ── INTERNPROSJEKTER ──────────────────────────────────────────────
+   Internprosjekter har ikke salgsløp (ingen kunde/tilbud/PO) og skal IKKE
+   få de vanlige sjekklistene. De bruker kun maler merket med avdeling «Intern». */
+function isInternalProject(p){ return !!(p && p.internal); }
+/* Avgjør om en mal (gitt dens avdeling) gjelder for et prosjekt. */
+function templateDeptApplies(tmplDept, p){
+  const d = tmplDept || 'all';
+  if(isInternalProject(p)) return d === 'intern';   // internprosjekt → kun intern-maler
+  if(d === 'intern') return false;                   // vanlig prosjekt → aldri intern-maler
+  return d === (p && p.dept || 'offshore') || d === 'all';
+}
+
 const HUBS = [
   {id:'lillesand',name:'Lillesand',country:'Norway',flag:'🇳🇴',lat:58.25,lng:8.38,main:true},
   {id:'london',   name:'London',   country:'UK',    flag:'🇬🇧',lat:51.51,lng:-0.13},
@@ -3732,6 +3745,7 @@ function _daysSinceISO(iso){
 }
 function projOverviewAlert(p){
   if(!p) return null;
+  if(isInternalProject(p)) return null;   // internprosjekt har ikke salgsløp – ingen tilbuds-/tap-varsler
   if(p.phase === 'fase2'){
     const entered = (p.phaseLog && p.phaseLog['fase2']) || p.updatedAt || p.startDate || '';
     const followed = (p.phaseLog && p.phaseLog['_offerFollowUp']) || '';
@@ -4208,6 +4222,7 @@ function toFields(p){
   if(hasCol('Riggtype'))    f.Riggtype    = p.rigType||'';
   if(hasCol('MMSI'))        f.MMSI        = p.mmsi||'';
   if(hasCol('Beskrivelse')) f.Beskrivelse = p.description||'';
+  if(hasCol('Intern'))      f.Intern      = !!p.internal;
   // Sjekkliste-tilstand (avhukinger) – lagres som JSON kun hvis kolonnene finnes
   if(hasCol('Checklists')) f.Checklists = JSON.stringify(p.checklists||{});
   if(hasCol('Execution'))  f.Execution  = JSON.stringify(p.execution||{});
@@ -4239,6 +4254,7 @@ function fromItem(item){
     durationMonths:(durDays>0 ? Math.round(durDays/30.44) : months), value:parseFloat(f.EstimertVerdi)||0, description:f.Beskrivelse||'',
     personnel:[], equipment:[], hub:f.Hub||'lillesand', dept:f.Avdeling||'',
     pm:f.PM||'', kam:f.KAM||'', phaseLog:pl, equipBookings:eb, resourceBookings:rb,
+    internal: (typeof _truthy==='function' ? _truthy(f.Intern) : (f.Intern===true||f.Intern==='true'||f.Intern==='Ja')),
   };
   if(durDays>0){ o.durationDays=durDays; o.durationUnit=durUnit; o.durationValue=durVal; }
   // Sjekkliste-tilstand fra SharePoint (kun hvis kolonnen finnes – ellers behold minne-tilstand)
@@ -5360,7 +5376,7 @@ function renderProjects(){
             </td>
             <td class="td-mono" style="font-size:11px;color:var(--muted);white-space:nowrap">${p.projectNr||'–'}</td>
             <td>
-              <div style="font-weight:500">${p.name}${projBookBadges(p)}</div>
+              <div style="font-weight:500">${p.name}${p.internal?' <span class="intern-badge">🏠 Intern</span>':''}${projBookBadges(p)}</div>
               ${_al?`<div class="proj-alert-line ${_al.highRisk?'high':''}">${_al.highRisk?'🔴':'⚠'} ${escHtml(_al.msg)}${_al.type==='followup'?` <button class="proj-followup-btn" onclick="event.stopPropagation();confirmOfferFollowUp('${p.id}')">✓ Bekreft oppfølging</button> <button class="proj-lost-btn" onclick="event.stopPropagation();markOfferLost('${p.id}')">✕ Marker som tapt</button>`:''}</div>`:''}
             </td>
             <td>${p.dept&&deptMap[p.dept]?`<span class="dept-badge ${deptMap[p.dept].cls}">${deptMap[p.dept].name}</span>`:'–'}</td>
@@ -7313,7 +7329,13 @@ function pfStatus(p){return`<div class="modal-grid">
         ${DEPARTMENTS.map(d=>`<option value="${d.id}" ${(p.dept||'')===d.id?'selected':''}>${d.name}</option>`).join('')}
       </select>
     </div>
-    <div class="f"></div>
+    <div class="f">
+      <label>Prosjekttype</label>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;padding:7px 0">
+        <input type="checkbox" id="m-internal" ${p.internal?'checked':''}>
+        <span>Internprosjekt <span style="color:var(--muted)">– ingen kunde/tilbud, bruker interne sjekklister</span></span>
+      </label>
+    </div>
     <div class="f people-picker">
       <label>Prosjektleder (PM)</label>
       <input id="m-pm-input" placeholder="Søk etter person..." autocomplete="off"
@@ -7407,6 +7429,7 @@ function getFormData(){
     durationMonths:_durUnit==='months' ? _durVal : (_durDays>0 ? Math.round(_durDays/30.44) : 0),
     value:parseFloat(document.getElementById('m-value').value)||0,
     dept:document.getElementById('m-dept')?.value||'',
+    internal:document.getElementById('m-internal')?.checked||false,
     pm: document.getElementById('m-pm')?.value||document.getElementById('m-pm-input')?.value||'',
     kam:document.getElementById('m-kam')?.value||document.getElementById('m-kam-input')?.value||'',
     pmEmail: document.getElementById('m-pm-email')?.value||'',
@@ -13102,6 +13125,7 @@ renderChecklistAdminDetail = function(key) {
           <option value="all" ${(!tmpl.dept||tmpl.dept==='all')?'selected':''}>Felles (alle avdelinger)</option>
           <option value="offshore" ${tmpl.dept==='offshore'?'selected':''}>Offshore & Marine</option>
           <option value="aqua" ${tmpl.dept==='aqua'?'selected':''}>Aquaculture</option>
+          <option value="intern" ${tmpl.dept==='intern'?'selected':''}>🏠 Internprosjekt</option>
         </select>
         <button class="export-btn" onclick="duplicateTemplate('${key}')">⎘ Dupliser</button>
         <button class="export-btn" onclick="deleteTemplate('${key}')" style="color:#ef4444;border-color:rgba(239,68,68,.4)">🗑 Slett mal</button>
@@ -13383,18 +13407,28 @@ function autoAssignChecklists(p, newPhaseId) {
   }
 
   const deptKey = p.dept || 'offshore';
+  const internal = isInternalProject(p);
 
-  // Find all template keys that match this phase (e.g. fase2, fase2_offshore, fase2_aqua)
-  const matchKeys = Object.keys(CHECKLIST_TEMPLATES_EXTENDED).filter(k =>
-    k === newPhaseId || k === newPhaseId + '_' + deptKey || k === newPhaseId + '_all'
-  );
-
-  // Also always include the generic phase key if it exists (dept:'all')
-  const genericKey = newPhaseId;
-  if (CHECKLIST_TEMPLATES_EXTENDED[genericKey] &&
-      CHECKLIST_TEMPLATES_EXTENDED[genericKey].dept === 'all' &&
-      !matchKeys.includes(genericKey)) {
-    matchKeys.push(genericKey);
+  // Find all template keys that match this phase.
+  // Internprosjekt: KUN maler merket avdeling «Intern». Vanlig prosjekt: aldri intern-maler.
+  let matchKeys;
+  if (internal) {
+    matchKeys = Object.keys(CHECKLIST_TEMPLATES_EXTENDED).filter(k =>
+      (k === newPhaseId || k.startsWith(newPhaseId + '_')) &&
+      (CHECKLIST_TEMPLATES_EXTENDED[k] && CHECKLIST_TEMPLATES_EXTENDED[k].dept === 'intern')
+    );
+  } else {
+    matchKeys = Object.keys(CHECKLIST_TEMPLATES_EXTENDED).filter(k =>
+      (k === newPhaseId || k === newPhaseId + '_' + deptKey || k === newPhaseId + '_all') &&
+      (CHECKLIST_TEMPLATES_EXTENDED[k] && CHECKLIST_TEMPLATES_EXTENDED[k].dept !== 'intern')
+    );
+    // Also always include the generic phase key if it exists (dept:'all')
+    const genericKey = newPhaseId;
+    if (CHECKLIST_TEMPLATES_EXTENDED[genericKey] &&
+        CHECKLIST_TEMPLATES_EXTENDED[genericKey].dept === 'all' &&
+        !matchKeys.includes(genericKey)) {
+      matchKeys.push(genericKey);
+    }
   }
 
   let changed = 0;
@@ -13467,7 +13501,7 @@ function autoAssignChecklists(p, newPhaseId) {
   if (!templateLoadError) {
     const validTexts = new Set();
     Object.entries(CHECKLIST_TEMPLATES_EXTENDED).forEach(([k, t]) => {
-      if ((k === newPhaseId || k.startsWith(newPhaseId + '_')) && (!t.dept || t.dept === deptKey || t.dept === 'all')) {
+      if ((k === newPhaseId || k.startsWith(newPhaseId + '_')) && templateDeptApplies(t.dept, p)) {
         (t.items || []).forEach(it => validTexts.add(String((typeof it === 'object' ? it.text : it) || '').trim().toLowerCase()));
       }
     });
