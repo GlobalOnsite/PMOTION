@@ -4851,7 +4851,7 @@ function renderRoleDashboard(){
   if(roleId==='pmo' || roleId==='sitelead'){
     const activeProjs = byPhase('fase4');
     const mine = myOpenChecklistItems();
-    const gateProjs = P.filter(p=>{ const st=(typeof phaseChecklistStatus==='function')?phaseChecklistStatus(p):null; return st && st.locked===false && p.phase!=='fase5'; });
+    const gateProjs = P.filter(p=>{ const st=(typeof phaseChecklistStatus==='function')?phaseChecklistStatus(p):null; const execOk=!(p.phase==='fase4' && typeof execRequiredRemaining==='function' && execRequiredRemaining(p)>0); return st && st.locked===false && execOk && p.phase!=='fase5'; });
     kpis=[
       {label:'Aktive prosjekter', val:P.length, color:'#0891b2', drill:{title:'Aktive prosjekter', projects:P}},
       {label:'Under gjennomføring', val:activeProjs.length, color:'#2563eb', drill:{title:'Under gjennomføring (Fase 4)', projects:activeProjs}},
@@ -5008,6 +5008,7 @@ function renderActionCenter(){
     if(['fase5','joblost'].includes(p.phase)) return false;
     if(typeof phaseChecklistStatus!=='function') return false;
     const st = phaseChecklistStatus(p);
+    if(p.phase==='fase4' && typeof execRequiredRemaining==='function' && execRequiredRemaining(p)>0) return false;
     return st.total>0 && !st.locked;  // unlocked = all done = ready to advance
   });
 
@@ -13803,9 +13804,16 @@ function renderProjectDashboard(p, activeTab) {
       const isLost = p.phase==='joblost';
       if(isLost) return '';
       if(isLast) return '<span style="font-size:12px;color:var(--muted);align-self:center">✓ Siste fase</span>';
-      if(st.locked){
+      const execLeft = (p.phase==='fase4' && typeof execRequiredRemaining==='function') ? execRequiredRemaining(p) : 0;
+      if(st.locked || execLeft>0){
         const remaining = st.total - st.done;
-        return `<span style="font-size:11px;color:#d97706;align-self:center;display:flex;align-items:center;gap:5px" title="${remaining} sjekklistepunkter gjenstår">🔒 Låst (${st.done}/${st.total})</span>
+        const lbl = execLeft>0 && !st.locked
+          ? `🔒 Gjennomføring (${execLeft} igjen)`
+          : `🔒 Låst (${st.done}/${st.total})`;
+        const ttl = execLeft>0 && !st.locked
+          ? `${execLeft} påkrevde utførelses-oppgaver gjenstår`
+          : `${remaining} sjekklistepunkter gjenstår`;
+        return `<span style="font-size:11px;color:#d97706;align-self:center;display:flex;align-items:center;gap:5px" title="${ttl}">${lbl}</span>
           <button class="pw-qbtn" onclick="advanceProjectPhase('${p.id}')" title="${isPMO()?'PMO kan overstyre':'Kun PMO kan flytte videre'}" style="opacity:.6"><span class="pw-qbtn-icon">🔒</span> Neste fase</button>`;
       }
       return `<button class="pw-qbtn primary" onclick="advanceProjectPhase('${p.id}')" title="Klar for neste fase"><span class="pw-qbtn-icon">⏩</span> Neste fase ✓</button>`;
@@ -13939,6 +13947,26 @@ function quickChangePhase(projId, newPhase, opts){
       if (isPMO()) {
         if (confirm(msg)) {
           const reason = prompt('Begrunnelse for å overstyre fase-låsing (logges):', '');
+          if (reason === null) return;
+          quickChangePhase(projId, newPhase, { override:true, overrideReason: reason || 'Ingen begrunnelse oppgitt' });
+        }
+        return;
+      } else {
+        alert(msg);
+        return;
+      }
+    }
+  }
+
+  // ── GATE 2b: Fase 4 – alle prosjektgjennomførings-sjekklistene må være fullført ──
+  if (isForward && p.phase === 'fase4' && !opts.override) {
+    const exLeft = execRequiredRemaining(p);
+    if (exLeft > 0) {
+      const msg = `🔒 Prosjektgjennomføringen er ikke fullført.\n\n${exLeft} påkrevd${exLeft>1?'e':''} oppgave${exLeft>1?'r':''} gjenstår i utførelses-stegene (Fase 4).\n\nAlle prosjektgjennomførings-sjekklistene må fullføres før prosjektet kan gå videre.` +
+        (isPMO() ? '\n\nSom PMO kan du overstyre. Vil du overstyre med begrunnelse?' : '');
+      if (isPMO()) {
+        if (confirm(msg)) {
+          const reason = prompt('Begrunnelse for å overstyre (logges):', '');
           if (reason === null) return;
           quickChangePhase(projId, newPhase, { override:true, overrideReason: reason || 'Ingen begrunnelse oppgitt' });
         }
@@ -18343,6 +18371,24 @@ const EXEC_ROLE_COLORS = {
 };
 
 // Ensure project has execution data initialized
+/* Antall PÅKREVDE prosjektgjennomførings-oppgaver (Fase 4-stegene) som gjenstår.
+   Repeterende oppgaver (daglig/ukentlig rapport) teller ikke – de blir aldri permanent «ferdig».
+   Returnerer 0 hvis ingen utførelses-oppgaver er definert (da blokkeres ingenting). */
+function execRequiredRemaining(p){
+  if(typeof EXEC_STAGES==='undefined' || !Array.isArray(EXEC_STAGES) || !EXEC_STAGES.length) return 0;
+  try{ ensureExecData(p); }catch(e){ return 0; }
+  const ex = p.execution; if(!ex || !ex.stages) return 0;
+  let remaining = 0;
+  EXEC_STAGES.forEach(stage=>{
+    const sd = ex.stages[stage.id];
+    (stage.tasks||[]).forEach(t=>{
+      const isReq = t.req && (!t.repeat || t.repeat==='none');
+      if(isReq && !(sd && sd.tasks[t.id] && sd.tasks[t.id].checked)) remaining++;
+    });
+  });
+  return remaining;
+}
+
 function ensureExecData(p) {
   if (!p.execution) {
     p.execution = { currentStage: 0, stages: {} };
