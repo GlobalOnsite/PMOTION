@@ -507,6 +507,12 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-h
 /* dept badge */
 .dept-badge{display:inline-block;font-size:10px;font-weight:600;font-family:'DM Mono',monospace;padding:2px 8px;border-radius:20px;white-space:nowrap}
 .intern-badge{display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;white-space:nowrap;background:rgba(139,92,246,.18);color:#c4b5fd;margin-left:6px}
+.pcr-files{max-height:200px;overflow:auto;border:1px solid var(--border);border-radius:9px;padding:6px}
+.pcr-file-row{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:7px;cursor:pointer}
+.pcr-file-row:hover{background:rgba(255,255,255,.03)}
+.pcr-tag{font-size:9px;font-weight:700;padding:2px 7px;border-radius:20px;text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
+.pcr-tag.po{background:rgba(37,99,235,.18);color:#93c5fd}
+.pcr-tag.tilbud{background:rgba(217,119,6,.18);color:#fcd34d}
 .dept-offshore{background:rgba(8,145,178,.18);color:#22d3ee}
 .dept-aqua{background:rgba(22,163,74,.18);color:#4ade80}
 /* person pill */
@@ -11414,7 +11420,8 @@ function renderProjectDocs(p){
         <div style="font-size:15px;font-weight:600">📁 Dokumentarkiv</div>
         <div style="font-size:11px;color:var(--muted);margin-top:3px">Alle dokumenter for prosjektet – lagret i SharePoint. Bevis fra sjekklistepunkter havner her automatisk.</div>
       </div>
-      <div style="display:flex;gap:8px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="modal-btn" style="background:#0891b2" onclick="openProjectNrRequest('${p.id}')" title="Send e-post til Project Controller med PO/kontrakt og tilbud vedlagt">📧 Be om prosjektnr</button>
         <button class="export-btn" onclick="uploadProjectDoc('${p.id}')">⬆ Last opp dokument</button>
         <button class="export-btn" onclick="reloadProjectDocs('${p.id}')">↻ Oppdater</button>
       </div>
@@ -11451,6 +11458,131 @@ async function loadProjectDocsInto(p){
     el.innerHTML = html;
   }catch(e){ console.warn('loadProjectDocs',e); el.innerHTML = '<div style="color:#ef4444;font-size:13px">Kunne ikke hente dokumenter: '+escHtml(e.message||String(e))+'</div>'; }
 }
+/* ── BE OM PROSJEKTNR (Tripletex/Telaris) ──────────────────────────────
+   Sender e-post til Project Controller med PO/kontrakt og tilbud vedlagt
+   fra prosjektets dokumentarkiv. Bruker /me/sendMail (Mail.Send). */
+function _classifyProjDoc(name){
+  const n = String(name||'').toLowerCase();
+  if(/(tilbud|offer|quote|quotation|pristilbud|anbud)/.test(n)) return 'tilbud';
+  if(/(kontrakt|contract|bestilling|innkjøpsordre|purchase|avtale)/.test(n) || /(^|[^a-z])p\.?o([^a-z]|$)/.test(n)) return 'po';
+  return null;
+}
+async function _fetchDriveFileBase64(relPath){
+  const token = await getToken(); if(!token) throw new Error('Ingen tilgang');
+  const r = await fetch(`${GRAPH}/sites/${GRAPH_CONFIG.siteId}/drive/root:/${encodeURI(relPath)}:/content`, { headers:{ Authorization:'Bearer '+token } });
+  if(!r.ok) throw new Error('HTTP '+r.status+' ved henting av vedlegg');
+  const buf = await r.arrayBuffer();
+  const bytes = new Uint8Array(buf); let binary=''; const chunk=0x8000;
+  for(let i=0;i<bytes.length;i+=chunk){ binary += String.fromCharCode.apply(null, bytes.subarray(i, i+chunk)); }
+  return { base64: btoa(binary), size: bytes.length };
+}
+async function openProjectNrRequest(projId){
+  const p = projects.find(x=>x.id===projId); if(!p) return;
+  if(!graphMode || !currentAccount){ showToast('Logg inn med Microsoft for å sende e-post med vedlegg', true); return; }
+  const modalEl = document.getElementById('modal-content'); if(!modalEl) return;
+  modalEl.innerHTML = `<div style="padding:22px 24px"><div style="font-size:16px;font-weight:600;margin-bottom:8px">📧 Be om prosjektnr (Tripletex/Telaris)</div><div style="color:var(--muted);font-size:13px">Henter dokumenter fra prosjektarkivet…</div></div>`;
+  document.getElementById('modal-overlay').classList.add('open');
+  let files=[];
+  try{ files = await _walkDriveFolder(`${PROJ_DOC_ROOT}/${projDocFolder(p)}`, 0); }catch(e){}
+  const pcEmail = localStorage.getItem('pmotionPCEmail') || '';
+  const dept = (typeof DEPARTMENTS!=='undefined' ? (DEPARTMENTS.find(d=>d.id===p.dept)?.name) : '') || '–';
+  const link = (typeof projectLink==='function') ? projectLink(p) : '';
+  const bodyDefault =
+`Hei,
+
+Kan du opprette prosjektnummer i Tripletex og Telaris for følgende prosjekt?
+
+Prosjekt: ${p.name}${p.projectNr?` (${p.projectNr})`:''}
+Kunde: ${p.customer||'–'}
+Avdeling: ${dept}
+Estimert verdi: ${p.value?fmtS(p.value):'–'}
+Prosjektleder: ${p.pm||'–'}
+KAM: ${p.kam||'–'}
+
+PO/kontrakt og tilbud er vedlagt.${link?`
+
+Lenke i PMOTION: ${link}`:''}
+
+Takk!
+${currentAccount.name||getCurrentUser()}`;
+  const anyClassified = files.some(f=>_classifyProjDoc(f.name));
+  const fileRows = files.length ? files.map(f=>{
+    const cls=_classifyProjDoc(f.name);
+    const tag = cls==='po'?'<span class="pcr-tag po">PO/kontrakt</span>':cls==='tilbud'?'<span class="pcr-tag tilbud">Tilbud</span>':'';
+    const relPath = f.folderPath+'/'+f.name;
+    return `<label class="pcr-file-row">
+      <input type="checkbox" class="pcr-file" ${cls?'checked':''} data-path="${escAttr(relPath)}" data-name="${escAttr(f.name)}">
+      <span style="font-size:15px">${_fileIcon(f.name)}</span>
+      <span style="flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escAttr(_stripTs(f.name))}">${escHtml(_stripTs(f.name))}</span>
+      ${tag}
+      <span style="font-size:11px;color:var(--muted);white-space:nowrap">${_fmtBytes(f.size)}</span>
+    </label>`;
+  }).join('') : `<div style="color:var(--muted);font-size:13px;padding:6px 0">Fant ingen dokumenter i prosjektarkivet. Last opp PO/kontrakt og tilbud på Dokumenter-fanen først.</div>`;
+  const inp='background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:9px 11px;font-size:13px;width:100%;box-sizing:border-box;font-family:inherit';
+  const lbl='font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:0 0 5px;display:block';
+  modalEl.innerHTML = `<div class="pcr-wrap" style="padding:20px 24px;max-width:640px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">
+      <div style="font-size:16px;font-weight:600">📧 Be om prosjektnr (Tripletex/Telaris)</div>
+      <button class="dl-close" onclick="closeModal()" title="Lukk">✕</button>
+    </div>
+    <div style="margin-bottom:12px"><label style="${lbl}">Til (Project Controller)</label>
+      <input id="pcr-to" type="email" value="${escAttr(pcEmail)}" placeholder="fornavn.etternavn@globalonsite.no" style="${inp}"></div>
+    <div style="margin-bottom:12px"><label style="${lbl}">Emne</label>
+      <input id="pcr-subject" value="${escAttr('Opprett prosjektnr i Tripletex og Telaris – '+p.name)}" style="${inp}"></div>
+    <div style="margin-bottom:12px"><label style="${lbl}">Melding</label>
+      <textarea id="pcr-body" rows="9" style="${inp};resize:vertical;line-height:1.5">${escHtml(bodyDefault)}</textarea></div>
+    <div style="margin-bottom:6px"><label style="${lbl}">Vedlegg fra dokumentarkivet</label>
+      ${!anyClassified && files.length?`<div style="font-size:11px;color:#f59e0b;margin-bottom:6px">Fant ikke automatisk PO/kontrakt eller tilbud – kryss av manuelt.</div>`:''}
+      <div class="pcr-files">${fileRows}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:6px">Hold samlet størrelse under ~3 MB.</div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button class="export-btn" onclick="closeModal()">Avbryt</button>
+      <button id="pcr-send-btn" class="modal-btn" onclick="sendProjectNrRequest('${p.id}')">📧 Send forespørsel</button>
+    </div>
+  </div>`;
+  const box = modalEl.closest('.modal'); if(box) box.classList.remove('pw-modal');
+}
+async function sendProjectNrRequest(projId){
+  const p = projects.find(x=>x.id===projId); if(!p) return;
+  const to = (document.getElementById('pcr-to')?.value||'').trim();
+  const subject = (document.getElementById('pcr-subject')?.value||'').trim() || ('Opprett prosjektnr – '+p.name);
+  const body = (document.getElementById('pcr-body')?.value||'');
+  if(!to.includes('@')){ showToast('Skriv inn en gyldig e-postadresse til Project Controller', true); return; }
+  localStorage.setItem('pmotionPCEmail', to);
+  const boxes = Array.from(document.querySelectorAll('.pcr-file:checked'));
+  const btn = document.getElementById('pcr-send-btn'); if(btn){ btn.disabled=true; btn.textContent='Sender…'; }
+  try{
+    const attachments=[];
+    for(const b of boxes){
+      const relPath=b.getAttribute('data-path'); const nm=b.getAttribute('data-name');
+      const { base64 } = await _fetchDriveFileBase64(relPath);
+      attachments.push({ '@odata.type':'#microsoft.graph.fileAttachment', name:_stripTs(nm), contentBytes:base64 });
+    }
+    const ccSelf = (currentAccount?.username||'').includes('@') ? [{ emailAddress:{ address: currentAccount.username } }] : [];
+    await gPost('/me/sendMail', {
+      message:{
+        subject,
+        body:{ contentType:'Text', content: body },
+        toRecipients:[{ emailAddress:{ address: to } }],
+        ccRecipients: ccSelf,
+        attachments
+      },
+      saveToSentItems:true
+    });
+    showToast(`📧 Forespørsel sendt til Project Controller (${attachments.length} vedlegg) ✓`);
+    if(typeof logChange==='function') logChange(getCurrentUser(),'Prosjekt',`${p.name}: Prosjektnr-forespørsel sendt`, '–', to, '7c3aed');
+    if(Array.isArray(p.projChangeLog)) p.projChangeLog.push({ ts:new Date().toISOString(), user:getCurrentUser(), type:'email', icon:'📧', what:'Prosjektnr-forespørsel sendt (Tripletex/Telaris)', from:'', to });
+    if(graphMode && typeof saveToLists==='function') saveToLists(p);
+    closeModal();
+  }catch(e){
+    console.error('PMOTION – prosjektnr-forespørsel feilet:', e, e?.graphError);
+    if(e && e.graphError && typeof showAccessError==='function'){ showAccessError(e.graphError); }
+    else showToast('Kunne ikke sende: '+(e.message||e), true);
+    if(btn){ btn.disabled=false; btn.textContent='📧 Send forespørsel'; }
+  }
+}
+
 function uploadProjectDoc(projId){
   const p = projects.find(x=>x.id===projId); if(!p) return;
   if(!graphMode){ showToast('Logg inn med Microsoft først', true); return; }
@@ -12846,6 +12978,12 @@ saveEdit = async function(id) {
     if(!p.phaseLog) p.phaseLog={};
     if(!p.phaseLog[p.phase]) p.phaseLog[p.phase]=new Date().toISOString();
     PHASES.filter(ph=>ph.id!=='joblost').forEach(ph=> autoAssignChecklists(p, ph.id));
+    // Inngang til Fase 3 → be om prosjektnr i Tripletex/Telaris
+    if(p.phase==='fase3' && oldPhase!=='fase3'){
+      if(graphMode && currentAccount && typeof openProjectNrRequest==='function'){
+        setTimeout(()=>{ try{ openProjectNrRequest(p.id); }catch(e){} }, 450);
+      } else { showToast('Husk å be om prosjektnr i Tripletex/Telaris (Dokumenter-fanen)'); }
+    }
   }
   changes.forEach(c => addProjChangeLog(id, c.type, c.icon, c.what, c.from, c.to));
 
@@ -13830,6 +13968,16 @@ function quickChangePhase(projId, newPhase, opts){
   if(modalBox) modalBox.classList.add('pw-modal');
   if(typeof renderAll==='function') renderAll();
   showToast(opts.override ? '⚠ Fase overstyrt ✓' : 'Fase oppdatert ✓');
+
+  // Ved inngang til Fase 3 (PO/kontrakt på plass) skal det bes om prosjektnr i
+  // Tripletex og Telaris. Åpner forespørsels-dialogen automatisk – ferdig utfylt.
+  if(newPhase==='fase3' && old!=='fase3'){
+    if(graphMode && currentAccount && typeof openProjectNrRequest==='function'){
+      setTimeout(()=>{ try{ openProjectNrRequest(p.id); }catch(e){} }, 400);
+    } else {
+      showToast('Husk å be om prosjektnr i Tripletex/Telaris (Dokumenter-fanen)');
+    }
+  }
 }
 
 function archiveProject(projId){
