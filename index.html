@@ -6420,10 +6420,11 @@ async function _persistVehicle(v){
 /* ── Reservasjon / status ── */
 async function reserveVehicle(vehId, projId){
   const v=VEHICLES.find(x=>x.id===vehId); if(!v) return;
+  const p=projects.find(pp=>pp.id===projId);
+  if(!p || p.phase!=='fase4'){ showToast('Kjøretøy kan kun reserveres på prosjekter i Fase 4', true); return; }
   const prev=v.status, prevPrj=v.projectId;
   v.status='reservert'; v.projectId=projId||'';
   renderVehicles();
-  const p=projects.find(pp=>pp.id===projId);
   if(typeof logChange==='function') logChange(getCurrentUser(),'Kjøretøy',`${v.regnr} reservert`, p?p.name:'', '', '2563eb');
   const ok=await _persistVehicle(v);
   if(ok) showToast(`${v.regnr} reservert${p?' på '+p.name:''} ✓`); else { v.status=prev; v.projectId=prevPrj; renderVehicles(); }
@@ -6497,8 +6498,8 @@ function vehicleActionSheet(vehId){
   const v=VEHICLES.find(x=>x.id===vehId); if(!v) return;
   const modalEl=document.getElementById('modal-content'); if(!modalEl) return;
   const t=vehicleType(v.type);
-  const activeP=projects.filter(p=>!p.archived && p.phase!=='joblost').sort((a,b)=>String(a.name).localeCompare(String(b.name),'nb'));
-  const projOpts=activeP.map(p=>`<button class="veh-sheet-btn" onclick="reserveVehicle('${v.id}','${p.id}');closeModal()">📋 ${escHtml(p.name)}</button>`).join('') || '<div style="color:var(--muted);font-size:12px;padding:6px 0">Ingen aktive prosjekter</div>';
+  const activeP=projects.filter(p=>p.phase==='fase4' && !p.archived).sort((a,b)=>String(a.name).localeCompare(String(b.name),'nb'));
+  const projOpts=activeP.map(p=>`<button class="veh-sheet-btn" onclick="reserveVehicle('${v.id}','${p.id}');closeModal()">📋 ${escHtml(p.name)}</button>`).join('') || '<div style="color:var(--muted);font-size:12px;padding:6px 0">Ingen prosjekter i Fase 4</div>';
   modalEl.innerHTML=`<div style="padding:20px 22px;max-width:520px">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">
       <div style="font-size:16px;font-weight:600">${t.icon} ${escHtml(v.regnr)} <span style="color:var(--muted);font-weight:400;font-size:13px">${escHtml(v.navn||t.name)}</span></div>
@@ -6555,7 +6556,7 @@ function renderVehicles(){
   const list = vehicleFilterType==='all' ? VEHICLES : VEHICLES.filter(v=>v.type===vehicleFilterType);
   const byStatus=k=>list.filter(v=>v.status===k);
   const pool=byStatus('tilgjengelig');
-  const activeP=projects.filter(p=>!p.archived && p.phase!=='joblost').sort((a,b)=>String(a.name).localeCompare(String(b.name),'nb'));
+  const activeP=projects.filter(p=>p.phase==='fase4' && !p.archived).sort((a,b)=>String(a.name).localeCompare(String(b.name),'nb'));
   const activeIds=new Set(activeP.map(p=>p.id));
   const reservedElsewhere=list.filter(v=>v.status==='reservert' && !activeIds.has(v.projectId));
   const poolEmpty = VEHICLES.length ? 'Ingen tilgjengelige kjøretøy nå' : 'Ingen kjøretøy ennå – legg til med «+ Nytt kjøretøy»';
@@ -6609,8 +6610,8 @@ function renderVehicles(){
         </div>
       </div>
       <div class="veh-col-right">
-        <div class="veh-right-head">Prosjekter <span style="font-weight:400;color:var(--muted);font-size:12px">– dra en bil inn for å reservere</span></div>
-        <div class="veh-proj-grid">${activeP.map(projCard).join('')||'<div class="veh-empty">Ingen aktive prosjekter</div>'}</div>
+        <div class="veh-right-head">Prosjekter i Fase 4 <span style="font-weight:400;color:var(--muted);font-size:12px">– dra en bil inn for å reservere</span></div>
+        <div class="veh-proj-grid">${activeP.map(projCard).join('')||'<div class="veh-empty">Ingen prosjekter i Fase 4 akkurat nå</div>'}</div>
         ${reservedElsewhere.length?`<div class="veh-right-head" style="margin-top:14px">Reservert på andre/arkiverte prosjekter</div>
           <div class="veh-drop veh-pool" data-drop="pool"><div class="veh-pool-body">${reservedElsewhere.map(_vehCard).join('')}</div></div>`:''}
       </div>
