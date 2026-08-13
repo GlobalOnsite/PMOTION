@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Slangeproduksjon – Global Onsite · PMOTION-modul (prototype)</title>
+<title>HoseMaker – Global Onsite · slangeproduksjon (PMOTION-modul, prototype)</title>
 <style>
 :root{
   --bg:#0a0e1a;--surface:#111827;--surface2:#1a2235;
@@ -332,7 +332,7 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
 <div class="shell">
 
 <header class="topbar">
-  <div class="logo">PMOTION <span>· Slangeproduksjon</span></div>
+  <div class="logo">HoseMaker <span>· Global Onsite</span></div>
   <div class="badge-proto">PROTOTYPE · demo-modus – data lagres ikke</div>
   <div class="spacer"></div>
   <div class="userbox">
@@ -376,7 +376,7 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
 </div>
 <script>
 /* =====================================================================
-   Slangeproduksjon – klikkbar prototype (PMOTION-modul)
+   HoseMaker – slangeproduksjon, klikkbar prototype (PMOTION-modul)
    All data er demodata og lever kun i minnet til denne fanen.
    I pilot erstattes State av SharePoint-lister via Microsoft Graph.
    ===================================================================== */
@@ -1207,7 +1207,7 @@ function wz5(){
     :`<div class="vitem v-good">🔖 <div><b>Alle ${w.rows.length} slangene har PTS-ID</b> – reservert i PTS-registeret og klare for tags og sporing.</div></div>`}
     <h2>Slik lagres det i SharePoint</h2>
     <div class="sptree">
-      <div class="dim">/sites/PMO/Slangeproduksjon/</div>
+      <div class="dim">/sites/PMO/HoseMaker/</div>
       <div class="dim">├─ Produksjonsmapper (liste – metadata, status, logg)</div>
       <div>└─ ${year}/</div>
       <div class="new">&nbsp;&nbsp;&nbsp;└─ ${id} – ${esc(w.project||w.customer)}/</div>
@@ -1452,7 +1452,7 @@ function fTabDok(f){
     </div>
   </div>
   ${State.docPrev&&State.docPrev.id===f.id?docPreview(f.lines,meta,State.docPrev.k):""}
-  <div class="notice" style="margin-top:14px">📁 I drift ligger filene i SharePoint-mappen <span class="mono">/Slangeproduksjon/2026/${f.id} – ${esc(f.title)}/</span> – alltid samme struktur, alltid gjenfinnbart.</div>`;
+  <div class="notice" style="margin-top:14px">📁 I drift ligger filene i SharePoint-mappen <span class="mono">/HoseMaker/2026/${f.id} – ${esc(f.title)}/</span> – alltid samme struktur, alltid gjenfinnbart.</div>`;
 }
 function fRegen(id){
   const f=folder(id);f.docsStale=false;
@@ -2241,7 +2241,7 @@ function palletHTML(f){
   const totQty=f.lines.reduce((a,l)=>a+(l.qty||1),0);
   return `<div class="pallet">
     <div class="qr"></div>
-    <h3>GLOBAL ONSITE AS · SLANGEPRODUKSJON</h3>
+    <h3>GLOBAL ONSITE AS · HOSEMAKER</h3>
     <div class="pl-id">${esc(f.id)}</div>
     <div style="font-size:19px;font-weight:700">${esc(f.title)}</div>
     <div class="pl-row">
@@ -2274,7 +2274,7 @@ function quoteHTML(f){
   });
   const est=estHoursFolder(f);
   return `<div class="docpreview">
-    <h4>TILBUDSUNDERLAG – SLANGEPRODUKSJON</h4>
+    <h4>TILBUDSUNDERLAG – SLANGEPRODUKSJON (HoseMaker)</h4>
     <div style="color:#555;margin-bottom:10px">${esc(f.customer||"")} · ${esc(f.custRef?("Ref. "+f.custRef):"")} · ${esc(f.id)} · generert automatisk fra bearbeidet slangeliste (${f.lines.length} linjer)</div>
     <div style="color:#555;margin-bottom:10px">${f.telaris?`Prisgrunnlag for tilbud på pakkevare <b>${esc(f.telaris.pkg)}</b> i Telaris – tilbudet sendes derfra.`:`⚠️ Slangepakken er ikke opprettet i Telaris ennå – opprett den før tilbudet sendes (tilbudet sendes fra Telaris).`}</div>
     <table><tr><th>Slangetype</th><th>Linjer</th><th>Antall</th><th>Sum lengde (m)</th></tr>
@@ -2436,14 +2436,15 @@ function vOm(){
   return `<h1>❓ Om prototypen</h1>
   <div class="card">
     <h2 style="margin-top:0">Hva dette er</h2>
-    <p style="margin-bottom:10px">En klikkbar prototype av <b>Slangeproduksjon</b> – en egen modul bygget i samme stil som PMOTION. Målet: én idiotsikker vei fra slangeliste til komplett produksjonsmappe, og én felles plattform for PMO og verkstedet.</p>
+    <p style="margin-bottom:10px">En klikkbar prototype av <b>HoseMaker</b> – slangeproduksjonsmodulen, bygget i samme stil som PMOTION. Målet: én idiotsikker vei fra forespørsel til leverte, dokumenterte slanger – én felles plattform for PMO og verkstedet.</p>
+    <p style="margin-bottom:10px">💡 Navnet viderefører Excel-programmet <b>HoseMaker</b> som Simen lagde for slangelister for over ti år siden – nå gjenoppstått som komplett system med PTS-register, Telaris-integrasjon og verkstedsmodus.</p>
     <p>Alt du gjør her er ekte flyt, men <b>demodata i minnet</b> – lukk fanen, og alt nullstilles. Ingen ting lagres.</p>
   </div>
   <div class="card">
     <h2 style="margin-top:0">Hva som er simulert vs. ekte i pilot</h2>
     <div class="tblwrap"><table>
       <tr><th>I prototypen</th><th>I pilot / drift</th></tr>
-      <tr><td>Demodata i nettleserminnet</td><td>SharePoint-lister + dokumentbibliotek på /sites/PMO/Slangeproduksjon</td></tr>
+      <tr><td>Demodata i nettleserminnet</td><td>SharePoint-lister + dokumentbibliotek på /sites/PMO/HoseMaker</td></tr>
       <tr><td>Rollevelger øverst</td><td>Automatisk Microsoft-pålogging (samme som PMOTION)</td></tr>
       <tr><td>Masterdata som utdrag</td><td>Live oppslag i Database_Hose_&_fittings.xlsx</td></tr>
       <tr><td>Produktfoto hentes direkte fra parker.com (krever nett)</td><td>Bildene kopieres til SharePoint-mediebibliotek via masterdatabasen – uavhengig av parker.com</td></tr>
