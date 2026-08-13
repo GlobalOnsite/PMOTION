@@ -131,6 +131,16 @@ td .ptspill.has{border-style:solid;border-color:var(--accent);color:var(--text)}
 .pastefold{margin-top:12px;padding:12px;border:1px dashed var(--border2);border-radius:var(--radius);background:var(--surface2)}
 .telbadge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px;background:var(--good-bg);border:1px solid var(--good);color:var(--text)}
 
+/* ---------- antall > 1: må være umulig å overse på verkstedet ---------- */
+.qtybadge{display:inline-flex;align-items:center;gap:6px;background:var(--warn-bg);border:2px solid var(--warn);color:var(--text);font-weight:800;border-radius:12px;padding:5px 14px;font-size:17px;white-space:nowrap}
+.touch .qtybadge{font-size:21px;padding:8px 18px}
+.qtybadge.mini{font-size:12.5px;padding:2px 9px;border-width:1.5px;border-radius:9px}
+.touch .qtybadge.mini{font-size:14px}
+
+/* måle-innlegging (manglende B-/S-mål) */
+.mm-input{width:96px;background:var(--surface2);border:1px solid var(--warn);border-radius:9px;color:var(--text);padding:9px 12px;font-size:16px;font-family:var(--mono);text-align:center}
+.touch .mm-input{font-size:20px;padding:13px 12px;width:120px}
+
 /* ---------- fullskjerm (verksted/iPad): meny og topplinje kollapses ---------- */
 body.fs .topbar,body.fs .sidebar{display:none}
 body.fs .content{padding:58px 18px 18px}      /* plass til den flytende linjen */
@@ -392,6 +402,7 @@ const MASTER = {
     "1CA48-18-8":{wp:280,b:25,ang:0,sys:"Metric",dim:"18L"},
     "1CA48-22-12":{wp:280,b:30,ang:0,sys:"Metric",dim:"22L"},
     "1CA48-26-12":{wp:280,b:36,ang:0,sys:"Metric",dim:"26L"},
+    "1CF48-16-8":{wp:280,b:null,ang:45,sys:"Metric",dim:"16S"},  /* demo: B-mål mangler i master – må måles og legges inn */
     "1B243-8-8":{wp:430,b:39,ang:90,sys:"BSP",dim:'1/2"',imgHoseEnd:"right"},
     "19248-8-8":{wp:350,b:22,ang:0,sys:"BSP",dim:'1/2"'},
     "1J948-8-8":{wp:415,b:32,ang:90,sys:"ORFS",dim:'1/2"',imgHoseEnd:"right"},
@@ -498,6 +509,36 @@ function cutFor(len,hose,c1,c2){
 }
 function fmtCut(l){return l.cut?l.cut.toLocaleString("nb-NO")+" mm":"–"}
 
+/* ---------- Manglende B-/S-mål: fanges og legges inn der jobben gjøres ----------
+   Mangler et mål i masterdata, holdes kuttemålet tilbake til noen har MÅLT
+   komponenten og lagt inn verdien – da beregnes kuttemålet automatisk for
+   alle slanger som bruker samme komponent, og masterdata blir riktigere. */
+function missingMeasures(l){
+  const out=[];
+  const c1=MASTER.couplings[l.c1],c2=MASTER.couplings[l.c2],h=MASTER.hoses[l.hose];
+  if(c1&&c1.b==null)out.push({kind:"cpl",code:l.c1,label:"B-mål"});
+  if(c2&&c2.b==null&&l.c2!==l.c1)out.push({kind:"cpl",code:l.c2,label:"B-mål"});
+  if(h&&h.s==null)out.push({kind:"hose",code:l.hose,label:"S-mål"});
+  return out;
+}
+function setMeasure(kind,code,val,fid){
+  const v=Number(String(val??"").trim().replace(",","."));
+  if(!String(val??"").trim()||isNaN(v)||v<=0||v>=1000)return false;
+  if(kind==="cpl"&&MASTER.couplings[code])MASTER.couplings[code].b=v;
+  else if(kind==="hose"&&MASTER.hoses[code])MASTER.hoses[code].s=v;
+  else return false;
+  /* re-beregn kutt/WP overalt der komponenten brukes */
+  State.folders.forEach(f=>f.lines.forEach(l=>{
+    const c=cutFor(l.len,l.hose,l.c1,l.c2);l.cut=c.cut;l.cutErr=c.err;
+  }));
+  if(State.wizard&&State.wizard.rows)State.wizard.rows.forEach(r=>{
+    const c=cutFor(r.len,r.hose,r.c1,r.c2);r.cut=c.cut;r.cutErr=c.err;
+  });
+  const f=fid?folder(fid):null;
+  if(f)addLog(f,`${kind==="cpl"?"B-mål":"S-mål"} for ${code} målt og registrert: ${v} mm – kuttemål beregnet på nytt. (I drift oppdateres masterdatabasen med verdien.)`);
+  return true;
+}
+
 /* ---------- Produktfoto fra Parker-katalogen ----------
    Offisielle produktbilder ligger med forutsigbar URL per koblingsfamilie og
    slangeserie (verifisert mot ph.parker.com-produktsidene). Vises når de
@@ -569,6 +610,7 @@ const State = {
        L("HE3XVCF4",526,"487ST-8",1700,"1C948-16-8","11C48-16-8",1,0),
        L("HGZBA1VR",527,"487ST-8",1550,"1C948-16-8","11C48-16-8",1,0),
        L("GVROBXCJ",300,"487ST-8",20500,"1C948-16-8","1C948-16-8",2,0),
+       L("GQZW4K1P",301,"487ST-8",4200,"1CF48-16-8","1C948-16-8",2,0),  /* demo: kobling uten B-mål + 2 stk */
        L("H8FW05MS",502,"787ST-6",2600,"1C948-12-6","10C48-12-6",2,0),
        L("HAC0J91I",503,"787ST-6",2500,"1C948-12-6","10C48-12-6",2,0),
        L("H6AXLZSJ",505,"787ST-6",1800,"1C948-12-6","10C48-12-6",1,0),
@@ -705,7 +747,8 @@ function posBlock(l,f){
     <div class="p-num ${l.pos?"":"missing"}">${l.pos?esc(l.pos):"mangler"}</div>
     <div class="p-mach">Maskin ${esc(l.mach||"–")} <span style="color:var(--muted);font-weight:400">· PTS ${esc(l.pts||"–")}</span></div>
     <div class="p-ctx">${refLine(f)}</div>
-    <div class="p-ctx">${esc(l.hose)} · ant. ${l.qty}</div>
+    <div class="p-ctx">${esc(l.hose)}${l.qty>1?"":" · ant. 1"}</div>
+    ${l.qty>1?`<div class="qtybadge" style="margin-top:8px">⚠️ ${l.qty} STK av denne</div>`:""}
   </div>`;
 }
 
@@ -937,6 +980,7 @@ function wzGrid(){
     </div>`:""}
     ${w.rows.length?`
     <div id="gridissues">${gridIssuesHTML()}</div>
+    ${measurePanel(w.rows,"")}
     <div class="tblwrap"><table>
       <tr><th>#</th><th>POS</th><th>Maskin</th><th>Hose</th><th>Lengde</th><th>Coupling 1</th><th>Coupling 2</th><th>Ant.</th><th>WP (auto)</th><th>Kutt (auto)</th><th>PTS-ID (auto)</th><th></th></tr>
       ${w.rows.map((r,i)=>gridRowHTML(r,i)).join("")}
@@ -960,7 +1004,7 @@ function gridRowHTML(r,i){
     <td><input list="dl-cpl" class="${r.c2&&!MASTER.couplings[r.c2]?'cellbad':''}" value="${esc(r.c2)}" onchange="wzCellG(${i},'c2',this)"></td>
     <td><input style="width:45px" value="${esc(r.qty)}" onchange="wzCellG(${i},'qty',this)"></td>
     <td class="mono" id="wpc-${i}">${r.wp?r.wp+" bar":"–"}</td>
-    <td class="mono" id="cutc-${i}" style="font-weight:700">${r.cut?r.cut.toLocaleString("nb-NO"):"–"}</td>
+    <td class="mono" id="cutc-${i}" style="font-weight:700">${r.cut?r.cut.toLocaleString("nb-NO"):(missingMeasures(r).length?"📏 mål mangler":"–")}</td>
     <td><span class="ptspill ${r.pts?"has":""}">${r.pts?esc(r.pts):"hentes"}</span></td>
     <td><button class="rowdel" title="Slett rad" onclick="wzDelRow(${i})">✕</button></td>
   </tr>`;
@@ -993,7 +1037,7 @@ function wzCellG(i,field,el){
   if(typeof document==="undefined")return;
   const wpc=document.getElementById("wpc-"+i),cutc=document.getElementById("cutc-"+i);
   if(wpc)wpc.textContent=r.wp?r.wp+" bar":"–";
-  if(cutc)cutc.textContent=r.cut?r.cut.toLocaleString("nb-NO"):"–";
+  if(cutc)cutc.textContent=r.cut?r.cut.toLocaleString("nb-NO"):(missingMeasures(r).length?"📏 mål mangler":"–");
   if(field==="hose")el.classList.toggle("cellbad",!!(r.hose&&!MASTER.hoses[r.hose]));
   if(field==="c1"||field==="c2")el.classList.toggle("cellbad",!!(r[field]&&!MASTER.couplings[r[field]]));
   const badRows=new Set(w.issues.filter(x=>x.sev==="bad").map(x=>x.row));
@@ -1075,7 +1119,13 @@ function validateRows(rows){
     r.wp=wpFor(r.hose,r.c1,r.c2);
     const c=cutFor(r.len,r.hose,r.c1,r.c2);
     r.cut=c.cut;r.cutErr=c.err;
-    if(c.err)issues.push({sev:"bad",row:i,msg:`${lbl(r,i)}: kuttemål kan ikke beregnes – ${c.err}.`});
+    if(c.err){
+      const missing=/mangler i master/.test(c.err);
+      /* manglende B-/S-mål i master er ikke radens feil: mappen kan lagres,
+         men kuttemålet holdes tilbake til målet er målt og lagt inn
+         (her, eller av montøren i verkstedsmodus før kapping) */
+      issues.push({sev:missing?"warn":"bad",row:i,msg:`${lbl(r,i)}: kuttemål kan ikke beregnes – ${c.err}.${missing?" Legg inn målet under, eller la verkstedet måle komponenten – kappingen sperres uansett til målet er på plass.":""}`});
+    }
   });
   return issues;
 }
@@ -1351,7 +1401,7 @@ function fTabListe(f,p,t){
     <tr><th>PTS ID</th><th>POS</th><th>Hose</th><th>Lengde</th><th>Kutt</th><th>Coupling 1</th><th>Coupling 2</th><th>Ant.</th><th>WP</th><th>Operasjoner</th></tr>
     ${f.lines.map((l,i)=>`<tr>
       <td class="mono">${l.pts?esc(l.pts):`<span class="ptspill">hentes</span>`}</td><td>${esc(l.pos)}</td><td>${esc(l.hose)}</td><td>${esc(l.len)}</td>
-      <td class="mono" style="font-weight:700">${fmtCut(l)}</td>
+      <td class="mono" style="font-weight:700">${l.cut?fmtCut(l):(l.cutErr?`<span style="color:var(--warn)" title="${esc(l.cutErr)}">📏 mål mangler</span>`:"–")}</td>
       <td class="mono">${esc(l.c1)}</td><td class="mono">${esc(l.c2)}</td><td>${l.qty}</td><td>${l.wp?l.wp+" bar":"–"}</td>
       <td>${STAGES.map(s=>`<span title="${s.label}${l.st[s.key]?" – "+l.st[s.key].by+" "+l.st[s.key].at:" – ikke utført"}" style="opacity:${l.st[s.key]?1:.22};font-size:15px">${s.icon}</span>`).join(" ")}</td>
     </tr>`).join("")}
@@ -1688,6 +1738,40 @@ function wsModeBtn(){
   <button class="btn btn-primary" onclick="App.toggleFs()" title="Fullskjerm for iPad/verkstedskjerm – menyen og topplinjen skjules">⛶ Fullskjerm</button>`}`;
 }
 
+/* --- manglende B-/S-mål: montøren måler og legger inn før kutt vises --- */
+function wsSetMeasure(kind,code,val,fid,focusPts){
+  if(!setMeasure(kind,code,val,fid)){State.mmErr=code;render();return}
+  State.mmErr=null;
+  if(State.wizard&&State.wizard.rows&&State.wizard.rows.length)wzValidate();
+  /* bli stående på samme slange i fokusvisningen (køen re-sorteres når kuttet dukker opp) */
+  if(focusPts&&State.ws.folderId&&State.ws.stage&&!["qc","prints"].includes(State.ws.stage)){
+    const f=folder(State.ws.folderId);
+    if(f){const q=wsFocusQueue(f,State.ws.stage);const p=q.findIndex(x=>x.l.pts===focusPts);if(p>=0)State.ws.focusPos=p}
+  }
+  render();
+}
+function measureRow(m,fid,focusPts){
+  const iid=`mm-${m.kind}-${m.code}`;
+  const call=`wsSetMeasure('${m.kind}','${esc(m.code)}',document.getElementById('${iid}').value,'${fid||""}','${focusPts||""}')`;
+  return `<div class="vitem v-warn" style="align-items:center">
+    📏 <div><b class="mono" style="font-size:16px">${esc(m.code)}</b> · mål ${m.kind==="cpl"?"koblingens <b>B-mål</b> (fra koblingens anleggsflate til enden av nippelen)":"slangens <b>S-mål</b>"} med skyvelære og legg inn verdien${State.mmErr===m.code?` <b style="color:var(--bad)">– ugyldig verdi, prøv igjen</b>`:""}</div>
+    <span class="fix" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input class="mm-input" id="${iid}" inputmode="decimal" placeholder="mm"
+        onkeydown="if(event.key==='Enter')wsSetMeasure('${m.kind}','${esc(m.code)}',this.value,'${fid||""}','${focusPts||""}')">
+      <button class="btn btn-good" onclick="${call}">💾 Lagre – beregn kutt</button>
+    </span>
+  </div>`;
+}
+/* Ett panel per manglende komponent (unik på tvers av linjene som vises) */
+function measurePanel(lines,fid,focusPts){
+  const seen={},miss=[];
+  lines.forEach(l=>missingMeasures(l).forEach(m=>{const k=m.kind+"|"+m.code;if(!seen[k]){seen[k]=1;miss.push(m)}}));
+  if(!miss.length)return "";
+  return `<div class="vitem v-warn" style="border-width:2px">⚠️ <div><b>Kuttemål holdes tilbake – mål mangler i masterdata.</b>
+    Legg inn riktig mål under, så beregnes kuttemålet automatisk for alle slanger som bruker komponenten – og masterdata blir riktig for alltid. Kapping kan ikke bekreftes før målet er på plass.</div></div>
+  ${miss.map(m=>measureRow(m,fid,focusPts)).join("")}`;
+}
+
 /* --- operasjonsvelger: verkstedets startside for mappen --- */
 function wsStageSelect(f){
   const n=f.lines.length;
@@ -1788,6 +1872,7 @@ function wsCutView(f){
     </div>
   </div>
   ${nextBanner}
+  ${measurePanel(all.map(x=>x.l),f.id)}
   <div class="cardrow">
     <div class="tile"><div class="t-label">Kappet (${esc(hose)})</div><div class="t-value">${p} / ${all.length}</div><div class="meter"><div style="width:${Math.round(100*p/all.length)}%"></div></div></div>
     <div class="tile" style="display:flex;flex-direction:column;justify-content:center">
@@ -1795,15 +1880,17 @@ function wsCutView(f){
     </div>
   </div>
   <div class="tblwrap"><table>
-    <tr><th>POS</th><th>✂️ Kutt</th><th>Maskin</th><th>PTS ID</th><th>Lengde (OAL)</th><th>Ant.</th><th>Kappet</th></tr>
-    ${rows.map(({l,i})=>`<tr class="wsrow">
+    <tr><th>POS</th><th>✂️ Kutt</th><th>Ant.</th><th>Maskin</th><th>PTS ID</th><th>Lengde (OAL)</th><th>Kappet</th></tr>
+    ${rows.map(({l,i})=>{const mm=missingMeasures(l).length;return `<tr class="wsrow">
       <td class="pos-cell">${esc(l.pos||"–")}</td>
-      <td class="mono" style="font-weight:800;font-size:18px;color:var(--accent2)">${fmtCut(l)}</td>
+      <td class="mono" style="font-weight:800;font-size:18px;color:${mm?"var(--warn)":"var(--accent2)"}">${l.cut?fmtCut(l):(mm?"📏 legg inn mål":"–")}</td>
+      <td>${l.qty>1?`<span class="qtybadge mini">✕ ${l.qty} STK</span>`:l.qty}</td>
       <td class="mono">${esc(l.mach||"–")}</td>
       <td class="mono" style="color:var(--muted)">${esc(l.pts)}</td>
-      <td>${esc(l.len)} mm</td><td>${l.qty}</td>
-      <td><button class="wsbtn ${l.st.cut?"on-prod":""}" onclick="wsStage('${f.id}',${i},'cut')">${l.st.cut?"✅ "+esc(l.st.cut.by)+" · "+l.st.cut.at:"Bekreft kappet"}</button></td>
-    </tr>`).join("")}
+      <td>${esc(l.len)} mm</td>
+      <td>${mm&&!l.st.cut?`<button class="wsbtn" disabled style="opacity:.45" title="Kuttemålet mangler – legg inn målet øverst først">🔒 Mål mangler</button>`
+        :`<button class="wsbtn ${l.st.cut?"on-prod":""}" onclick="wsStage('${f.id}',${i},'cut')">${l.st.cut?"✅ "+esc(l.st.cut.by)+" · "+l.st.cut.at:l.qty>1?`Bekreft kappet · alle ${l.qty} stk`:"Bekreft kappet"}</button>`}</td>
+    </tr>`}).join("")}
   </table></div>`;
 }
 
@@ -1845,7 +1932,7 @@ function wsStageList(f,key){
         <b class="mono" style="font-size:15px">${l.hose}</b><span style="color:var(--muted);font-size:12px">${(SERIES_STYLE[seriesOf(l.hose)]||{}).desc||""}</span></div></td></tr>`:"";
       lastHose=l.hose;
       return hdr+`<tr class="wsrow">
-      <td class="pos-cell">${esc(l.pos||"–")}</td>
+      <td class="pos-cell">${esc(l.pos||"–")}${l.qty>1?`<div><span class="qtybadge mini">✕ ${l.qty} STK</span></div>`:""}</td>
       <td class="mono">${esc(l.mach||"–")}</td>
       <td class="mono" style="color:var(--muted)">${esc(l.pts)}</td>
       <td class="mono">${esc(l.hose)}</td>
@@ -1853,7 +1940,7 @@ function wsStageList(f,key){
       ${key==="press"?`<td><span class="photo-mini" style="width:64px;height:48px"><img src="${cplImgURL(l.c1)}" loading="lazy" alt="" style="transform:scaleX(${(MASTER.couplings[l.c1]||{}).imgHoseEnd==="right"?1:-1})" onerror="this.parentElement.style.display='none'"></span><div class="mono" style="font-size:11px">${esc(l.c1)}<span style="color:var(--muted)"> · ${cplLabel(l.c1)}</span></div></td>
       <td><span class="photo-mini" style="width:64px;height:48px"><img src="${cplImgURL(l.c2)}" loading="lazy" alt="" style="transform:scaleX(${(MASTER.couplings[l.c2]||{}).imgHoseEnd==="right"?-1:1})" onerror="this.parentElement.style.display='none'"></span><div class="mono" style="font-size:11px">${esc(l.c2)}<span style="color:var(--muted)"> · ${cplLabel(l.c2)}</span></div></td>`:""}
       ${key==="test"?`<td class="mono">${l.wp?l.wp+" bar":"–"}</td><td class="mono" style="font-weight:800;font-size:16px;color:var(--info)">${l.wp?Math.round(l.wp*1.5)+" bar":"–"}</td>`:""}
-      <td><button class="wsbtn ${l.st[key]?(key==="test"?"on-test":"on-prod"):""}" onclick="wsStage('${f.id}',${i},'${key}')">${l.st[key]?"✅ "+esc(l.st[key].by)+" · "+l.st[key].at:"Bekreft "+s.verb}</button></td>
+      <td><button class="wsbtn ${l.st[key]?(key==="test"?"on-test":"on-prod"):""}" onclick="wsStage('${f.id}',${i},'${key}')">${l.st[key]?"✅ "+esc(l.st[key].by)+" · "+l.st[key].at:l.qty>1?`Bekreft ${s.verb} · alle ${l.qty} stk`:"Bekreft "+s.verb}</button></td>
     </tr>`}).join("")}
   </table></div>
   ${waiting&&!State.ws.onlyRemaining?`<div class="notice" style="margin-top:12px">⏳ ${waiting} slange${waiting===1?" er":"r er"} ikke ${prev.verb} ennå og vises derfor ikke i denne listen.</div>`:""}`;
@@ -1864,6 +1951,7 @@ function wsStage(id,idx,key){
   const f=folder(id),l=f.lines[idx];
   const prev=prevStage(key);
   if(prev&&!l.st[prev.key])return;                 // rekkefølgen håndheves per slange
+  if(key==="cut"&&!l.st.cut&&missingMeasures(l).length)return; // port: kutt uten mål kan ikke bekreftes
   const s=stageDef(key);
   if(l.st[key]){
     l.st[key]=null;
@@ -2003,7 +2091,12 @@ function wsFocus(f,key){
   const doneThis=!!l.st[key];
   const stStyle=SERIES_STYLE[seriesOf(l.hose)]||{color:"var(--border2)"};
 
-  const main = key==="cut" ? `<div class="focus-main" style="color:var(--accent2)">${fmtCut(l)}</div><div class="focus-sub">KUTTEMÅL · kontroller mot tegningen over</div>`
+  const mmCut = key==="cut"?missingMeasures(l):[];
+  const main = key==="cut" ? (mmCut.length
+      ? `<div class="focus-main" style="color:var(--warn);font-size:clamp(28px,5vw,44px)">📏 MÅL MANGLER</div>
+         <div class="focus-sub">Kuttemålet kan ikke beregnes før målet er målt og lagt inn under</div>
+         ${measurePanel([l],f.id,l.pts)}`
+      : `<div class="focus-main" style="color:var(--accent2)">${fmtCut(l)}</div><div class="focus-sub">KUTTEMÅL · kontroller mot tegningen over${l.qty>1?` · <b style="color:var(--warn)">KAPP ${l.qty} STK</b>`:""}</div>`)
     : key==="clean" ? `<div class="focus-main" style="font-size:clamp(34px,6vw,54px)">🧼 ${esc(l.pts)}</div><div class="focus-sub">Rens innvendig og sett UC-propper i begge ender</div>`
     : key==="press" ? `<div class="focus-main mono" style="font-size:clamp(30px,5vw,46px);line-height:1.25">${esc(l.c1)}<br>${esc(l.c2)}</div><div class="focus-sub">KOBLING 1 / KOBLING 2 · kontroller pressinnstilling for ${esc(l.hose)}</div>`
     : `<div class="focus-main" style="color:var(--info)">${l.wp?Math.round(l.wp*1.5)+" bar":"–"}</div><div class="focus-sub">TESTTRYKK (1,5 × WP ${l.wp||"–"} bar) · holdetid 10 min</div>`;
@@ -2022,7 +2115,8 @@ function wsFocus(f,key){
       </div>
       <div style="margin-top:14px">${main}</div>
       <div class="focus-meta">
-        <div class="fm"><b>${fmtCut(l)}</b><span>Kutt</span></div>
+        <div class="fm"><b>${l.cut?fmtCut(l):(missingMeasures(l).length?"📏":"–")}</b><span>Kutt</span></div>
+        <div class="fm"><b>${l.qty>1?`<span style="color:var(--warn)">✕ ${l.qty} STK</span>`:"1 stk"}</b><span>Antall</span></div>
         <div class="fm"><b>${esc(l.len)} mm</b><span>Lengde (OAL)</span></div>
         <div class="fm"><b>${l.wp?l.wp+" bar":"–"}</b><span>WP</span></div>
         ${key!=="press"?`<div class="fm"><b class="mono" style="font-size:14px">${esc(l.c1)}<br>${esc(l.c2)}</b><span>Koblinger</span></div>`:""}
@@ -2030,7 +2124,9 @@ function wsFocus(f,key){
       ${doneThis
         ?`<button class="bigbtn confirm" disabled style="opacity:.85">✅ ${s.verb.toUpperCase()} · ${esc(l.st[key].by)} · ${l.st[key].at}</button>
           <button class="bigbtn undo" onclick="wsFocusConfirm('${f.id}',${i},'${key}',${pos})">↩︎ Angre bekreftelsen</button>`
-        :`<button class="bigbtn confirm" onclick="wsFocusConfirm('${f.id}',${i},'${key}',${pos})">${s.icon} BEKREFT ${s.verb.toUpperCase()}</button>`}
+        :mmCut.length
+        ?`<button class="bigbtn confirm" disabled style="opacity:.45">🔒 LEGG INN ${mmCut.map(m=>m.label.toUpperCase()).join(" + ")} FØRST</button>`
+        :`<button class="bigbtn confirm" onclick="wsFocusConfirm('${f.id}',${i},'${key}',${pos})">${s.icon} BEKREFT ${s.verb.toUpperCase()}${l.qty>1?` – ALLE ${l.qty} STK`:""}</button>`}
     </div>
     <div class="focus-nav">
       <button class="navarrow" ${pos===0?"disabled":""} onclick="State.ws.focusPos=${pos-1};render()">◀</button>
