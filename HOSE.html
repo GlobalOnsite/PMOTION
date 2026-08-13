@@ -429,9 +429,10 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
    ===================================================================== */
 
 /* ---------- Versjon (vises i topplinjen, fullskjermlinjen og på Om-siden) ---------- */
-const APP_VERSION="0.16";
+const APP_VERSION="0.17";
 const APP_BUILD="13.08.2026";
 const CHANGELOG=[
+  ["0.17","13.08.2026","Pressmål med toleranser i presse-steget: pressdiameter, toleransebånd og bakkesett (fra Parker CrimpSource, «Adjustable crimper») vises stort i fokusvisningen og per slangetype i presselisten – med varsel og CrimpSource-lenke der spesifikasjon mangler"],
   ["0.16","13.08.2026","Automatisk tidtaking: arbeidsøkten starter i det montøren åpner en produksjonsmappe i verkstedsmodus, og stopper automatisk ved mappebytte, brukerbytte, navigering ut eller når mappen fullføres – ingen knapper å huske"],
   ["0.15","13.08.2026","Feilretting: pakking av siste slange stoppet opp (krasj på siste operasjon). Tag på er nå ÉN samlet kvittering (utskriften skjer fortsatt automatisk per kapping), og hver gang en slangetype er ferdig i en prosess får du valget: fortsett med typen til neste prosess, eller ta neste type i samme prosess"],
   ["0.14","13.08.2026","Salgssjefens 7-stegs flyt: Kapp → Sett på tag → Rens → Pressing → Trykktest → Preservering → Pakking. Taggen skrives ut automatisk på benkeskriveren i det kappingen bekreftes (én per PTS-ID) – idiotsikker identitet fra første steg"],
@@ -478,6 +479,27 @@ const MASTER = {
     "1JC48-10-10":{wp:380,b:24,ang:0,sys:"ORFS",dim:'5/8"'}
   }
 };
+
+/* ---------- Pressmål (crimp) – fra Parker CrimpSource, «Adjustable crimper» ----------
+   Pressdiameter med toleranse per slangetype/koblingsserie. Verdiene under er
+   demo-verdier i realistisk størrelsesorden – i drift synkroniseres tabellen
+   fra CrimpSource (divapps.parker.com/divapps/hpd/crimpsourcev2), som slås opp
+   per maskin + slange + kobling + dimensjon. Etter pressing kontrolleres
+   diameteren med mikrometer mot toleransebåndet. */
+const CRIMPSOURCE_URL="https://divapps.parker.com/divapps/hpd/crimpsourcev2/?cc=Eur";
+const CRIMP={
+  "487ST-8": {od:24.60,tol:0.15,die:"bakkesett 24",series:"43/48-serie"},
+  "487ST-12":{od:31.75,tol:0.15,die:"bakkesett 31",series:"43/48-serie"},
+  "487ST-16":{od:38.90,tol:0.20,die:"bakkesett 38",series:"43/48-serie"},
+  "787ST-6": {od:20.90,tol:0.15,die:"bakkesett 20",series:"43/48-serie"},
+  "787ST-8": {od:24.90,tol:0.15,die:"bakkesett 24",series:"43/48-serie"},
+  "187ST-8": {od:24.30,tol:0.15,die:"bakkesett 24",series:"43/48-serie"},
+  "462ST-8": {od:24.50,tol:0.15,die:"bakkesett 24",series:"43/48-serie"}
+  /* 2390N-4 mangler med vilje – demo av CrimpSource-oppslagsvarselet */
+};
+function crimpFor(hose){return CRIMP[hose]||null}
+function fmtMM(v){return v.toLocaleString("nb-NO",{minimumFractionDigits:2,maximumFractionDigits:2})}
+function crimpRange(c){return `${fmtMM(c.od-c.tol)} – ${fmtMM(c.od+c.tol)} mm`}
 
 /* ---------- DNV-sertifisering (fra AoM AMT00000F4, DNVGL-CP-0183) ----------
    DNV-krav (Production testing-klausulen i AoM): hver slange trykktestes til
@@ -2564,9 +2586,13 @@ function wsStageList(f,key){
   <div class="tblwrap"><table>
     <tr><th>POS</th><th>Maskin</th><th>PTS ID</th><th>Hose</th><th>Kutt</th>${key==="press"?"<th>Coupling 1</th><th>Coupling 2</th>":""}${key==="test"?"<th>WP</th><th style='color:var(--info)'>Testtrykk</th>":""}<th>${s.label}</th></tr>
     ${rows.map(({l,i})=>{
-      const hdr=grouped&&l.hose!==lastHose?`<tr><td colspan="8" style="background:var(--surface2);padding:10px 12px">
-        <div style="display:flex;align-items:center;gap:14px"><div style="width:150px">${hoseThumb(l.hose)}</div>
-        <b class="mono" style="font-size:15px">${l.hose}</b><span style="color:var(--muted);font-size:12px">${(SERIES_STYLE[seriesOf(l.hose)]||{}).desc||""}</span></div></td></tr>`:"";
+      const hdr=grouped&&l.hose!==lastHose?(()=>{const c=crimpFor(l.hose);
+        return `<tr><td colspan="8" style="background:var(--surface2);padding:10px 12px">
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap"><div style="width:150px">${hoseThumb(l.hose)}</div>
+        <b class="mono" style="font-size:15px">${l.hose}</b><span style="color:var(--muted);font-size:12px">${(SERIES_STYLE[seriesOf(l.hose)]||{}).desc||""}</span>
+        ${c?`<span style="border:2px solid var(--info);border-radius:10px;padding:4px 14px;background:var(--info-bg);font-weight:800;font-size:15px;color:var(--info)">PRESSMÅL Ø ${fmtMM(c.od)} mm <span style="color:var(--text);font-weight:700">· toleranse ${crimpRange(c)}</span> <span style="color:var(--muted);font-weight:600;font-size:11.5px">· ${esc(c.die)} · CrimpSource</span></span>`
+           :`<span class="gatemsg">📖 Pressmål mangler – <a href="${CRIMPSOURCE_URL}" target="_blank" rel="noopener" style="color:var(--accent2)">slå opp i CrimpSource</a></span>`}
+        </div></td></tr>`})():"";
       lastHose=l.hose;
       return hdr+`<tr class="wsrow">
       <td class="pos-cell">${esc(l.pos||"–")}${l.qty>1?`<div><span class="qtybadge mini">✕ ${l.qty} STK</span></div>`:""}</td>
@@ -2847,7 +2873,16 @@ function wsFocus(f,key){
     : key==="pres" ? `<div class="focus-main" style="font-size:clamp(34px,6vw,54px)">🛡️ Preservering</div><div class="focus-sub">Sett på krympehetter/plugger i begge ender${(l.qty||1)>1?` – alle ${l.qty} stk`:""}</div>`
     : key==="pack" ? `<div class="focus-main" style="font-size:clamp(34px,6vw,54px)">📦 Pakking</div><div class="focus-sub">Legg slangen${(l.qty||1)>1?"e ("+l.qty+" stk)":""} i kassen/pallen – kontroller POS ${esc(l.pos||"–")} mot pakklisten</div>`
     : key==="clean" ? `<div class="focus-main" style="font-size:clamp(34px,6vw,54px)">🧼 ${esc(l.pts)}</div><div class="focus-sub">Rens innvendig og sett UC-propper i begge ender</div>`
-    : key==="press" ? `<div class="focus-main mono" style="font-size:clamp(30px,5vw,46px);line-height:1.25">${esc(l.c1)}<br>${esc(l.c2)}</div><div class="focus-sub">KOBLING 1 / KOBLING 2 · kontroller pressinnstilling for ${esc(l.hose)}</div>`
+    : key==="press" ? (()=>{const c=crimpFor(l.hose);
+        return `<div class="focus-main mono" style="font-size:clamp(26px,4vw,40px);line-height:1.25">${esc(l.c1)}<br>${esc(l.c2)}</div>
+        ${c?`<div style="margin-top:12px;border:2.5px solid var(--info);border-radius:16px;padding:12px 16px;background:var(--info-bg)">
+          <div style="font-size:12px;letter-spacing:1px;color:var(--muted);font-weight:700">PRESSMÅL (${esc(c.series)}, ${esc(c.die)}) · CrimpSource Adjustable crimper</div>
+          <div style="font-family:var(--head);font-weight:800;font-size:clamp(34px,6vw,56px);color:var(--info);line-height:1.1">Ø ${fmtMM(c.od)} mm</div>
+          <div style="font-size:clamp(16px,2.5vw,22px);font-weight:700">Toleranse: <span class="mono">${crimpRange(c)}</span></div>
+          <div class="focus-sub" style="margin-top:4px">Mål pressdiameteren med mikrometer etter pressing – den skal ligge innenfor båndet</div>
+        </div>`
+        :`<div class="vitem v-warn" style="margin-top:12px">📖 <div><b>Pressmål mangler i masterdata for ${esc(l.hose)}.</b> Slå opp i <a href="${CRIMPSOURCE_URL}" target="_blank" rel="noopener" style="color:var(--accent2)">Parker CrimpSource (Adjustable crimper)</a> og legg verdien inn i masterdatabasen.</div></div>`}
+        <div class="focus-sub" style="margin-top:8px">KOBLING 1 / KOBLING 2 · kontroller pressinnstilling for ${esc(l.hose)}</div>`})()
     : `<div class="focus-main" style="color:var(--info)">${l.wp?Math.round(l.wp*1.5)+" bar":"–"}</div><div class="focus-sub">TESTTRYKK (1,5 × WP ${l.wp||"–"} bar) · holdetid 10 min</div>`;
 
   const rail=`<div class="qrail">${q.map((x,p)=>{
@@ -2881,7 +2916,8 @@ function wsFocus(f,key){
         <div class="fm"><b>${l.qty>1?`<span style="color:var(--warn)">✕ ${l.qty} STK</span>`:"1 stk"}</b><span>Antall</span></div>
         <div class="fm"><b>${esc(l.len)} mm</b><span>Lengde (OAL)</span></div>
         <div class="fm"><b>${l.wp?l.wp+" bar":"–"}</b><span>WP</span></div>
-        ${key!=="press"?`<div class="fm"><b class="mono" style="font-size:14px">${esc(l.c1)}<br>${esc(l.c2)}</b><span>Koblinger</span></div>`:""}
+        ${key!=="press"?`<div class="fm"><b class="mono" style="font-size:14px">${esc(l.c1)}<br>${esc(l.c2)}</b><span>Koblinger</span></div>`
+          :(()=>{const c=crimpFor(l.hose);return c?`<div class="fm"><b style="color:var(--info)">Ø ${fmtMM(c.od)}</b><span>Pressmål (±${fmtMM(c.tol)})</span></div>`:""})()}
       </div>
       ${doneThis
         ?`<button class="bigbtn confirm" disabled style="opacity:.85">✅ ${s.verb.toUpperCase()} · ${esc(l.st[key].by)} · ${l.st[key].at}${key==="cut"&&l.qty>1?` · ${l.qty} STK`:""}</button>
@@ -3212,9 +3248,10 @@ function vMaster(){
   <div class="sub">Samme kilde som i dag: <span class="mono">Database_Hose_&_fittings.xlsx</span> på SharePoint. Systemet validerer alltid mot denne – én sannhetskilde for koblinger, slanger og WP.</div>
   <div class="cardrow">
     <div class="card" style="flex:1;min-width:280px"><h2 style="margin-top:0">Slangetyper</h2><div class="tblwrap"><table>
-      <tr><th></th><th>Kode</th><th>WP (bar)</th><th>Dim</th><th>S-mål (mm)</th><th>DNV-typegodkjenning</th></tr>
+      <tr><th></th><th>Kode</th><th>WP (bar)</th><th>Dim</th><th>S-mål (mm)</th><th>Pressmål (CrimpSource)</th><th>DNV-typegodkjenning</th></tr>
       ${Object.entries(MASTER.hoses).map(([k,v])=>{const c=dnvCertFor(k);
         return `<tr><td><span class="photo-mini"><img src="${hoseImgURL(k)}" loading="lazy" alt="" style="transform:scale(2)" onerror="this.parentElement.style.display='none'"></span></td><td class="mono">${k}</td><td>${v.wp}</td><td>${v.inch}</td><td>${v.s??"–"}</td>
+        <td style="font-size:11.5px">${(()=>{const cr=crimpFor(k);return cr?`<b>Ø ${fmtMM(cr.od)}</b> (${crimpRange(cr)})`:`<a href="${CRIMPSOURCE_URL}" target="_blank" rel="noopener" style="color:var(--warn)">📖 slå opp</a>`})()}</td>
         <td style="font-size:11.5px">${c?`<span class="mono">${esc(c.no)}</span> ${c.expired?'<b style="color:var(--bad)">UTLØPT '+c.validUntil+"</b>":"✓ "+c.validUntil}`:'<span style="color:var(--muted)">–</span>'}</td></tr>`}).join("")}
     </table></div></div>
     <div class="card" style="flex:1;min-width:280px"><h2 style="margin-top:0">Koblinger</h2><div class="tblwrap"><table>
@@ -3261,6 +3298,7 @@ function vOm(){
       <tr><td>Telaris-pakke som dokumentvisning</td><td>Opprettes via Telaris-API: pakkevare, slangevarer og BOM legges rett i ERP, koblet mot ordren</td></tr>
       <tr><td>ESI-trykksensor simulert (kurve, holdetid, trykkfall)</td><td>ESI GD4200-USB leses direkte: Web Serial i Chrome/Edge, eller en liten lokal brotjeneste på ESIs offisielle API-DLL – tredjepartsprogrammet erstattes helt</td></tr>
       <tr><td>Arbeidsøkter startes/stoppes automatisk når mappen åpnes/forlates i verkstedsmodus</td><td>Samme automatikk, pluss rapportering per ordre/kunde/periode for kalibrering av TimeCalc-kalkylen</td></tr>
+      <tr><td>Pressmål som demo-tabell i masterdata</td><td>Synkroniseres fra Parker CrimpSource (Adjustable crimper) per maskin + slange + kobling + dimensjon, med varsel når oppslag mangler</td></tr>
       <tr><td>DNV-sertifikater (AoM + TAP) som register i prototypen</td><td>Vedlikeholdes i masterdatabasen med gyldighetsdatoer; sertifikatnumrene påføres trykktestsertifikatet automatisk (DNV-krav), med varsling før utløp</td></tr>
       <tr><td>«Kobles til PMOTION» som tekst</td><td>Produksjonsmappen vises som sjekklistepunkt i PMOTION Fase 4</td></tr>
     </table></div>
