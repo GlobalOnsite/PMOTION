@@ -32,6 +32,8 @@ button{font-family:var(--font)}
 .topbar{display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0}
 .topbar .logo{font-family:var(--head);font-weight:700;font-size:17px;letter-spacing:.4px;white-space:nowrap}
 .topbar .logo span{color:var(--accent2)}
+.verbadge{font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--border2);border-radius:20px;padding:2px 9px;white-space:nowrap}
+.fsbar .fsver{font-family:var(--mono);font-size:12px;color:var(--muted);background:var(--surface);border:1px solid var(--border2);border-radius:99px;padding:8px 14px;box-shadow:0 4px 14px rgba(0,0,0,.35)}
 .badge-proto{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn);border-radius:20px;padding:2px 12px;font-size:11.5px;font-weight:600;white-space:nowrap}
 .topbar .spacer{flex:1}
 .userbox{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
@@ -333,6 +335,7 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
 
 <header class="topbar">
   <div class="logo">HoseMaker <span>· Global Onsite</span></div>
+  <span class="verbadge mono" id="verbadge"></span>
   <div class="badge-proto">PROTOTYPE · demo-modus – data lagres ikke</div>
   <div class="spacer"></div>
   <div class="userbox">
@@ -349,6 +352,7 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
 
 <!-- flytende linje i fullskjerm (verksted/iPad) – topplinjen og menyen er skjult -->
 <div class="fsbar noprint">
+  <span class="fsver mono" id="fsver"></span>
   <select id="fsuser" onchange="App.setUser(this.value)" title="Innlogget som">
     <option>Simen (PMO)</option>
     <option>Kim (PMO)</option>
@@ -380,6 +384,19 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
    All data er demodata og lever kun i minnet til denne fanen.
    I pilot erstattes State av SharePoint-lister via Microsoft Graph.
    ===================================================================== */
+
+/* ---------- Versjon (vises i topplinjen, fullskjermlinjen og på Om-siden) ---------- */
+const APP_VERSION="0.7";
+const APP_BUILD="13.08.2026";
+const CHANGELOG=[
+  ["0.7","13.08.2026","Trykktest i puljer per testtrykk (med manuell justering av utvalget), rens som én samlet kvittering, synlig versjonsnummer, navnet HoseMaker"],
+  ["0.6","13.08.2026","Fullskjermmodus for iPad/verksted, mål-port for manglende B-/S-mål, tydelig varsling ved antall > 1"],
+  ["0.5","13.08.2026","Redigerbart rutenett i nettleseren, PTS-register («Hent PTS-ID-er»), Telaris-integrasjon med varenummer og BOM, riktig prosessrekkefølge (Telaris før tilbud)"],
+  ["0.4","12.08.2026","Livsløp fra forespørselsfasen, valgfri PMOTION-kobling, POS som hovedreferanse, originale Parker-produktfoto"],
+  ["0.3","11.08.2026","Touch-/iPad-visning, trykktestsertifikat, pallemerkelapp, spot-check (annenhåndskontroll), produksjonsplan med tidsestimat"],
+  ["0.2","10.08.2026","Kuttemålberegning (CUT = Lengde − B1 − B2 − S) og fire verkstedsoperasjoner i riktig rekkefølge"],
+  ["0.1","08.08.2026","Første klikkbare prototype: veiviser, produksjonsmapper, verkstedsmodus, SharePoint-struktur"]
+];
 
 /* ---------- Demo-masterdata (fra Database_Hose_&_fittings.xlsx) ---------- */
 /* B-mål (koblinger) og S-mål (slanger) er reelle verdier fra
@@ -667,7 +684,7 @@ const State = {
        {t:"07.08 08:55",who:"Simen (PMO)",msg:"Forespørsel registrert fra COSL (RFQ-2026-118) – ikke knyttet til PMOTION-prosjekt"}]}
   ],
   view:"dash", activeId:null, activeTab:"liste", showArchived:false,
-  ws:{folderId:null,stage:null,hoseType:null,onlyRemaining:false,focusPos:0},
+  ws:{folderId:null,stage:null,hoseType:null,onlyRemaining:false,focusPos:0,testSel:{}},
   touch:(typeof matchMedia==='function'&&matchMedia('(pointer: coarse)').matches),
   fs:false,   /* fullskjerm: meny + topplinje kollapset (verksted/iPad) */
   plan:{fitters:2,hoursPerDay:7.5},
@@ -826,6 +843,8 @@ function render(){
     document.body.classList.toggle("fs",!!State.fs);
   }
   const fu=document.getElementById("fsuser");if(fu)fu.value=State.user;
+  const vb=document.getElementById("verbadge");if(vb)vb.textContent="v"+APP_VERSION;
+  const fv=document.getElementById("fsver");if(fv)fv.textContent="HoseMaker v"+APP_VERSION;
   document.querySelectorAll(".nav-item").forEach(b=>{
     b.classList.toggle("active",
       b.dataset.view===State.view || (State.view==="folder"&&b.dataset.view==="list"));
@@ -1728,6 +1747,8 @@ function vVerksted(){
     if(!(State.ws.hoseType&&f.lines.some(l=>l.hose===State.ws.hoseType)))return wsCutTypeSelect(f);
     return State.touch?wsFocus(f,"cut"):wsCutView(f);
   }
+  if(State.ws.stage==="clean")return wsCleanView(f);   // én samlet kvittering
+  if(State.ws.stage==="test")return wsTestView(f);     // puljer per testtrykk
   return State.touch?wsFocus(f,State.ws.stage):wsStageList(f,State.ws.stage);
 }
 
@@ -1782,14 +1803,14 @@ function wsStageSelect(f){
     <div style="display:flex;gap:8px;flex-wrap:wrap">${wsModeBtn()}<button class="btn btn-ghost" onclick="State.ws.folderId=null;State.ws.stage=null;render()">↩︎ Bytt mappe</button></div>
   </div>
   <div class="sub" style="margin-bottom:4px"><b>${refLine(f)}</b> · ${f.lines.length} slanger</div>
-  <div class="sub">Velg operasjon. Slik jobber vi: alle slangene kappes først, så renses de med UC-propper, så presses koblingene på, og til slutt trykktestes de. Du kan bytte operasjon når som helst – ingenting låser deg.</div>
+  <div class="sub">Velg operasjon. Slik jobber vi: alle slangene kappes først, så renses de med UC-propper (én samlet kvittering), så presses koblingene på, og til slutt trykktestes de i puljer per testtrykk. Du kan bytte operasjon når som helst – ingenting låser deg.</div>
   <div class="pmgrid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
     ${STAGES.map((s,i)=>{
       const done=stageCount(f,s.key);
       const prev=i>0?STAGES[i-1]:null;
       const ready=prev?stageCount(f,prev.key):n;          // antall som er klare for denne operasjonen
       const avail=ready-done;                              // klare, men ikke utført
-      return `<div class="pmcard" onclick="State.ws.stage='${s.key}';State.ws.hoseType=null;State.ws.focusPos=-1;render()">
+      return `<div class="pmcard" onclick="State.ws.stage='${s.key}';State.ws.hoseType=null;State.ws.focusPos=-1;State.ws.testSel={};render()">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div class="pm-title" style="font-size:18px">${s.icon} ${i+1}. ${s.label}</div>
           ${done===n?`<span class="status st-ferdig">✅ Ferdig</span>`
@@ -1892,6 +1913,145 @@ function wsCutView(f){
         :`<button class="wsbtn ${l.st.cut?"on-prod":""}" onclick="wsStage('${f.id}',${i},'cut')">${l.st.cut?"✅ "+esc(l.st.cut.by)+" · "+l.st.cut.at:l.qty>1?`Bekreft kappet · alle ${l.qty} stk`:"Bekreft kappet"}</button>`}</td>
     </tr>`}).join("")}
   </table></div>`;
+}
+
+/* --- RENS (UC): én samlet kvittering for alt som er kappet ---
+   Å kvittere per slange er overkill her – rensingen gjøres i én jobb.
+   Slanger som kappes senere fanges av en ny kvittering. --- */
+function wsCleanView(f){
+  const elig=f.lines.map((l,i)=>({l,i})).filter(x=>x.l.st.cut);
+  const todo=elig.filter(x=>!x.l.st.clean);
+  const doneArr=elig.filter(x=>x.l.st.clean);
+  const notCut=f.lines.length-elig.length;
+  const header=`
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <h1 style="font-size:24px">🧼 Rens (UC) – ${esc(f.title)} <span class="mono" style="font-size:12px;color:var(--muted)">${f.id}</span></h1>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${wsModeBtn()}<button class="btn btn-ghost" onclick="State.ws.stage=null;render()">↩︎ Til operasjonene</button></div>
+  </div>
+  <div class="sub">Rens kvitteres <b>samlet</b> – ett sjekkpunkt for alle kappede slanger, ikke én bekreftelse per slange. Innlogget: <b>${esc(State.user)}</b></div>`;
+  if(!elig.length)return header+`
+  <div class="focus-wrap"><div class="focus-card donecard">
+    <div class="big">⏳</div><div style="font-size:19px">Ingen slanger er kappet ennå – rens kommer etter kappingen.</div>
+    <button class="bigbtn next" onclick="State.ws.stage='cut';State.ws.focusPos=-1;render()">Gå til ✂️ Kapping</button>
+  </div></div>`;
+  if(!todo.length)return header+`
+  <div class="focus-wrap"><div class="focus-card donecard">
+    <div class="big">🎉</div>
+    <div style="font-size:21px;font-weight:700">Alle ${elig.length} kappede slanger er renset og har UC-propper.</div>
+    ${doneArr.length?`<div class="sub" style="margin-top:6px">Sist kvittert: ${esc(doneArr[doneArr.length-1].l.st.clean.by)} · ${doneArr[doneArr.length-1].l.st.clean.at}</div>`:""}
+    ${notCut?`<div class="sub">${notCut} slanger er ikke kappet ennå – de får egen kvittering når de er kappet.</div>`:""}
+    <button class="bigbtn next" onclick="State.ws.stage='press';State.ws.focusPos=-1;render()">➡️ Gå til 🔧 Pressing</button>
+  </div></div>`;
+  return header+`
+  <div class="focus-wrap"><div class="focus-card" style="border-left:10px solid var(--accent)">
+    <div style="font-size:clamp(26px,4vw,40px);font-weight:800;margin-bottom:6px">🧼 ${todo.length} kappede slanger klare for rens</div>
+    <div class="sub" style="font-size:14.5px">Rens innvendig og sett UC-propper i begge ender på alle sammen – kvitter så med ett trykk.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px">
+      ${todo.map(x=>`<span class="status st-utkast mono" title="${esc(x.l.pts)} · ${esc(x.l.hose)}">POS ${esc(x.l.pos||"–")}${x.l.qty>1?` ✕${x.l.qty}`:""}</span>`).join("")}
+    </div>
+    ${doneArr.length?`<div class="sub" style="margin-top:8px">✅ ${doneArr.length} allerede kvittert tidligere.</div>`:""}
+    ${notCut?`<div class="sub">⏳ ${notCut} slanger venter fortsatt på kapping og er ikke med i denne kvitteringen.</div>`:""}
+    <button class="bigbtn confirm" onclick="wsCleanAll('${f.id}')">🧼 BEKREFT: ALLE ${todo.length} ER RENSET OG HAR UC-PROPPER</button>
+  </div></div>`;
+}
+function wsCleanAll(id){
+  const f=folder(id);
+  const todo=f.lines.filter(l=>l.st.cut&&!l.st.clean);
+  if(!todo.length)return;
+  const by=State.user.replace("Verksted – ",""),at=now();
+  todo.forEach(l=>l.st.clean={by,at});
+  addLog(f,`Rens (UC): samlet kvittering – ${todo.length} slanger renset og UC-propper satt (${by})`);
+  render();
+}
+
+/* --- TRYKKTEST: puljer per testtrykk ---
+   Alle slanger med samme testtrykk testes normalt samtidig. Utvalget kan
+   justeres manuelt (hak av/på) når ikke alle får plass i testbenken –
+   de som trekkes bort blir liggende igjen til neste pulje. --- */
+function wsTestView(f){
+  const elig=f.lines.map((l,i)=>({l,i})).filter(x=>x.l.st.press);
+  const waiting=f.lines.length-elig.length;
+  const doneN=elig.filter(x=>x.l.st.test).length;
+  const sel=State.ws.testSel||(State.ws.testSel={});
+  const groups={};
+  elig.forEach(x=>{const tp=x.l.wp?Math.round(x.l.wp*1.5):0;(groups[tp]=groups[tp]||[]).push(x)});
+  const keys=Object.keys(groups).map(Number).sort((a,b)=>b-a);
+  const header=`
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <h1 style="font-size:24px">🧪 Trykktest – ${esc(f.title)} <span class="mono" style="font-size:12px;color:var(--muted)">${f.id}</span></h1>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${wsModeBtn()}<button class="btn btn-ghost" onclick="State.ws.stage=null;render()">↩︎ Til operasjonene</button></div>
+  </div>
+  <div class="sub">Slangene testes i <b>puljer per testtrykk</b> (1,5 × WP, 10 min holdetid) – alle med samme trykk testes normalt samtidig. Får ikke alle plass i benken? Hak bort de som må vente – de blir liggende til neste pulje. Innlogget: <b>${esc(State.user)}</b></div>
+  <div class="cardrow">
+    <div class="tile"><div class="t-label">🧪 Trykktestet</div><div class="t-value">${doneN} / ${elig.length}</div><div class="meter m-good"><div style="width:${elig.length?Math.round(100*doneN/elig.length):0}%"></div></div>
+      ${waiting?`<div class="t-note">+ ${waiting} venter på pressing</div>`:""}</div>
+    <div class="tile"><div class="t-label">Puljer</div><div class="t-value">${keys.filter(k=>k>0).length}</div><div class="t-note">ett testtrykk per pulje</div></div>
+  </div>`;
+  if(!elig.length)return header+`<div class="focus-wrap"><div class="focus-card donecard">
+    <div class="big">⏳</div><div style="font-size:19px">Ingen slanger er presset ennå – trykktest kommer etter pressingen.</div>
+    <button class="bigbtn next" onclick="State.ws.stage='press';State.ws.focusPos=-1;render()">Gå til 🔧 Pressing</button></div></div>`;
+  const allDone=doneN===elig.length&&elig.length===f.lines.length;
+  return header+`
+  ${allDone?`<div class="vitem v-good" style="align-items:center">✅ <div><b>Alle ${f.lines.length} slanger er trykktestet.</b> Mappen kan meldes klar for spot-check fra operasjonsoversikten.</div>
+    <span class="fix"><button class="btn btn-good" onclick="State.ws.stage=null;render()">➡️ Til oversikten</button></span></div>`:""}
+  ${keys.map(tp=>{
+    const arr=groups[tp];
+    if(tp===0)return `<div class="card" style="border-color:var(--warn)">
+      <h2 style="margin-top:0">⚠️ Uten WP – kan ikke testes</h2>
+      <div class="sub">${arr.length} slanger mangler WP i masterdata og får ikke beregnet testtrykk.</div></div>`;
+    const todo=arr.filter(x=>!x.l.st.test);
+    const dn=arr.length-todo.length;
+    const selCount=todo.filter(x=>sel[x.i]!==false).length;
+    const left=todo.length-selCount;
+    return `<div class="card" style="border-left:8px solid var(--info)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div><span style="font-family:var(--head);font-size:26px;font-weight:800;color:var(--info)">🧪 ${tp} bar</span>
+          <span class="sub" style="display:inline;margin-left:10px">testtrykk (WP ${Math.round(tp/1.5)} bar) · ${arr.length} slanger i puljen${dn?` · ${dn} allerede testet`:""}</span></div>
+        ${todo.length?`<div style="display:flex;gap:8px">
+          <button class="btn btn-ghost" onclick="wsTestSelAll('${f.id}',${tp},true)">Velg alle</button>
+          <button class="btn btn-ghost" onclick="wsTestSelAll('${f.id}',${tp},false)">Fjern alle</button>
+        </div>`:""}
+      </div>
+      <div class="tblwrap" style="margin-top:12px"><table>
+        <tr><th style="width:60px">Test nå</th><th>POS</th><th>Maskin</th><th>PTS ID</th><th>Hose</th><th>Ant.</th><th>Status</th></tr>
+        ${arr.map(({l,i})=>l.st.test
+          ?`<tr style="opacity:.75"><td style="text-align:center">✅</td>
+             <td class="pos-cell">${esc(l.pos||"–")}</td><td class="mono">${esc(l.mach||"–")}</td><td class="mono" style="color:var(--muted)">${esc(l.pts)}</td>
+             <td class="mono">${esc(l.hose)}</td><td>${l.qty>1?`<span class="qtybadge mini">✕ ${l.qty} STK</span>`:l.qty}</td>
+             <td><span style="color:var(--good)">GODKJENT · ${esc(l.st.test.by)} · ${l.st.test.at}</span> <button class="rowdel" title="Angre" onclick="wsStage('${f.id}',${i},'test')">↩︎</button></td></tr>`
+          :`<tr class="wsrow ${sel[i]===false?"":""}" style="${sel[i]===false?"opacity:.45":""}">
+             <td style="text-align:center"><input type="checkbox" style="width:22px;height:22px" ${sel[i]===false?"":"checked"} onchange="wsTestSel(${i},this.checked)"></td>
+             <td class="pos-cell">${esc(l.pos||"–")}</td><td class="mono">${esc(l.mach||"–")}</td><td class="mono" style="color:var(--muted)">${esc(l.pts)}</td>
+             <td class="mono">${esc(l.hose)}</td><td>${l.qty>1?`<span class="qtybadge mini">✕ ${l.qty} STK</span>`:l.qty}</td>
+             <td style="color:var(--muted)">${sel[i]===false?"⏸ trukket bort – testes i neste pulje":"klar for test"}</td></tr>`).join("")}
+      </table></div>
+      ${todo.length?`
+      <div style="display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap">
+        <button class="bigbtn confirm" style="flex:1;min-width:280px" ${selCount?"":"disabled"} onclick="wsTestBatch('${f.id}',${tp})">🧪 BEKREFT TRYKKTEST – ${selCount} SLANGE${selCount===1?"":"R"} VED ${tp} BAR</button>
+        ${left?`<span class="gatemsg">⏸ ${left} trukket bort – blir liggende til neste pulje</span>`:""}
+      </div>`:""}
+    </div>`}).join("")}
+  ${waiting?`<div class="notice">⏳ ${waiting} slange${waiting===1?" er":"r er"} ikke presset ennå og dukker opp i puljene etter hvert.</div>`:""}`;
+}
+function wsTestSel(i,val){State.ws.testSel=State.ws.testSel||{};State.ws.testSel[i]=val;render()}
+function wsTestSelAll(id,tp,val){
+  const f=folder(id);State.ws.testSel=State.ws.testSel||{};
+  f.lines.forEach((l,i)=>{
+    if(l.st.press&&!l.st.test&&(l.wp?Math.round(l.wp*1.5):0)===tp)State.ws.testSel[i]=val;
+  });
+  render();
+}
+function wsTestBatch(id,tp){
+  const f=folder(id);
+  const sel=State.ws.testSel||{};
+  const batch=f.lines.map((l,i)=>({l,i})).filter(x=>x.l.st.press&&!x.l.st.test
+    &&(x.l.wp?Math.round(x.l.wp*1.5):0)===tp&&sel[x.i]!==false);
+  if(!batch.length)return;
+  const by=State.user.replace("Verksted – ",""),at=now();
+  batch.forEach(x=>x.l.st.test={by,at});
+  addLog(f,`Trykktest utført i pulje: ${batch.length} slange${batch.length===1?"":"r"} ved ${tp} bar (1,5 × WP, 10 min holdetid) – godkjent av ${by}`);
+  State.ws.testSel={};
+  render();
 }
 
 /* --- RENS / PRESSING / TRYKKTEST: felles liste per operasjon --- */
@@ -2441,6 +2601,13 @@ function vOm(){
     <p>Alt du gjør her er ekte flyt, men <b>demodata i minnet</b> – lukk fanen, og alt nullstilles. Ingen ting lagres.</p>
   </div>
   <div class="card">
+    <h2 style="margin-top:0">Versjon <span class="mono" style="color:var(--accent2)">v${APP_VERSION}</span> <span class="sub" style="display:inline">· ${APP_BUILD} – versjonen vises alltid øverst i topplinjen, så det er lett å se at du er på siste</span></h2>
+    <div class="tblwrap"><table>
+      <tr><th>Versjon</th><th>Dato</th><th>Endringer</th></tr>
+      ${CHANGELOG.map(([v,d,txt])=>`<tr${v===APP_VERSION?' style="background:var(--surface2)"':""}><td class="mono"><b>${v}</b>${v===APP_VERSION?" ←":""}</td><td>${d}</td><td style="white-space:normal">${txt}</td></tr>`).join("")}
+    </table></div>
+  </div>
+  <div class="card">
     <h2 style="margin-top:0">Hva som er simulert vs. ekte i pilot</h2>
     <div class="tblwrap"><table>
       <tr><th>I prototypen</th><th>I pilot / drift</th></tr>
@@ -2460,7 +2627,7 @@ function vOm(){
     2. I steg 2, klikk <b>Fyll med demodata</b> – kundens liste legges rett i det redigerbare rutenettet. Skriv i cellene som i Excel (med forslag fra masterdata), legg til/slett rader, eller lim inn flere rader. Merk: kundelister har ingen PTS-ID-er – kolonnen står på «hentes».<br>
     3. Se valideringen fange ekte feil (bl.a. tastefeilen «14948-18-8» fra dagens slangeliste!) og rett med ett klikk. Kuttemålene (CUT = Lengde − B1 − B2 − S-mål) regnes ut automatisk fra masterdata – samme formel som i Excel-arket, men uten formler som kan mangle eller bli ødelagt.<br>
     4. Generer dokumenter, og i siste steg: klikk <b>🔖 Hent PTS-ID-er til alle slangene</b> – systemet reserverer neste ledige ID-er i PTS-registeret. Lagre. I mappen følger du så prosessen slik den faktisk er: <b>⚙️ Opprett slangepakke i Telaris</b> (varenummer og BOM genereres automatisk) → <b>📤 Marker tilbud sendt fra Telaris</b> (tilbudet sendes på pakkevaren) → <b>📦 Registrer bestilling</b> når kunden bestiller. Portene håndhever rekkefølgen.<br>
-    5. «Send til verksted», bytt bruker til <b>Verksted – Christian</b> øverst, åpne <b>Verkstedsmodus</b>. Trykk <b>⛶ Fullskjerm</b> (på iPad skjer det automatisk): menyen og topplinjen kollapses så hele skjermen brukes til arbeidet – bruker og avslutt-knapp ligger i en liten flytende linje øverst til høyre. Verkstedet jobber i fire operasjoner – ✂️ Kapping, 🧼 Rens (UC), 🔧 Pressing, 🧪 Trykktest – akkurat som på benken: alt kappes først, så renses, presses og testes. I Kapping velges slangetype fra kort med tegninger, så ingen kapper feil slange.<br>
+    5. «Send til verksted», bytt bruker til <b>Verksted – Christian</b> øverst, åpne <b>Verkstedsmodus</b>. Trykk <b>⛶ Fullskjerm</b> (på iPad skjer det automatisk): menyen og topplinjen kollapses så hele skjermen brukes til arbeidet – bruker og avslutt-knapp ligger i en liten flytende linje øverst til høyre. Verkstedet jobber i fire operasjoner – ✂️ Kapping, 🧼 Rens (UC), 🔧 Pressing, 🧪 Trykktest – akkurat som på benken. I Kapping velges slangetype fra kort med tegninger, så ingen kapper feil slange. Rens kvitteres med <b>én samlet kvittering</b> for alt som er kappet, og trykktesten kjøres i <b>puljer per testtrykk</b> – hak bort slanger som ikke får plass i benken, så blir de liggende til neste pulje.<br>
     6. Når alle fire operasjonene er fullført: «Start spot-check» – annenhåndskontrollen der en annen person enn den som testet må godkjenne et utvalg (bytt bruker øverst for å se regelen håndheves).<br>
     7. Etter godkjent spot-check: skriv ut trykktestsertifikat, pallemerkelapp og spot-check-rapport fra utskriftspanelet.</p>
   </div>`;
