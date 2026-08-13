@@ -139,6 +139,21 @@ td .ptspill.has{border-style:solid;border-color:var(--accent);color:var(--text)}
 .qtybadge.mini{font-size:12.5px;padding:2px 9px;border-width:1.5px;border-radius:9px}
 .touch .qtybadge.mini{font-size:14px}
 
+/* stk-teller for kapping (antall > 1): ett trykk per kappet slange */
+.cutcount{display:flex;gap:14px;align-items:stretch;margin-top:18px}
+.ccnum{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:130px;background:var(--surface2);border:2px solid var(--border2);border-radius:16px;padding:8px 16px;font-family:var(--head)}
+.ccnum b{font-size:clamp(34px,5vw,52px);line-height:1;color:var(--accent2)}
+.ccnum span{font-size:16px;color:var(--muted);font-weight:700}
+.ccnum .cclabel{font-size:10.5px;letter-spacing:1px;color:var(--muted);margin-top:4px}
+.ccminus{border:2px solid var(--border2);background:none;color:var(--text);border-radius:16px;padding:0 22px;font-size:20px;font-weight:800;cursor:pointer}
+.ccminus:disabled{opacity:.35;cursor:not-allowed}
+.pieces{display:flex;gap:7px;justify-content:center;margin-top:12px;flex-wrap:wrap}
+.piece{width:20px;height:20px;border-radius:50%;border:2px solid var(--border2);background:var(--surface2)}
+.piece.done{background:var(--good);border-color:var(--good)}
+.touch .piece{width:26px;height:26px}
+.ccmini{font-family:var(--head);font-weight:800;font-size:16px;padding:2px 10px;border:1.5px solid var(--border2);border-radius:9px;background:var(--surface2);white-space:nowrap}
+.ccmini b{color:var(--accent2)}
+
 /* måle-innlegging (manglende B-/S-mål) */
 .mm-input{width:96px;background:var(--surface2);border:1px solid var(--warn);border-radius:9px;color:var(--text);padding:9px 12px;font-size:16px;font-family:var(--mono);text-align:center}
 .touch .mm-input{font-size:20px;padding:13px 12px;width:120px}
@@ -386,9 +401,10 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
    ===================================================================== */
 
 /* ---------- Versjon (vises i topplinjen, fullskjermlinjen og på Om-siden) ---------- */
-const APP_VERSION="0.7";
+const APP_VERSION="0.8";
 const APP_BUILD="13.08.2026";
 const CHANGELOG=[
+  ["0.8","13.08.2026","Stk-teller på kapping ved antall > 1: ett trykk per kutt med stor teller, −1 for feiltelling, hvert kutt loggføres, og linjen fullføres først når riktig antall er nådd"],
   ["0.7","13.08.2026","Trykktest i puljer per testtrykk (med manuell justering av utvalget), rens som én samlet kvittering, synlig versjonsnummer, navnet HoseMaker"],
   ["0.6","13.08.2026","Fullskjermmodus for iPad/verksted, mål-port for manglende B-/S-mål, tydelig varsling ved antall > 1"],
   ["0.5","13.08.2026","Redigerbart rutenett i nettleseren, PTS-register («Hent PTS-ID-er»), Telaris-integrasjon med varenummer og BOM, riktig prosessrekkefølge (Telaris før tilbud)"],
@@ -500,7 +516,7 @@ function L(pts,pos,hose,len,c1,c2,qty,stageN){
   const who=["Christian","Christian","Sigfus","Sigfus"], at=["05.08 11:02","06.08 08:40","06.08 13:15","07.08 09:41"];
   const st={cut:null,clean:null,press:null,test:null};
   STAGES.forEach((s,i)=>{if(i<(stageN||0))st[s.key]={by:who[i],at:at[i]}});
-  return {pts,pos,hose,len,c1,c2,qty:qty||1,wp,cut:cut.cut,cutErr:cut.err,st};
+  return {pts,pos,hose,len,c1,c2,qty:qty||1,wp,cut:cut.cut,cutErr:cut.err,st,cutN:(stageN||0)>=1?(qty||1):0};
 }
 function wpFor(hose,c1,c2){
   const w=[MASTER.hoses[hose]?.wp,MASTER.couplings[c1]?.wp,MASTER.couplings[c2]?.wp].filter(x=>x>0);
@@ -1254,13 +1270,13 @@ function wzFetchPts(){
 
 function wzCreate(){
   const w=State.wizard;
-  const newLines=w.rows.map(r=>({...r,len:Number(r.len),qty:Number(r.qty)||1,st:{cut:null,clean:null,press:null,test:null}}));
+  const newLines=w.rows.map(r=>({...r,len:Number(r.len),qty:Number(r.qty)||1,cutN:0,st:{cut:null,clean:null,press:null,test:null}}));
   if(w.editId){
     const f=folder(w.editId);
     f.customer=w.customer;f.custRef=w.custRef;f.project=w.project;f.order=w.order;f.po=w.po;f.hub=w.hub;
     // bevar utført arbeid på linjer med samme PTS ID
     const oldByPts={};f.lines.forEach(l=>{if(l.pts)oldByPts[l.pts]=l});
-    f.lines=newLines.map(l=>l.pts&&oldByPts[l.pts]?{...l,st:oldByPts[l.pts].st,mach:l.mach||oldByPts[l.pts].mach}:l);
+    f.lines=newLines.map(l=>l.pts&&oldByPts[l.pts]?{...l,st:oldByPts[l.pts].st,cutN:oldByPts[l.pts].cutN||0,mach:l.mach||oldByPts[l.pts].mach}:l);
     f.docsStale=true;
     if(w.ptsFetched)addLog(f,`${w.ptsFetched} PTS-ID-er reservert fra PTS-registeret`);
     addLog(f,`Slangelisten bearbeidet på nytt – ${f.lines.length} linjer, validering OK. Dokumentene må regenereres.`);
@@ -1895,7 +1911,8 @@ function wsCutView(f){
   ${nextBanner}
   ${measurePanel(all.map(x=>x.l),f.id)}
   <div class="cardrow">
-    <div class="tile"><div class="t-label">Kappet (${esc(hose)})</div><div class="t-value">${p} / ${all.length}</div><div class="meter"><div style="width:${Math.round(100*p/all.length)}%"></div></div></div>
+    <div class="tile"><div class="t-label">Linjer kappet (${esc(hose)})</div><div class="t-value">${p} / ${all.length}</div><div class="meter"><div style="width:${Math.round(100*p/all.length)}%"></div></div></div>
+    <div class="tile"><div class="t-label">✂️ Stk kappet totalt</div><div class="t-value">${all.reduce((a,x)=>a+(x.l.st.cut?(x.l.qty||1):Math.min(x.l.cutN||0,x.l.qty||1)),0)} / ${all.reduce((a,x)=>a+(x.l.qty||1),0)}</div><div class="t-note">antall &gt; 1 kvitteres stk for stk</div></div>
     <div class="tile" style="display:flex;flex-direction:column;justify-content:center">
       <label style="font-size:13.5px"><input type="checkbox" ${State.ws.onlyRemaining?"checked":""} onchange="State.ws.onlyRemaining=this.checked;render()"> Vis kun gjenstående</label>
     </div>
@@ -1910,7 +1927,13 @@ function wsCutView(f){
       <td class="mono" style="color:var(--muted)">${esc(l.pts)}</td>
       <td>${esc(l.len)} mm</td>
       <td>${mm&&!l.st.cut?`<button class="wsbtn" disabled style="opacity:.45" title="Kuttemålet mangler – legg inn målet øverst først">🔒 Mål mangler</button>`
-        :`<button class="wsbtn ${l.st.cut?"on-prod":""}" onclick="wsStage('${f.id}',${i},'cut')">${l.st.cut?"✅ "+esc(l.st.cut.by)+" · "+l.st.cut.at:l.qty>1?`Bekreft kappet · alle ${l.qty} stk`:"Bekreft kappet"}</button>`}</td>
+        :l.st.cut?`<button class="wsbtn on-prod" onclick="wsStage('${f.id}',${i},'cut')">✅ ${esc(l.st.cut.by)} · ${l.st.cut.at}${l.qty>1?` · ${l.qty} stk`:""}</button>`
+        :l.qty>1?`<div style="display:flex;gap:8px;align-items:center">
+            <button class="wsbtn" onclick="wsCutPieceT('${f.id}',${i},1)">✂️ Kappet +1</button>
+            <span class="ccmini" title="Kvitter for hvert kutt – linjen fullføres ved ${l.qty}"><b>${l.cutN||0}</b> / ${l.qty}</span>
+            <button class="rowdel" title="Juster ned (feiltelling)" ${l.cutN?"":"disabled"} onclick="wsCutPieceT('${f.id}',${i},-1)">−1</button>
+          </div>`
+        :`<button class="wsbtn" onclick="wsStage('${f.id}',${i},'cut')">Bekreft kappet</button>`}</td>
     </tr>`}).join("")}
   </table></div>`;
 }
@@ -2106,15 +2129,44 @@ function wsStageList(f,key){
   ${waiting&&!State.ws.onlyRemaining?`<div class="notice" style="margin-top:12px">⏳ ${waiting} slange${waiting===1?" er":"r er"} ikke ${prev.verb} ennå og vises derfor ikke i denne listen.</div>`:""}`;
 }
 
+/* --- stk-teller for kapping: ett trykk per kappet slange ---
+   Ved antall > 1 kvitteres hvert enkelt kutt, med tydelig teller.
+   Linjen fullføres automatisk når riktig antall er nådd – det er
+   umulig å gå videre med feil antall. --- */
+function wsCutPiece(id,idx,d){
+  const f=folder(id),l=f.lines[idx];
+  if(l.st.cut||missingMeasures(l).length)return null;
+  const qty=l.qty||1, before=l.cutN||0;
+  l.cutN=Math.max(0,Math.min(qty,before+d));
+  if(l.cutN===before)return null;
+  if(d>0)addLog(f,`${l.pts} (POS ${l.pos||"–"}): kappet ${l.cutN} av ${qty} stk`);
+  else addLog(f,`${l.pts} (POS ${l.pos||"–"}): kappeteller justert ned til ${l.cutN} av ${qty}`);
+  if(l.cutN===qty){
+    l.st.cut={by:State.user.replace("Verksted – ",""),at:now()};
+    addLog(f,`${l.pts} ferdig kappet – riktig antall bekreftet (${qty} stk)`);
+    return "done";
+  }
+  return "inc";
+}
+function wsCutPieceT(id,idx,d){wsCutPiece(id,idx,d);render()}          /* PC-tabellen */
+function wsCutPieceF(id,idx,pos,d){                                     /* touch-fokus */
+  const r=wsCutPiece(id,idx,d);
+  if(r==="done")wsFocusAdvance(folder(id),"cut",pos);
+  if(typeof navigator!=="undefined"&&navigator.vibrate)try{navigator.vibrate(r==="done"?60:20)}catch(e){}
+  render();
+}
+
 /* --- bekreftelser --- */
 function wsStage(id,idx,key){
   const f=folder(id),l=f.lines[idx];
   const prev=prevStage(key);
   if(prev&&!l.st[prev.key])return;                 // rekkefølgen håndheves per slange
   if(key==="cut"&&!l.st.cut&&missingMeasures(l).length)return; // port: kutt uten mål kan ikke bekreftes
+  if(key==="cut"&&!l.st.cut&&(l.qty||1)>1&&(l.cutN||0)<(l.qty||1))return; // port: antall>1 kvitteres stk for stk (teller)
   const s=stageDef(key);
   if(l.st[key]){
     l.st[key]=null;
+    if(key==="cut")l.cutN=0; // ny telling ved angret kapping
     // fjernes et steg, fjernes også stegene etter (kan ikke være testet uten å være presset)
     let after=false;
     STAGES.forEach(x=>{if(x.key===key)after=true;else if(after)l.st[x.key]=null});
@@ -2282,11 +2334,19 @@ function wsFocus(f,key){
         ${key!=="press"?`<div class="fm"><b class="mono" style="font-size:14px">${esc(l.c1)}<br>${esc(l.c2)}</b><span>Koblinger</span></div>`:""}
       </div>
       ${doneThis
-        ?`<button class="bigbtn confirm" disabled style="opacity:.85">✅ ${s.verb.toUpperCase()} · ${esc(l.st[key].by)} · ${l.st[key].at}</button>
+        ?`<button class="bigbtn confirm" disabled style="opacity:.85">✅ ${s.verb.toUpperCase()} · ${esc(l.st[key].by)} · ${l.st[key].at}${key==="cut"&&l.qty>1?` · ${l.qty} STK`:""}</button>
           <button class="bigbtn undo" onclick="wsFocusConfirm('${f.id}',${i},'${key}',${pos})">↩︎ Angre bekreftelsen</button>`
         :mmCut.length
         ?`<button class="bigbtn confirm" disabled style="opacity:.45">🔒 LEGG INN ${mmCut.map(m=>m.label.toUpperCase()).join(" + ")} FØRST</button>`
-        :`<button class="bigbtn confirm" onclick="wsFocusConfirm('${f.id}',${i},'${key}',${pos})">${s.icon} BEKREFT ${s.verb.toUpperCase()}${l.qty>1?` – ALLE ${l.qty} STK`:""}</button>`}
+        :key==="cut"&&l.qty>1
+        ?`<div class="cutcount">
+            <div class="ccnum"><b>${l.cutN||0}</b><span>av ${l.qty}</span><div class="cclabel">KAPPET</div></div>
+            <button class="bigbtn confirm" style="margin-top:0;flex:1" onclick="wsCutPieceF('${f.id}',${i},${pos},1)">✂️ KAPPET +1 STK</button>
+            <button class="ccminus" title="Juster ned (feiltelling)" ${l.cutN?"":"disabled"} onclick="wsCutPieceF('${f.id}',${i},${pos},-1)">−1</button>
+          </div>
+          <div class="pieces">${Array.from({length:l.qty},(_,k)=>`<span class="piece ${k<(l.cutN||0)?"done":""}"></span>`).join("")}</div>
+          <div class="focus-sub" style="text-align:center;margin-top:8px">Trykk <b>+1</b> for hvert kutt – linjen fullføres automatisk ved ${l.qty} av ${l.qty}, så antallet alltid stemmer før neste slange</div>`
+        :`<button class="bigbtn confirm" onclick="wsFocusConfirm('${f.id}',${i},'${key}',${pos})">${s.icon} BEKREFT ${s.verb.toUpperCase()}</button>`}
     </div>
     <div class="focus-nav">
       <button class="navarrow" ${pos===0?"disabled":""} onclick="State.ws.focusPos=${pos-1};render()">◀</button>
