@@ -1,0 +1,2333 @@
+<!DOCTYPE html>
+<html lang="nb" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slangeproduksjon – Global Onsite · PMOTION-modul (prototype)</title>
+<style>
+:root{
+  --bg:#0a0e1a;--surface:#111827;--surface2:#1a2235;
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);
+  --text:#f0f4ff;--muted:#8892a4;--accent:#3b82f6;--accent2:#60a5fa;
+  --good:#34d399;--warn:#fbbf24;--bad:#f87171;--info:#67e8f9;
+  --good-bg:rgba(52,211,153,.12);--warn-bg:rgba(251,191,36,.12);--bad-bg:rgba(248,113,113,.12);--info-bg:rgba(103,232,249,.10);
+  --radius:12px;--font:Inter,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:'DM Mono','Cascadia Mono',Consolas,monospace;
+  --head:Syne,Inter,-apple-system,sans-serif;
+}
+[data-theme="light"]{
+  --bg:#f0f4ff;--surface:#ffffff;--surface2:#f8faff;
+  --border:rgba(0,0,0,0.08);--border2:rgba(0,0,0,0.15);
+  --text:#111827;--muted:#6b7280;--accent:#2563eb;--accent2:#1d4ed8;
+  --good:#047857;--warn:#b45309;--bad:#b91c1c;--info:#0e7490;
+  --good-bg:rgba(4,120,87,.10);--warn-bg:rgba(180,83,9,.10);--bad-bg:rgba(185,28,28,.08);--info-bg:rgba(14,116,144,.08);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.5}
+button{font-family:var(--font)}
+.shell{display:flex;flex-direction:column;height:100vh}
+
+/* ---------- topbar ---------- */
+.topbar{display:flex;align-items:center;gap:14px;padding:10px 18px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0}
+.topbar .logo{font-family:var(--head);font-weight:700;font-size:17px;letter-spacing:.4px;white-space:nowrap}
+.topbar .logo span{color:var(--accent2)}
+.badge-proto{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn);border-radius:20px;padding:2px 12px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.topbar .spacer{flex:1}
+.userbox{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
+.userbox select{background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:8px;padding:4px 8px;font-size:12.5px}
+.iconbtn{background:none;border:1px solid var(--border2);color:var(--text);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:14px}
+.iconbtn:hover{background:var(--surface2)}
+
+/* ---------- layout ---------- */
+.main{display:flex;flex:1;min-height:0}
+.sidebar{width:222px;background:var(--surface);border-right:1px solid var(--border);padding:14px 10px;display:flex;flex-direction:column;gap:4px;flex-shrink:0;overflow-y:auto}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:9px;cursor:pointer;color:var(--muted);font-weight:500;border:none;background:none;width:100%;text-align:left;font-size:13.5px}
+.nav-item:hover{background:var(--surface2);color:var(--text)}
+.nav-item.active{background:var(--accent);color:#fff}
+.nav-sep{margin:10px 6px 4px;font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+.content{flex:1;overflow-y:auto;padding:22px 26px}
+h1{font-family:var(--head);font-size:21px;margin-bottom:4px}
+h2{font-family:var(--head);font-size:16px;margin:18px 0 10px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:18px}
+
+/* ---------- cards & tiles ---------- */
+.cardrow{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:20px}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;min-width:150px;flex:1}
+.tile .t-label{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+.tile .t-value{font-family:var(--head);font-size:26px;font-weight:700}
+.tile .t-note{font-size:12px;color:var(--muted);margin-top:2px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;margin-bottom:16px}
+
+/* ---------- folder cards ---------- */
+.pmgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+.pmcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;cursor:pointer;transition:border-color .15s}
+.pmcard:hover{border-color:var(--accent)}
+.pmcard .pm-id{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.pmcard .pm-title{font-weight:600;font-size:14.5px;margin:3px 0 8px}
+.pmcard .pm-meta{font-size:12px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+
+/* status badges: alltid ikon + tekst, aldri bare farge */
+.status{display:inline-flex;align-items:center;gap:6px;border-radius:20px;padding:2px 11px;font-size:11.5px;font-weight:600;border:1px solid}
+.st-utkast{color:var(--muted);border-color:var(--border2);background:var(--surface2)}
+.st-klar{color:var(--accent2);border-color:var(--accent);background:rgba(59,130,246,.12)}
+.st-prod{color:var(--warn);border-color:var(--warn);background:var(--warn-bg)}
+.st-test{color:var(--info);border-color:var(--info);background:var(--info-bg)}
+.st-ferdig{color:var(--good);border-color:var(--good);background:var(--good-bg)}
+.st-arkiv{color:var(--muted);border-color:var(--border2);background:none}
+
+/* meter */
+.meter{background:var(--surface2);border-radius:6px;height:9px;overflow:hidden;margin-top:4px}
+.meter>div{height:100%;border-radius:6px;background:var(--accent)}
+.meter.m-good>div{background:var(--good)}
+.meter-label{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-top:4px}
+
+/* ---------- buttons ---------- */
+.btn{border:none;border-radius:9px;padding:9px 18px;font-size:13.5px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent2)}
+.btn-good{background:var(--good);color:#06281c}
+[data-theme="light"] .btn-good{color:#fff}
+.btn-ghost{background:none;border:1px solid var(--border2);color:var(--text)}
+.btn-ghost:hover{background:var(--surface2)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-big{font-size:15px;padding:13px 26px;border-radius:11px}
+
+/* ---------- wizard ---------- */
+.steps{display:flex;gap:0;margin-bottom:22px;flex-wrap:wrap}
+.step{display:flex;align-items:center;gap:8px;padding:7px 16px;font-size:12.5px;color:var(--muted);border-bottom:2px solid var(--border)}
+.step .n{width:22px;height:22px;border-radius:50%;background:var(--surface2);display:inline-flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;border:1px solid var(--border2)}
+.step.active{color:var(--text);border-bottom-color:var(--accent)}
+.step.active .n{background:var(--accent);color:#fff;border-color:var(--accent)}
+.step.done{color:var(--good);border-bottom-color:var(--good)}
+.step.done .n{background:var(--good-bg);color:var(--good);border-color:var(--good)}
+.wizfoot{display:flex;justify-content:space-between;margin-top:20px;gap:10px;flex-wrap:wrap}
+.gatemsg{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--warn)}
+
+/* forms */
+.frm{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px}
+.frm label{display:block;font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}
+.frm input,.frm select,textarea{width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:9px;color:var(--text);padding:9px 12px;font-size:13.5px;font-family:var(--font)}
+textarea{font-family:var(--mono);font-size:12px;min-height:150px;resize:vertical}
+.frm input:focus,.frm select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:0}
+
+/* ---------- tables ---------- */
+.tblwrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius)}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{background:var(--surface2);text-align:left;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);white-space:nowrap;position:sticky;top:0}
+td{padding:7px 10px;border-top:1px solid var(--border);white-space:nowrap}
+td.mono,.mono{font-family:var(--mono)}
+tr.rowbad td{background:var(--bad-bg)}
+tr.rowwarn td{background:var(--warn-bg)}
+td input{background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:3px 7px;font-size:12px;font-family:var(--mono);width:110px}
+td input.cellbad{border-color:var(--bad)}
+
+/* ---------- redigerbart rutenett (veiviser steg 2) ---------- */
+.gridbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0}
+.rowdel{background:none;border:1px solid var(--border2);border-radius:7px;color:var(--muted);padding:2px 8px;font-size:12px;cursor:pointer;line-height:1.4}
+.rowdel:hover{border-color:var(--bad);color:var(--bad)}
+td .ptspill{display:inline-block;font-family:var(--mono);font-size:11.5px;padding:2px 8px;border-radius:99px;background:var(--surface2);border:1px dashed var(--border2);color:var(--muted)}
+td .ptspill.has{border-style:solid;border-color:var(--accent);color:var(--text)}
+.pastefold{margin-top:12px;padding:12px;border:1px dashed var(--border2);border-radius:var(--radius);background:var(--surface2)}
+.telbadge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px;background:var(--good-bg);border:1px solid var(--good);color:var(--text)}
+
+/* validation list */
+.vitem{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border-radius:9px;margin-bottom:7px;font-size:13px}
+.v-bad{background:var(--bad-bg);border:1px solid var(--bad)}
+.v-warn{background:var(--warn-bg);border:1px solid var(--warn)}
+.v-good{background:var(--good-bg);border:1px solid var(--good)}
+.vitem .fix{margin-left:auto;flex-shrink:0}
+.vitem button.fixbtn{background:none;border:1px solid var(--border2);border-radius:7px;color:var(--text);padding:3px 10px;font-size:12px;cursor:pointer}
+.vitem button.fixbtn:hover{background:var(--surface2)}
+
+/* ---------- fane/tabs ---------- */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:16px;flex-wrap:wrap}
+.tab{background:none;border:none;color:var(--muted);padding:9px 16px;font-size:13.5px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent}
+.tab.active{color:var(--text);border-bottom-color:var(--accent)}
+
+/* status-stepper i mappe */
+.flow{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:10px 0 18px}
+.flow .f{font-size:11.5px;padding:4px 12px;border-radius:20px;border:1px solid var(--border2);color:var(--muted)}
+.flow .f.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
+.flow .f.past{border-color:var(--good);color:var(--good)}
+.flow .arr{color:var(--muted);font-size:11px}
+
+/* ---------- dokumenter ---------- */
+.docgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+.doccard{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.doccard h3{font-size:14px;margin-bottom:6px}
+.doc-stale{border-color:var(--warn)}
+.docpreview{background:#fff;color:#111;border-radius:8px;padding:18px;font-size:11.5px;margin-top:14px;max-height:480px;overflow:auto;box-shadow:0 4px 18px rgba(0,0,0,.35)}
+.docpreview h4{font-size:15px;margin-bottom:2px}
+.docpreview table{font-size:10.5px}
+.docpreview th{background:#ED7D31;color:#fff;position:static;padding:4px 6px}
+.docpreview td{border:1px solid #ccc;padding:3px 6px;color:#111}
+.tagsgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.tag{border:2px solid #111;border-radius:8px;padding:8px 10px;background:#fffbe6;color:#111;font-size:10.5px;position:relative}
+.tag .pts{font-family:var(--mono);font-weight:700;font-size:15px}
+.tag .qr{position:absolute;right:8px;top:8px;width:34px;height:34px;background:
+  repeating-linear-gradient(0deg,#111 0 3px,transparent 3px 6px),
+  repeating-linear-gradient(90deg,#111 0 3px,transparent 3px 6px);opacity:.85;border:2px solid #111}
+
+/* ---------- verksted ---------- */
+.wsrow td{font-size:14.5px;padding:11px 12px}
+.wsbtn{border:2px solid var(--border2);background:var(--surface2);color:var(--muted);border-radius:10px;padding:9px 16px;font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+.wsbtn.on-prod{background:var(--accent);border-color:var(--accent);color:#fff}
+.wsbtn.on-test{background:var(--good);border-color:var(--good);color:#06281c}
+[data-theme="light"] .wsbtn.on-test{color:#fff}
+.wsbig{font-size:16px;padding:14px 22px}
+
+/* logg */
+.log{list-style:none}
+.log li{display:flex;gap:12px;padding:8px 4px;border-bottom:1px solid var(--border);font-size:12.5px}
+.log .lt{font-family:var(--mono);color:var(--muted);white-space:nowrap}
+
+/* sp-tre */
+.sptree{font-family:var(--mono);font-size:12.5px;background:var(--surface2);border:1px solid var(--border);border-radius:9px;padding:14px 16px;line-height:1.9}
+.sptree .dim{color:var(--muted)}
+.sptree .new{color:var(--good)}
+
+.notice{display:flex;gap:10px;background:var(--info-bg);border:1px solid var(--info);border-radius:9px;padding:10px 14px;font-size:12.5px;margin-bottom:14px}
+.hidden{display:none!important}
+@media(max-width:840px){.sidebar{width:64px}.nav-item span.txt,.nav-sep{display:none}.content{padding:14px}}
+
+/* ---------- Touch-/iPad-modus (fokus: én slange om gangen) ---------- */
+.touch .pmcard{padding:22px;border-radius:16px}
+.touch .btn{padding:14px 24px;font-size:16px;border-radius:13px}
+.touch .wsbtn{padding:16px 22px;font-size:16px;border-radius:13px}
+.touch .tile{padding:18px 22px}
+.focus-wrap{max-width:900px;margin:0 auto}
+.focus-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:26px 30px;
+  animation:cardin .22s ease-out;box-shadow:0 10px 34px rgba(0,0,0,.35)}
+@keyframes cardin{from{opacity:0;transform:translateX(26px)}to{opacity:1;transform:none}}
+.focus-main{font-family:var(--head);font-weight:800;font-size:clamp(44px,9vw,84px);line-height:1.05;letter-spacing:1px}
+.focus-sub{color:var(--muted);font-size:15px;margin-top:2px}
+.focus-meta{display:flex;gap:26px;flex-wrap:wrap;margin:16px 0 6px}
+.focus-meta .fm{min-width:110px}
+.focus-meta .fm b{display:block;font-size:19px;font-family:var(--mono)}
+.focus-meta .fm span{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+.bigbtn{width:100%;border:none;border-radius:16px;padding:24px;font-size:23px;font-weight:800;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:12px;margin-top:18px;min-height:84px;font-family:var(--font)}
+.bigbtn:active{transform:scale(.985)}
+.bigbtn.confirm{background:var(--good);color:#06281c}
+[data-theme="light"] .bigbtn.confirm{color:#fff}
+.bigbtn.next{background:var(--accent);color:#fff}
+.bigbtn.ghostb{background:var(--surface2);color:var(--text);border:2px solid var(--border2)}
+.bigbtn.undo{background:var(--warn-bg);color:var(--warn);border:2px solid var(--warn);min-height:60px;font-size:16px;padding:12px}
+.focus-nav{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:14px 0}
+.navarrow{width:72px;height:72px;border-radius:50%;border:2px solid var(--border2);background:var(--surface);
+  color:var(--text);font-size:26px;cursor:pointer;flex-shrink:0}
+.navarrow:disabled{opacity:.25}
+.dots{display:flex;gap:7px;justify-content:center;flex-wrap:wrap;flex:1}
+.dot{width:15px;height:15px;border-radius:50%;background:var(--surface2);border:2px solid var(--border2);cursor:pointer;padding:0}
+.dot.done{background:var(--good);border-color:var(--good)}
+.dot.cur{outline:3px solid var(--accent);outline-offset:2px}
+.donecard{text-align:center;padding:50px 30px}
+.donecard .big{font-size:60px;margin-bottom:8px}
+
+/* ---------- produktfoto (Parker-katalog) ---------- */
+.photo{background:#fff;border-radius:10px;padding:6px 6px 3px;width:132px;text-align:center;border:1px solid var(--border2)}
+.photo img{width:100%;height:92px;object-fit:contain;display:block}
+.photo span{font-size:9.5px;color:#444;display:block;padding:2px 0;font-family:var(--mono)}
+.photo.big{width:170px}
+.photo.big img{height:120px}
+.photo-mini{background:#fff;border-radius:6px;padding:2px;width:52px;height:40px;display:inline-block;vertical-align:middle}
+.photo-mini img{width:100%;height:100%;object-fit:contain;display:block}
+
+/* ---------- fotomontasje: C1 – slange – C2 ---------- */
+.assembly{display:flex;align-items:stretch;background:#fff;border-radius:14px;padding:10px 12px;gap:6px;max-width:640px}
+.assembly .asm-slot{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:4px}
+.assembly .asm-slot.mid{flex:1.2;border-left:1px dashed #ccc;border-right:1px dashed #ccc}
+.assembly .imgclip img{height:100%}
+.assembly .asm-slot.mid .imgclip img{transform:scale(1.85)}
+.assembly .asm-lab{font-family:var(--mono);font-size:11.5px;font-weight:700;color:#111;text-align:center;margin-top:4px}
+.assembly .asm-geo{font-size:9.5px;color:#555;text-align:center}
+.asm-fallback{display:none;height:110px;align-items:center;justify-content:center;background:#f3f4f6;border-radius:8px;width:100%;color:#555;font-family:var(--mono);font-size:11px;text-align:center;padding:6px}
+.assembly.small .asm-fallback{height:72px}
+.hpanel{background:#fff;border-radius:14px;padding:10px 14px;max-width:640px}
+.hpanel .asm-lab{font-family:var(--mono);font-size:11.5px;font-weight:700;color:#111;text-align:center;margin-top:2px}
+.hpanel .asm-geo{font-size:9.5px;color:#555;text-align:center}
+/* Parker-fotoene er kvadratiske med mye luft rundt slangen – imgclip zoomer
+   inn så motivet fyller rammen (motivet ligger sentrert i originalene). */
+.imgclip{overflow:hidden;border-radius:8px;display:flex;align-items:center;justify-content:center;width:100%}
+.imgclip img{height:100%;object-fit:contain;display:block}
+.imgclip.zoomh img{transform:scale(2.05)}
+.hpanel .imgclip{height:150px}
+.hthumb{background:#fff;border-radius:10px;padding:4px;width:100%;max-width:230px;overflow:hidden}
+.hthumb .imgclip{height:84px}
+.assembly .asm-slot .imgclip{height:110px}
+.assembly.small .asm-slot .imgclip{height:72px}
+.photo-mini{overflow:hidden}
+
+/* ---------- POS-referanse ---------- */
+.posref{text-align:right}
+.posref .p-label{font-size:10px;letter-spacing:1.5px;color:var(--muted);text-transform:uppercase}
+.posref .p-num{font-family:var(--mono);font-weight:800;font-size:40px;line-height:1.05;color:var(--accent2)}
+.posref .p-num.missing{color:var(--warn);font-size:22px}
+.posref .p-mach{font-size:14px;font-weight:700;margin-top:2px}
+.posref .p-ctx{font-size:11.5px;color:var(--muted);margin-top:2px}
+.touch .posref .p-num{font-size:52px}
+td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--accent2)}
+
+/* ---------- spot-check ---------- */
+.st-qc{color:#c4b5fd;border-color:#8b5cf6;background:rgba(139,92,246,.12)}
+[data-theme="light"] .st-qc{color:#6d28d9;border-color:#7c3aed;background:rgba(124,58,237,.08)}
+.qc-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px 20px;margin-bottom:14px}
+.qc-card.ok{border-color:var(--good)}
+.qc-card.avvik{border-color:var(--bad)}
+.qc-btn{border:2px solid var(--border2);background:var(--surface2);color:var(--text);border-radius:12px;
+  padding:14px 26px;font-size:16px;font-weight:800;cursor:pointer}
+.qc-btn.ok-on{background:var(--good);border-color:var(--good);color:#06281c}
+[data-theme="light"] .qc-btn.ok-on{color:#fff}
+.qc-btn.avvik-on{background:var(--bad);border-color:var(--bad);color:#fff}
+
+/* ---------- pallemerkelapp ---------- */
+.pallet{background:#fff;color:#111;border:4px solid #111;border-radius:12px;padding:22px 26px;max-width:660px;position:relative}
+.pallet h3{font-size:15px;letter-spacing:2px;margin-bottom:2px}
+.pallet .pl-id{font-family:var(--mono);font-size:44px;font-weight:800;line-height:1.1}
+.pallet .pl-row{display:flex;gap:18px;flex-wrap:wrap;margin-top:12px}
+.pallet .pl-f{min-width:150px}
+.pallet .pl-f b{display:block;font-size:17px}
+.pallet .pl-f span{font-size:10.5px;text-transform:uppercase;letter-spacing:.8px;color:#555}
+.pallet .qr{position:absolute;right:22px;top:20px;width:86px;height:86px;border:3px solid #111;background:
+  repeating-linear-gradient(0deg,#111 0 4px,transparent 4px 8px),
+  repeating-linear-gradient(90deg,#111 0 4px,transparent 4px 8px)}
+.pallet table{font-size:12px;margin-top:10px}
+.pallet td,.pallet th{border:1px solid #999;padding:3px 8px;color:#111}
+.pallet th{background:#eee;position:static}
+
+/* ---------- utskrift ---------- */
+.print-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:16px}
+@media print{
+  .topbar,.sidebar,.noprint{display:none!important}
+  .content{padding:0!important;overflow:visible!important}
+  .main,.shell{display:block;height:auto}
+  body{background:#fff}
+  .docpreview{box-shadow:none;max-height:none;overflow:visible;border-radius:0;padding:0}
+  .pallet{border-width:5px}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<header class="topbar">
+  <div class="logo">PMOTION <span>· Slangeproduksjon</span></div>
+  <div class="badge-proto">PROTOTYPE · demo-modus – data lagres ikke</div>
+  <div class="spacer"></div>
+  <div class="userbox">
+    <span>Innlogget som:</span>
+    <select id="whoami" onchange="App.setUser(this.value)">
+      <option>Simen (PMO)</option>
+      <option>Kim (PMO)</option>
+      <option>Verksted – Christian</option>
+      <option>Verksted – Sigfus</option>
+    </select>
+  </div>
+  <button class="iconbtn" onclick="App.toggleTheme()" title="Bytt lys/mørk">🌙</button>
+</header>
+
+<div class="main">
+  <nav class="sidebar">
+    <button class="nav-item active" data-view="dash" onclick="App.nav('dash')">📊 <span class="txt">Oversikt</span></button>
+    <button class="nav-item" data-view="wizard" onclick="App.startWizard()">➕ <span class="txt">Ny produksjonsmappe</span></button>
+    <button class="nav-item" data-view="list" onclick="App.nav('list')">📁 <span class="txt">Produksjonsmapper</span></button>
+    <button class="nav-item" data-view="plan" onclick="App.nav('plan')">📅 <span class="txt">Produksjonsplan</span></button>
+    <div class="nav-sep">Verksted</div>
+    <button class="nav-item" data-view="verksted" onclick="App.nav('verksted')">🏭 <span class="txt">Verkstedsmodus</span></button>
+    <div class="nav-sep">Referanse</div>
+    <button class="nav-item" data-view="master" onclick="App.nav('master')">🗄️ <span class="txt">Masterdata</span></button>
+    <button class="nav-item" data-view="om" onclick="App.nav('om')">❓ <span class="txt">Om prototypen</span></button>
+  </nav>
+
+  <main class="content" id="content"><!-- render --></main>
+</div>
+</div>
+<script>
+/* =====================================================================
+   Slangeproduksjon – klikkbar prototype (PMOTION-modul)
+   All data er demodata og lever kun i minnet til denne fanen.
+   I pilot erstattes State av SharePoint-lister via Microsoft Graph.
+   ===================================================================== */
+
+/* ---------- Demo-masterdata (fra Database_Hose_&_fittings.xlsx) ---------- */
+/* B-mål (koblinger) og S-mål (slanger) er reelle verdier fra
+   Database_Hose_&_fittings.xlsx – kuttemålene under blir derfor identiske
+   med CUT-kolonnen i dagens Excel-ark. */
+const MASTER = {
+  hoses: {
+    "487ST-8":{wp:280,inch:'1/2"',s:5}, "487ST-12":{wp:280,inch:'3/4"',s:6}, "487ST-16":{wp:280,inch:'1"',s:8},
+    "787ST-6":{wp:350,inch:'3/8"',s:5}, "787ST-8":{wp:350,inch:'1/2"',s:5}, "187ST-8":{wp:70,inch:'1/2"',s:4},
+    "462ST-8":{wp:310,inch:'1/2"',s:6}, "2390N-4":{wp:490,inch:'1/4"',s:4}
+  },
+  couplings: {   /* ang/sys/dim er reelle verdier fra MasterTable ((0,45,90), Type2, INFO) */
+    "1C948-20-12":{wp:350,b:30,ang:0,sys:"Metric",dim:"20S"},
+    "1C943-25-16":{wp:280,b:33,ang:0,sys:"Metric",dim:"25S"},
+    "1C948-16-8":{wp:350,b:28,ang:0,sys:"Metric",dim:"16S"},
+    "11C48-16-8":{wp:280,b:37,ang:90,sys:"Metric",dim:"16S",imgHoseEnd:"right"},
+    "1C948-12-6":{wp:420,b:24,ang:0,sys:"Metric",dim:"12S"},
+    "10C48-12-6":{wp:310,b:46,ang:45,sys:"Metric",dim:"12S",imgHoseEnd:"right"},
+    "1CA48-15-8":{wp:280,b:26,ang:0,sys:"Metric",dim:"15L"},
+    "1CA48-18-8":{wp:280,b:25,ang:0,sys:"Metric",dim:"18L"},
+    "1CA48-22-12":{wp:280,b:30,ang:0,sys:"Metric",dim:"22L"},
+    "1CA48-26-12":{wp:280,b:36,ang:0,sys:"Metric",dim:"26L"},
+    "1B243-8-8":{wp:430,b:39,ang:90,sys:"BSP",dim:'1/2"',imgHoseEnd:"right"},
+    "19248-8-8":{wp:350,b:22,ang:0,sys:"BSP",dim:'1/2"'},
+    "1J948-8-8":{wp:415,b:32,ang:90,sys:"ORFS",dim:'1/2"',imgHoseEnd:"right"},
+    "1JC48-10-10":{wp:380,b:24,ang:0,sys:"ORFS",dim:'5/8"'}
+  }
+};
+
+/* Enkel likhetssøk for «mente du …?» */
+function editDist(a,b){
+  a=a.toUpperCase();b=b.toUpperCase();
+  const m=[...Array(a.length+1)].map((_,i)=>[i,...Array(b.length).fill(0)]);
+  for(let j=0;j<=b.length;j++)m[0][j]=j;
+  for(let i=1;i<=a.length;i++)for(let j=1;j<=b.length;j++)
+    m[i][j]=Math.min(m[i-1][j]+1,m[i][j-1]+1,m[i-1][j-1]+(a[i-1]!==b[j-1]?1:0));
+  return m[a.length][b.length];
+}
+function suggest(code,dict){
+  // Kandidater med samme dimensjonssuffiks («-18-8») prioriteres – det er
+  // nesten alltid serie-delen som er feiltastet, ikke dimensjonene.
+  const dims=code.includes("-")?code.slice(code.indexOf("-")):null;
+  let best=null,bd=99;
+  for(const k of Object.keys(dict)){
+    const d=editDist(code,k)-(dims&&k.toUpperCase().endsWith(dims.toUpperCase())?0.5:0);
+    if(d<bd){bd=d;best=k}
+  }
+  return bd<=3?best:null;
+}
+
+/* ---------- Status ---------- */
+const STATUSES = {
+  fsp:{label:"Forespørsel",icon:"📨",cls:"st-utkast"},
+  tilbud:{label:"Tilbud sendt",icon:"📤",cls:"st-klar"},
+  klar:{label:"Ordre – klar til produksjon",icon:"📦",cls:"st-klar"},
+  prod:{label:"I produksjon",icon:"🔧",cls:"st-prod"},
+  test:{label:"Trykktest",icon:"🧪",cls:"st-test"},
+  qc:{label:"Spot-check",icon:"🔍",cls:"st-qc"},
+  ferdig:{label:"Fullført",icon:"✅",cls:"st-ferdig"},
+  arkiv:{label:"Arkivert",icon:"🗃️",cls:"st-arkiv"}
+};
+const FLOWORDER = ["fsp","tilbud","klar","prod","test","qc","ferdig","arkiv"];
+
+/* ---------- Operasjonsstegene på verkstedet ----------
+   Slik jobbes det i virkeligheten: alle slangene kappes først, deretter
+   renses de med UC-propper, så presses koblingene på, og til slutt
+   trykktestes de. Hver linje har derfor fire uavhengige bekreftelser
+   (i rekkefølge), og verkstedet veksler fritt mellom operasjonene. */
+const STAGES=[
+  {key:"cut",  icon:"✂️", label:"Kapping",     verb:"kappet"},
+  {key:"clean",icon:"🧼", label:"Rens (UC)",   verb:"renset"},
+  {key:"press",icon:"🔧", label:"Pressing",    verb:"presset"},
+  {key:"test", icon:"🧪", label:"Trykktest",   verb:"trykktestet"}
+];
+function stageCount(f,key){return f.lines.filter(l=>l.st[key]).length}
+
+/* ---------- Spot-check (annenhåndskontroll) ----------
+   Deterministisk utvalg (samme prinsipp som SpotCheck-spørringen i Excel):
+   minst én slange per slangetype, ca. 10 % totalt. Kontrollen skal utføres
+   av en annen person enn den som trykktestet slangen. */
+function stableHash(s){let h=17;for(const c of String(s))h=(h*31+c.charCodeAt(0))%2147483647;return h}
+function buildSpotCheck(f){
+  const byType={};
+  f.lines.forEach((l,i)=>{(byType[l.hose]=byType[l.hose]||[]).push({l,i})});
+  const items=[];
+  Object.values(byType).forEach(arr=>{
+    const k=Math.max(1,Math.ceil(arr.length*0.1));
+    arr.slice().sort((a,b)=>stableHash(a.l.pts)-stableHash(b.l.pts)).slice(0,k)
+      .forEach(x=>items.push({i:x.i,result:null,comment:"",by:null,at:null}));
+  });
+  items.sort((a,b)=>a.i-b.i);
+  return {items,startedAt:now(),completedAt:null};
+}
+function spotDone(f){return f.spot&&f.spot.items.every(x=>x.result==="ok")}
+
+/* ---------- Demodata ---------- */
+function L(pts,pos,hose,len,c1,c2,qty,stageN){
+  const wp = wpFor(hose,c1,c2);
+  const cut = cutFor(len,hose,c1,c2);
+  const who=["Christian","Christian","Sigfus","Sigfus"], at=["05.08 11:02","06.08 08:40","06.08 13:15","07.08 09:41"];
+  const st={cut:null,clean:null,press:null,test:null};
+  STAGES.forEach((s,i)=>{if(i<(stageN||0))st[s.key]={by:who[i],at:at[i]}});
+  return {pts,pos,hose,len,c1,c2,qty:qty||1,wp,cut:cut.cut,cutErr:cut.err,st};
+}
+function wpFor(hose,c1,c2){
+  const w=[MASTER.hoses[hose]?.wp,MASTER.couplings[c1]?.wp,MASTER.couplings[c2]?.wp].filter(x=>x>0);
+  return w.length?Math.min(...w):null;
+}
+/* Kuttemål – samme formel som CUT-kolonnen i Excel-arket:
+   CUT = Length − (B1 + B2 + S)
+   B1/B2 = koblingenes B-mål (MasterTable[B]), S = slangens S-mål (HoseInfo[S-Mål]).
+   Viktig forskjell fra Excel: mangler et B-/S-mål stopper vi og sier ifra,
+   i stedet for å stille regne ut et for langt kutt. */
+function cutFor(len,hose,c1,c2){
+  const n=Number(len);
+  if(!len||isNaN(n)||n<=0)return {cut:null,err:null};
+  const miss=[];
+  const b1=MASTER.couplings[c1]?.b, b2=MASTER.couplings[c2]?.b, s=MASTER.hoses[hose]?.s;
+  if(b1==null&&MASTER.couplings[c1])miss.push(`B-mål mangler i master for ${c1}`);
+  if(b2==null&&MASTER.couplings[c2])miss.push(`B-mål mangler i master for ${c2}`);
+  if(s==null&&MASTER.hoses[hose])miss.push(`S-mål mangler i master for ${hose}`);
+  if(b1==null||b2==null||s==null)return {cut:null,err:miss.length?miss.join("; "):null};
+  const cut=n-(b1+b2+s);
+  if(cut<=0)return {cut:null,err:`Lengden (${n} mm) er kortere enn koblingene + S-mål (${b1+b2+s} mm)`};
+  return {cut,err:null};
+}
+function fmtCut(l){return l.cut?l.cut.toLocaleString("nb-NO")+" mm":"–"}
+
+/* ---------- Produktfoto fra Parker-katalogen ----------
+   Offisielle produktbilder ligger med forutsigbar URL per koblingsfamilie og
+   slangeserie (verifisert mot ph.parker.com-produktsidene). Vises når de
+   finnes; SVG-tegningen er alltid reserven. I pilot kopieres bildene inn i
+   masterdatabasens mediebibliotek på SharePoint (Global Onsite er
+   Parker-distributør) slik at verkstedet ikke er avhengig av parker.com. */
+function cplImgURL(code){
+  const fam=String(code||"").split("-")[0];
+  return fam?`https://www.parker.com/content/dam/Parker-com/Online/Product-Images/Polymer-Hose-Division-Europe/zoom_1000x1000/Fitting_${fam}_zm.jpg`:null;
+}
+function hoseImgURL(code){
+  const m=String(code||"").match(/^(\d+)/);
+  return m?`https://www.parker.com/content/dam/Parker-com/Online/Product-Images/Hose-Products-Division/zoom_1000x1000/${m[1]}_1000X1000.jpg`:null;
+}
+function photoBox(url,label,big){
+  return url?`<div class="photo${big?" big":""}"><img src="${url}" loading="lazy" alt="${esc(label)}" onerror="this.parentElement.style.display='none'"><span>${esc(label)}</span></div>`:"";
+}
+
+/* ---------- Tidsestimat ----------
+   Samme modell som TimeCalc-tabellen og TimeCalcEachHose-spørringen i Excel:
+   timer per slange = Start tid + (Add. Ea m × lengde i meter)
+                      + tillegg for under/over 10 m (per DIM = dash-størrelsen).
+   Verdiene under er demoverdier – i drift leses de fra TimeCalc-tabellen i
+   Database_Hose_&_fittings.xlsx (inkl. egne SAE-kolonner). */
+const TIMECALC = {
+  4:{start:0.35,eaM:0.010,u10:0.15,o10:0.30},
+  6:{start:0.40,eaM:0.012,u10:0.20,o10:0.35},
+  8:{start:0.45,eaM:0.014,u10:0.20,o10:0.40},
+  12:{start:0.60,eaM:0.018,u10:0.30,o10:0.50},
+  16:{start:0.75,eaM:0.022,u10:0.35,o10:0.60}
+};
+function estHoursLine(l){
+  const dim=Number(String(l.hose||"").split("-").pop());
+  const tc=TIMECALC[dim];
+  const len=Number(l.len)||0;
+  if(!tc||!len)return null;
+  const base=tc.start+tc.eaM*len/1000;
+  const add=len<10000?tc.u10:tc.o10;
+  return Math.ceil((base+add)*100)/100;   // Number.RoundUp(…, 2) som i Excel
+}
+function estHoursFolder(f){
+  let sum=0,unknown=0;
+  f.lines.forEach(l=>{const h=estHoursLine(l);if(h==null)unknown++;else sum+=h});
+  return {hours:Math.round(sum*10)/10,unknown};
+}
+/* Gjenstående timer: estimat × andel operasjoner som ikke er utført */
+function remainingHours(f){
+  const n=f.lines.length;if(!n)return 0;
+  const doneFrac=STAGES.reduce((a,s)=>a+stageCount(f,s.key),0)/(4*n);
+  return Math.round(estHoursFolder(f).hours*(1-doneFrac)*10)/10;
+}
+function fmtH(h){return (h==null?"–":h.toLocaleString("nb-NO",{maximumFractionDigits:1})+" t")}
+
+const State = {
+  user:"Simen (PMO)",
+  seq:15,
+  folders:[
+    {id:"PM-2026-012",title:"Saipem Rig – BOP Skid",project:"19888 – Saipem Rig",order:"19888",po:"1555728",customer:"Saipem",hub:"Lillesand",
+     status:"prod",created:"04.08.2026",by:"Simen (PMO)",docsGenerated:true,docsStale:false,plannedStart:null,
+     lines:[
+       L("GXQJD7A9",100,"487ST-12",20500,"1C948-20-12","1C948-20-12",2,4),
+       L("GWFQL2HR",200,"487ST-16",20500,"1C943-25-16","1C943-25-16",2,4),
+       L("HEBSWA58",522,"487ST-8",3100,"1C948-16-8","11C48-16-8",2,3),
+       L("HJD9KXZG",523,"487ST-8",2500,"1C948-16-8","11C48-16-8",2,3),
+       L("HC2LFY16",524,"487ST-8",2250,"1C948-16-8","11C48-16-8",2,2),
+       L("HIMT5W2G",525,"487ST-8",2200,"1C948-16-8","11C48-16-8",2,2),
+       L("HKNDPFWY",528,"487ST-8",2100,"1C948-16-8","11C48-16-8",2,1),
+       L("HIM6E9Y5",521,"487ST-8",1700,"1C948-16-8","11C48-16-8",1,1),
+       L("HE3XVCF4",526,"487ST-8",1700,"1C948-16-8","11C48-16-8",1,0),
+       L("HGZBA1VR",527,"487ST-8",1550,"1C948-16-8","11C48-16-8",1,0),
+       L("GVROBXCJ",300,"487ST-8",20500,"1C948-16-8","1C948-16-8",2,0),
+       L("H8FW05MS",502,"787ST-6",2600,"1C948-12-6","10C48-12-6",2,0),
+       L("HAC0J91I",503,"787ST-6",2500,"1C948-12-6","10C48-12-6",2,0),
+       L("H6AXLZSJ",505,"787ST-6",1800,"1C948-12-6","10C48-12-6",1,0),
+       L("H9C3JFIS",507,"787ST-6",1750,"1C948-12-6","10C48-12-6",1,0)
+     ],
+     log:[
+       {t:"04.08 09:02",who:"Simen (PMO)",msg:"Produksjonsmappe opprettet fra PMOTION-prosjekt «19888 – Saipem Rig»"},
+       {t:"04.08 09:14",who:"Simen (PMO)",msg:"Slangeliste importert: 15 linjer, validering OK"},
+       {t:"04.08 09:15",who:"Simen (PMO)",msg:"Dokumenter generert: Produksjonsliste, Trykktestsertifikat, 15 tags"},
+       {t:"04.08 10:30",who:"Simen (PMO)",msg:"Status endret: Klar til produksjon → I produksjon (sendt til verksted)"},
+       {t:"06.08 14:12",who:"Verksted – Christian",msg:"8 slanger kappet, 6 renset med UC-propper, 4 presset, 2 trykktestet"}
+     ]},
+    {id:"PM-2026-009",title:"Valaris DS-15 – Transit Flushing",project:"43 – Valaris DS-15",order:"26718",po:"COPS2026R-0311",customer:"Valaris",hub:"Lillesand",
+     status:"ferdig",created:"14.07.2026",by:"Kim (PMO)",docsGenerated:true,docsStale:false,
+     lines:[
+       L("VDF3K2LM",101,"787ST-8",4200,"1C948-16-8","1C948-16-8",1,4),
+       L("VBN8P4QR",102,"787ST-8",3800,"1C948-16-8","11C48-16-8",1,4),
+       L("VCX2M9TY",103,"487ST-8",2900,"11C48-16-8","11C48-16-8",2,4),
+       L("VLK5R7WE",104,"487ST-8",2400,"1C948-16-8","1C948-16-8",2,4),
+       L("VPO1D6UI",105,"787ST-6",1900,"1C948-12-6","10C48-12-6",1,4)
+     ],
+     spot:{items:[
+       {i:0,result:"ok",comment:"",by:"Kim (PMO)",at:"18.07 14:20"},
+       {i:2,result:"ok",comment:"",by:"Kim (PMO)",at:"18.07 14:26"},
+       {i:4,result:"ok",comment:"",by:"Kim (PMO)",at:"18.07 14:31"}],startedAt:"18.07 14:15",completedAt:"18.07 14:32"},
+     log:[
+       {t:"14.07 11:20",who:"Kim (PMO)",msg:"Produksjonsmappe opprettet"},
+       {t:"18.07 15:44",who:"Verksted – Christian",msg:"Alle slanger trykktestet – meldt ferdig til PMO"},
+       {t:"18.07 15:45",who:"System",msg:"Status endret: Trykktest → Fullført"}
+     ]},
+    {id:"PM-2026-013",title:"West Carina – Hose Replacement",project:"14 – West Carina – Hose Replacement Job",order:"26553",po:"26553",customer:"Seadrill",hub:"Lillesand",
+     status:"klar",created:"07.08.2026",by:"Kim (PMO)",docsGenerated:true,docsStale:false,plannedStart:null,
+     lines:[
+       L("WCA1B2C3",101,"487ST-8",4300,"1C948-16-8","11C48-16-8",1,0),
+       L("WCD4E5F6",102,"487ST-8",3900,"1C948-16-8","11C48-16-8",1,0),
+       L("WCG7H8J9",103,"487ST-8",3600,"1C948-16-8","1C948-16-8",2,0),
+       L("WCK1L2M3",104,"787ST-8",12500,"1C948-16-8","1C948-16-8",1,0),
+       L("WCN4P5Q6",105,"787ST-8",11800,"1C948-16-8","11C48-16-8",1,0),
+       L("WCR7S8T9",106,"787ST-6",2400,"1C948-12-6","10C48-12-6",2,0),
+       L("WCU1V2W3",107,"787ST-6",2100,"1C948-12-6","10C48-12-6",1,0),
+       L("WCX4Y5Z6",108,"2390N-4",1600,"1J948-8-8","1J948-8-8",1,0)
+     ],
+     log:[{t:"07.08 12:10",who:"Kim (PMO)",msg:"Produksjonsmappe opprettet – klar til produksjon"}]},
+    {id:"PM-2026-014",title:"COSL – slangeforespørsel RFQ-2026-118",project:"",order:"",po:"",custRef:"RFQ-2026-118",customer:"COSL",hub:"Lillesand",
+     status:"fsp",created:"07.08.2026",by:"Simen (PMO)",docsGenerated:false,docsStale:false,plannedStart:null,
+     lines:[
+       L("",10,"487ST-8",5200,"1C948-16-8","11C48-16-8",2,0),
+       L("",11,"487ST-8",4800,"1C948-16-8","1C948-16-8",1,0),
+       L("",12,"787ST-6",2300,"1C948-12-6","10C48-12-6",1,0),
+       L("",13,"787ST-8",13400,"1C948-16-8","1C948-16-8",1,0)
+     ],
+     log:[
+       {t:"07.08 09:40",who:"Simen (PMO)",msg:"Slangeliste fra kunden bearbeidet og validert – 2 koder rettet mot masterdata. PTS-ID-er hentes når mappen går til produksjon."},
+       {t:"07.08 08:55",who:"Simen (PMO)",msg:"Forespørsel registrert fra COSL (RFQ-2026-118) – ikke knyttet til PMOTION-prosjekt"}]}
+  ],
+  view:"dash", activeId:null, activeTab:"liste", showArchived:false,
+  ws:{folderId:null,stage:null,hoseType:null,onlyRemaining:false,focusPos:0},
+  touch:(typeof matchMedia==='function'&&matchMedia('(pointer: coarse)').matches),
+  plan:{fitters:2,hoursPerDay:7.5},
+  ptsSeq:4180,      /* neste ledige løpenummer i PTS-registeret (simulert) */
+  telarisSeq:118440, /* neste ledige varenummer i Telaris (simulert) */
+  wizard:null
+};
+
+/* =====================================================================
+   PTS-register (simulert) – reserverer neste ledige ID-er.
+   I drift: ett kall mot PTS-databasen som reserverer n ID-er atomisk.
+   ===================================================================== */
+function reservePtsIds(n){
+  const CS="ABCDEFGHJKMNPQRSTVWXYZ23456789"; // registerets tegnsett (uten I/L/O/U/0/1)
+  const ids=[];
+  for(let k=0;k<n;k++){
+    let x=(State.ptsSeq++)*2654435761 % 2147483647; if(x<0)x+=2147483647;
+    let s="";
+    for(let j=0;j<8;j++){s+=CS[x%CS.length];x=Math.floor(x/CS.length)+((j*7919)%CS.length)}
+    ids.push(s);
+  }
+  return ids;
+}
+/* Tildel PTS-ID til alle rader/linjer som mangler. Returnerer antall tildelt. */
+function assignPts(list){
+  const missing=list.filter(r=>!r.pts);
+  const ids=reservePtsIds(missing.length);
+  missing.forEach((r,i)=>r.pts=ids[i]);
+  return missing.length;
+}
+function ptsMissing(f){return f.lines.filter(l=>!l.pts).length}
+
+/* =====================================================================
+   Telaris (simulert) – oppretter slangepakken som vare med BOM.
+   I drift: Telaris-API. Varenummerserier: 2004xx = slangepakke,
+   118xxx = enkeltslange. Faste BOM-varer: 20001 timer, 23951 gul tag.
+   ===================================================================== */
+function buildTelaris(f){
+  const pkgNo="2004"+String(State.telarisSeq%100).padStart(2,"0");
+  const items=f.lines.map(l=>{
+    const itemNo=String(++State.telarisSeq);
+    const cut=l.cut||cutFor(l.len,l.hose,l.c1,l.c2).cut;
+    return {itemNo,pts:l.pts,pos:l.pos,
+      desc:`Slange ${l.hose} L=${l.len} POS ${l.pos||"–"}`,qty:l.qty||1,
+      bom:[
+        {no:"H-"+l.hose,desc:"Slange "+l.hose,qty:Math.round((cut||Number(l.len)||0))/1000,unit:"m"},
+        {no:l.c1,desc:"Kobling "+l.c1,qty:1,unit:"stk"},
+        {no:l.c2,desc:"Kobling "+l.c2,qty:1,unit:"stk"},
+        {no:"20001",desc:"Montasje/timer",qty:estHoursLine(l),unit:"t"},
+        {no:"23951",desc:"Gul tag m/gravering",qty:1,unit:"stk"}
+      ]};
+  });
+  const totals={};
+  items.forEach(it=>it.bom.forEach(b=>{
+    const key=b.no;totals[key]=totals[key]||{no:b.no,desc:b.desc,qty:0,unit:b.unit};
+    totals[key].qty=Math.round((totals[key].qty+b.qty*it.qty)*100)/100;
+  }));
+  return {pkg:pkgNo,createdAt:now(),by:State.user,items,totals:Object.values(totals)};
+}
+
+/* Maskinnr (Equipment NO) på demolinjene – L4021 er fra den reelle BOP Skid-listen */
+State.folders.find(f=>f.id==="PM-2026-012").lines.forEach(l=>l.mach="L4021");
+State.folders.find(f=>f.id==="PM-2026-014").lines.forEach(l=>l.mach="PK-"+l.pos);
+State.folders.find(f=>f.id==="PM-2026-013").lines.forEach((l,i)=>l.mach="WC-M"+(1+(i%2)));
+State.folders.find(f=>f.id==="PM-2026-009").lines.forEach(l=>l.mach="DS15");
+
+/* Referansekjeden verkstedet bruker: POS → maskin → ordre → PO → kunde */
+function orderOf(f){return f.order||String(f.project||"").split(" – ")[0]||"–"}
+function refLine(f){
+  if(["fsp","tilbud"].includes(f.status))
+    return `Forespørsel${f.custRef?" "+esc(f.custRef):""}${f.customer?" · "+esc(f.customer):""} · ikke bestilt ennå`;
+  return `Ordre ${esc(orderOf(f))} · PO ${esc(f.po||"–")}${f.customer?" · "+esc(f.customer):""}`;
+}
+function posBlock(l,f){
+  return `<div class="posref">
+    <div class="p-label">POS</div>
+    <div class="p-num ${l.pos?"":"missing"}">${l.pos?esc(l.pos):"mangler"}</div>
+    <div class="p-mach">Maskin ${esc(l.mach||"–")} <span style="color:var(--muted);font-weight:400">· PTS ${esc(l.pts||"–")}</span></div>
+    <div class="p-ctx">${refLine(f)}</div>
+    <div class="p-ctx">${esc(l.hose)} · ant. ${l.qty}</div>
+  </div>`;
+}
+
+const PMPROJECTS = [
+  "19888 – Saipem Rig",
+  "14 – West Carina – Hose Replacement Job",
+  "38 – West Carina – Replacement of Critical Equipment Hyd Hoses",
+  "43 – Valaris DS-15 – Transit Flushing",
+  "190825 – COSL Prospector – Punch KILL"
+];
+
+/* Typisk kundeliste: ingen PTS-ID-er (de finnes ikke ennå – hentes fra registeret) */
+const DEMO_PASTE =
+`POS\tHose\tLength\tCoupling 1\tCoupling 2\tQTY\tMaskin
+100\t487ST-8\t3748\t1C948-16-8\t11C48-16-8\t2\tL5030
+101\t487ST-8\t2980\t1C948-16-8\t11C48-16-8\t2\tL5030
+\t487ST-8\t2500\t1C948-16-8\t11C48-16-8\t1\tL5030
+103\t487ST-12\t14200\t1C948-20-12\t1C948-20-12\t2\tL5030
+104\t787ST-6\t2100\t1C948-12-6\t14948-18-8\t1\tL5030
+105\t787ST-6\t\t1C948-12-6\t10C48-12-6\t1\tL5030
+106\t787ST-6\t1800\t1C948-12-6\t10C48-12-6\t1\tL5030
+107\t487ST-16\t8200\t1C943-25-16\t14948-26-12\t2\tL5030`;
+
+/* =====================================================================
+   App
+   ===================================================================== */
+const App = {
+  nav(v){State.view=v;render()},
+  setUser(u){State.user=u;render()},
+  toggleTheme(){
+    const h=document.documentElement;
+    h.dataset.theme = h.dataset.theme==="dark" ? "light" : "dark";
+  },
+  startWizard(){
+    State.wizard={step:1,project:"",po:"",order:"",customer:"",custRef:"",hub:"Lillesand",editId:null,
+      rows:[],issues:[],docs:{prod:true,test:true,tags:true},preview:null,showPaste:false,ptsFetched:0};
+    State.view="wizard";render();
+  },
+  openFolder(id){State.activeId=id;State.activeTab="liste";State.view="folder";render()},
+};
+
+function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function now(){const d=new Date();return String(d.getDate()).padStart(2,"0")+"."+String(d.getMonth()+1).padStart(2,"0")+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")}
+function folder(id){return State.folders.find(f=>f.id===id)}
+function stBadge(s){const t=STATUSES[s];return `<span class="status ${t.cls}">${t.icon} ${t.label}</span>`}
+function addLog(f,msg){f.log.unshift({t:now(),who:State.user,msg})}
+
+/* ---------- Render root ---------- */
+function render(){
+  if(document.body&&document.body.classList)document.body.classList.toggle("touch",!!State.touch);
+  document.querySelectorAll(".nav-item").forEach(b=>{
+    b.classList.toggle("active",
+      b.dataset.view===State.view || (State.view==="folder"&&b.dataset.view==="list"));
+  });
+  const c=document.getElementById("content");
+  if(State.printDoc){c.innerHTML=vPrintDoc();return}
+  const v=State.view;
+  if(v==="dash")c.innerHTML=vDash();
+  else if(v==="list")c.innerHTML=vList();
+  else if(v==="wizard")c.innerHTML=vWizard();
+  else if(v==="folder")c.innerHTML=vFolder();
+  else if(v==="verksted")c.innerHTML=vVerksted();
+  else if(v==="plan")c.innerHTML=vPlan();
+  else if(v==="master")c.innerHTML=vMaster();
+  else c.innerHTML=vOm();
+}
+
+/* ---------- Dashbord ---------- */
+function vDash(){
+  const act=State.folders.filter(f=>!["arkiv"].includes(f.status));
+  const inProd=State.folders.filter(f=>["prod","test"].includes(f.status));
+  const linesInProd=inProd.reduce((a,f)=>a+f.lines.length,0);
+  const cutDone=inProd.reduce((a,f)=>a+f.lines.filter(l=>l.st.cut).length,0);
+  const testDone=inProd.reduce((a,f)=>a+f.lines.filter(l=>l.st.test).length,0);
+  const latest=State.folders.flatMap(f=>f.log.map(e=>({...e,fid:f.id}))).slice(0,6);
+  return `
+  <h1>Oversikt – slangeproduksjon</h1>
+  <div class="sub">Felles plattform for produksjonsmapper: slangelister, trykktestsertifikat og tags – lagret strukturert i SharePoint.</div>
+  <div class="cardrow">
+    <div class="tile"><div class="t-label">Aktive produksjonsmapper</div><div class="t-value">${act.length}</div><div class="t-note">${State.folders.length} totalt i demo</div></div>
+    <div class="tile"><div class="t-label">Slanger i produksjon</div><div class="t-value">${linesInProd}</div><div class="t-note">${cutDone} kappet · ${testDone} trykktestet</div></div>
+    <div class="tile"><div class="t-label">Forespørsler & tilbud</div><div class="t-value">${State.folders.filter(f=>["fsp","tilbud"].includes(f.status)).length}</div><div class="t-note">under bearbeiding – ${State.folders.filter(f=>f.status==="klar").length} klare for verksted</div></div>
+    <div class="tile"><div class="t-label">Fullført i 2026</div><div class="t-value">${State.folders.filter(f=>["ferdig","arkiv"].includes(f.status)).length}</div><div class="t-note">med komplett dokumentasjon</div></div>
+  </div>
+  <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+    <button class="btn btn-primary btn-big" onclick="App.startWizard()">➕ Ny produksjonsmappe</button>
+    <button class="btn btn-ghost btn-big" onclick="App.nav('verksted')">🏭 Åpne verkstedsmodus</button>
+  </div>
+  <h2>Pågående</h2>
+  <div class="pmgrid">${act.map(pmCard).join("")}</div>
+  <h2>Siste hendelser</h2>
+  <div class="card"><ul class="log">${latest.map(e=>`<li><span class="lt">${e.t}</span><span class="mono">${e.fid}</span><span>${esc(e.msg)} <span style="color:var(--muted)">– ${esc(e.who)}</span></span></li>`).join("")}</ul></div>`;
+}
+
+function pmCard(f){
+  const n=f.lines.length,p=f.lines.filter(l=>l.st.cut).length,t=f.lines.filter(l=>l.st.test).length;
+  return `<div class="pmcard" onclick="App.openFolder('${f.id}')">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+      <div><div class="pm-id">${f.id}</div><div class="pm-title">${esc(f.title)}</div></div>
+      ${stBadge(f.status)}
+    </div>
+    <div class="pm-meta"><span>📎 ${esc(f.project)}</span><span>PO: ${esc(f.po||"–")}</span><span>${n} slanger</span>${n?`<span>⏱ ≈ ${fmtH(estHoursFolder(f).hours)}</span>`:""}</div>
+    ${n?`<div class="meter"><div style="width:${n?Math.round(100*p/n):0}%"></div></div>
+    <div class="meter-label"><span>✂️ Kappet ${p}/${n}</span><span>🧪 Testet ${t}/${n}</span></div>
+    <div class="meter m-good"><div style="width:${n?Math.round(100*t/n):0}%"></div></div>`
+    :`<div class="meter-label"><span>Ingen slangeliste ennå – åpne for å fortsette bearbeidingen</span></div>`}
+  </div>`;
+}
+
+/* ---------- Mappeliste ---------- */
+function vList(){
+  const show=State.folders.filter(f=>State.showArchived||f.status!=="arkiv");
+  return `<h1>Produksjonsmapper</h1>
+  <div class="sub">Alt lagres i én felles struktur i SharePoint – systemet finner alltid tilbake til aktive mapper.</div>
+  <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+    <button class="btn btn-primary" onclick="App.startWizard()">➕ Ny produksjonsmappe</button>
+    <label style="font-size:12.5px;color:var(--muted)"><input type="checkbox" ${State.showArchived?"checked":""} onchange="State.showArchived=this.checked;render()"> Vis arkiverte</label>
+  </div>
+  <div class="pmgrid">${show.map(pmCard).join("")}</div>`;
+}
+</script>
+<script>
+/* =====================================================================
+   Veiviser – «idiotsikker» oppretting i 4 steg med porter.
+   Steg 2 er et redigerbart rutenett rett i nettleseren – ingen
+   forhåndsbearbeiding i Excel nødvendig. PTS-ID-er hentes automatisk
+   fra PTS-registeret; Telaris-pakken opprettes fra mappen etterpå.
+   ===================================================================== */
+function vWizard(){
+  const w=State.wizard;
+  const steps=["Prosjektinfo","Slangeliste","Dokumenter","Lagre"];
+  return `<h1>Ny produksjonsmappe</h1>
+  <div class="sub">Veiviseren tar deg gjennom alle stegene. Du kan ikke gå videre før steget er komplett – akkurat som fase-portene i PMOTION.</div>
+  <div class="steps">${steps.map((s,i)=>{
+    const n=i+1,cls=n<w.step?"step done":n===w.step?"step active":"step";
+    return `<div class="${cls}"><span class="n">${n<w.step?"✓":n}</span> ${s}</div>`;
+  }).join("")}</div>
+  ${[wz1,wzGrid,wz4,wz5][w.step-1]()}`;
+}
+
+function wz1(){
+  const w=State.wizard;
+  const ok=!!w.customer;
+  return `<div class="card">
+    <h2 style="margin-top:0">1 · Hvem gjelder det? Start gjerne allerede i forespørselsfasen</h2>
+    <div class="sub">Kun kunde er påkrevd. Uten ordre-/PO-nummer lagres mappen som <b>📨 Forespørsel</b> – all bearbeiding av slangelisten skjer da samlet her, og mappen løftes til ordre når bestillingen kommer.</div>
+    <div class="frm">
+      <div><label>Kunde / rigg *</label><input value="${esc(w.customer)}" placeholder="f.eks. COSL" onchange="State.wizard.customer=this.value;render()"></div>
+      <div><label>Kundens referanse / RFQ</label><input value="${esc(w.custRef||"")}" placeholder="f.eks. RFQ-2026-118" onchange="State.wizard.custRef=this.value"></div>
+      <div><label>Ordrenummer <span style="text-transform:none">(fylles ved bestilling)</span></label><input value="${esc(w.order)}" placeholder="valgfritt nå" onchange="State.wizard.order=this.value;render()"></div>
+      <div><label>PO-nummer <span style="text-transform:none">(fylles ved bestilling)</span></label><input value="${esc(w.po)}" placeholder="valgfritt nå" onchange="State.wizard.po=this.value;render()"></div>
+      <div><label>PMOTION-prosjekt <span style="text-transform:none">(valgfritt)</span></label>
+        <select onchange="wzSetProject(this.value)">
+          <option value="">– ikke knyttet (kan kobles senere) –</option>
+          ${PMPROJECTS.map(p=>`<option ${w.project===p?"selected":""}>${p}</option>`).join("")}
+        </select></div>
+      <div><label>Hub</label><select onchange="State.wizard.hub=this.value">
+        <option ${w.hub==="Lillesand"?"selected":""}>Lillesand</option>
+        <option ${w.hub==="Stavanger"?"selected":""}>Stavanger</option></select></div>
+    </div>
+    <div class="notice" style="margin-top:14px">💡 En slangeforespørsel hører sjelden til et PMOTION-prosjekt – la feltet stå tomt. Blir jobben stor nok til å bli prosjekt, kobles mappen til med ett klikk senere. Velges et prosjekt, autoutfylles ordre/PO/kunde.</div>
+    <div class="wizfoot">
+      <span></span>
+      <div style="display:flex;gap:10px;align-items:center">
+        ${ok?`<span class="gatemsg" style="color:var(--muted)">Lagres som: <b>${w.order||w.po?"📦 Ordre – klar til produksjon":"📨 Forespørsel (bearbeiding)"}</b></span>`:`<span class="gatemsg">🔒 Fyll inn kunde for å gå videre</span>`}
+        <button class="btn btn-primary" ${ok?"":"disabled"} onclick="State.wizard.step=2;render()">Neste →</button>
+      </div>
+    </div>
+  </div>`;
+}
+function wzSetProject(p){
+  const w=State.wizard;w.project=p;
+  const auto={"19888 – Saipem Rig":["19888","1555728","Saipem"],
+    "43 – Valaris DS-15 – Transit Flushing":["26718","COPS2026R-0311","Valaris"],
+    "190825 – COSL Prospector – Punch KILL":["190825","COPS2026R-0429","COSL"]};
+  if(auto[p]){w.order=auto[p][0];w.po=auto[p][1];w.customer=auto[p][2]}
+  render();
+}
+
+/* ---------- Steg 2: redigerbart rutenett ---------- */
+function wzGrid(){
+  const w=State.wizard;
+  const bad=w.issues.filter(i=>i.sev==="bad");
+  return `<div class="card">
+    <h2 style="margin-top:0">2 · Slangelisten – rediger rett i nettleseren</h2>
+    <div class="sub">Jobb som i Excel, men uten Excel: legg til rader, skriv rett i cellene (med forslag fra masterdata), eller lim inn kundens liste som utgangspunkt. Kuttemål beregnes automatisk: <span class="mono">CUT = Lengde − (B1 + B2 + S-mål)</span>. <b>PTS-ID trenger du ikke fylle inn</b> – den hentes fra PTS-registeret når mappen legges frem.</div>
+    <datalist id="dl-hoses">${Object.keys(MASTER.hoses).map(h=>`<option value="${h}">`).join("")}</datalist>
+    <datalist id="dl-cpl">${Object.keys(MASTER.couplings).map(c=>`<option value="${c}">`).join("")}</datalist>
+    <div class="gridbar">
+      <button class="btn btn-primary" onclick="wzAddRow()">➕ Legg til rad</button>
+      <button class="btn btn-ghost" onclick="State.wizard.showPaste=!State.wizard.showPaste;render()">📋 Lim inn fra Excel/e-post …</button>
+      <button class="btn btn-ghost" onclick="wzDemo()">🧪 Fyll med demodata (kundens liste)</button>
+      ${w.rows.length?`<button class="btn btn-ghost" onclick="if(true){State.wizard.rows=[];State.wizard.issues=[];render()}">🗑 Tøm listen</button>`:""}
+    </div>
+    ${w.showPaste?`<div class="pastefold">
+      <div class="sub" style="margin-bottom:8px">Lim inn rader (tabulatorseparert, f.eks. rett fra Excel). Kolonner: POS, Hose, Length, Coupling 1, Coupling 2, QTY, Maskin – med eller uten overskrift. Radene <b>legges til</b> i rutenettet, og alt kan redigeres videre der.</div>
+      <textarea id="pastebox" placeholder="Lim inn her …"></textarea>
+      <div style="display:flex;gap:10px;margin-top:10px">
+        <button class="btn btn-primary" onclick="wzAppendPaste()">Legg til radene</button>
+        <button class="btn btn-ghost" onclick="State.wizard.showPaste=false;render()">Avbryt</button>
+      </div>
+    </div>`:""}
+    ${w.rows.length?`
+    <div id="gridissues">${gridIssuesHTML()}</div>
+    <div class="tblwrap"><table>
+      <tr><th>#</th><th>POS</th><th>Maskin</th><th>Hose</th><th>Lengde</th><th>Coupling 1</th><th>Coupling 2</th><th>Ant.</th><th>WP (auto)</th><th>Kutt (auto)</th><th>PTS-ID (auto)</th><th></th></tr>
+      ${w.rows.map((r,i)=>gridRowHTML(r,i)).join("")}
+    </table></div>
+    <div class="notice" style="margin-top:12px">🔖 PTS-ID-kolonnen fylles med knappen «Hent PTS-ID-er til alle slangene» i siste steg – eller senere fra mappen. Kjente ID-er (f.eks. ved redigering) beholdes.</div>`
+    :`<div class="notice" style="margin-top:4px">Listen er tom. Start med <b>➕ Legg til rad</b>, eller lim inn kundens liste.</div>`}
+    <div class="wizfoot" id="gridfoot">${gridFootHTML()}</div>
+  </div>`;
+}
+function gridRowHTML(r,i){
+  const w=State.wizard;
+  const badRows=new Set(w.issues.filter(x=>x.sev==="bad").map(x=>x.row));
+  const warnRows=new Set(w.issues.filter(x=>x.sev==="warn").map(x=>x.row));
+  return `<tr id="gr-${i}" class="${badRows.has(i)?"rowbad":warnRows.has(i)?"rowwarn":""}">
+    <td>${i+1}</td>
+    <td><input style="width:60px" value="${esc(r.pos)}" onchange="wzCellG(${i},'pos',this)"></td>
+    <td><input style="width:70px" value="${esc(r.mach||"")}" onchange="wzCellG(${i},'mach',this)"></td>
+    <td><input list="dl-hoses" class="${r.hose&&!MASTER.hoses[r.hose]?'cellbad':''}" value="${esc(r.hose)}" onchange="wzCellG(${i},'hose',this)"></td>
+    <td><input style="width:70px" value="${esc(r.len)}" onchange="wzCellG(${i},'len',this)"></td>
+    <td><input list="dl-cpl" class="${r.c1&&!MASTER.couplings[r.c1]?'cellbad':''}" value="${esc(r.c1)}" onchange="wzCellG(${i},'c1',this)"></td>
+    <td><input list="dl-cpl" class="${r.c2&&!MASTER.couplings[r.c2]?'cellbad':''}" value="${esc(r.c2)}" onchange="wzCellG(${i},'c2',this)"></td>
+    <td><input style="width:45px" value="${esc(r.qty)}" onchange="wzCellG(${i},'qty',this)"></td>
+    <td class="mono" id="wpc-${i}">${r.wp?r.wp+" bar":"–"}</td>
+    <td class="mono" id="cutc-${i}" style="font-weight:700">${r.cut?r.cut.toLocaleString("nb-NO"):"–"}</td>
+    <td><span class="ptspill ${r.pts?"has":""}">${r.pts?esc(r.pts):"hentes"}</span></td>
+    <td><button class="rowdel" title="Slett rad" onclick="wzDelRow(${i})">✕</button></td>
+  </tr>`;
+}
+function gridIssuesHTML(){
+  const w=State.wizard;
+  const bad=w.issues.filter(i=>i.sev==="bad"),warn=w.issues.filter(i=>i.sev==="warn");
+  if(!w.rows.length)return "";
+  return `${bad.length===0&&warn.length===0?`<div class="vitem v-good">✅ <div><b>Alt ser bra ut!</b> ${w.rows.length} linjer validert mot masterdata uten feil.</div></div>`:""}
+  ${bad.map(it=>`<div class="vitem v-bad">⛔ <div>${esc(it.msg)}</div>${it.fix?`<span class="fix"><button class="fixbtn" onclick="wzFix(${w.issues.indexOf(it)})">Bytt til ${it.fix}</button></span>`:""}</div>`).join("")}
+  ${warn.map(it=>`<div class="vitem v-warn">⚠️ <div>${esc(it.msg)}</div></div>`).join("")}`;
+}
+function gridFootHTML(){
+  const w=State.wizard;
+  const bad=w.issues.filter(i=>i.sev==="bad");
+  return `<button class="btn btn-ghost" onclick="State.wizard.step=1;render()">← Tilbake</button>
+  <div style="display:flex;gap:10px;align-items:center">
+    ${!w.rows.length?`<span class="gatemsg">🔒 Legg til minst én linje</span>`:bad.length?`<span class="gatemsg">🔒 ${bad.length} feil må rettes før du kan gå videre</span>`:""}
+    <button class="btn btn-primary" ${!w.rows.length||bad.length?"disabled":""} onclick="wzValidate();State.wizard.step=3;render()">Neste: dokumenter →</button>
+  </div>`;
+}
+/* Celleendring: oppdater data + beregnede celler + feilliste – uten å
+   tegne hele siden på nytt, så fokus/tab-rekkefølge i rutenettet bevares */
+function wzCellG(i,field,el){
+  const w=State.wizard,r=w.rows[i];
+  r[field]=el.value.trim();
+  r.wp=wpFor(r.hose,r.c1,r.c2);
+  const c=cutFor(r.len,r.hose,r.c1,r.c2);r.cut=c.cut;r.cutErr=c.err;
+  wzValidate();
+  if(typeof document==="undefined")return;
+  const wpc=document.getElementById("wpc-"+i),cutc=document.getElementById("cutc-"+i);
+  if(wpc)wpc.textContent=r.wp?r.wp+" bar":"–";
+  if(cutc)cutc.textContent=r.cut?r.cut.toLocaleString("nb-NO"):"–";
+  if(field==="hose")el.classList.toggle("cellbad",!!(r.hose&&!MASTER.hoses[r.hose]));
+  if(field==="c1"||field==="c2")el.classList.toggle("cellbad",!!(r[field]&&!MASTER.couplings[r[field]]));
+  const badRows=new Set(w.issues.filter(x=>x.sev==="bad").map(x=>x.row));
+  const warnRows=new Set(w.issues.filter(x=>x.sev==="warn").map(x=>x.row));
+  w.rows.forEach((_,k)=>{
+    const tr=document.getElementById("gr-"+k);
+    if(tr)tr.className=badRows.has(k)?"rowbad":warnRows.has(k)?"rowwarn":"";
+  });
+  const gi=document.getElementById("gridissues");if(gi)gi.innerHTML=gridIssuesHTML();
+  const gf=document.getElementById("gridfoot");if(gf)gf.innerHTML=gridFootHTML();
+}
+function wzAddRow(){
+  State.wizard.rows.push({pts:"",pos:"",hose:"",len:"",c1:"",c2:"",qty:"1",mach:"",wp:null,cut:null});
+  wzValidate();render();
+}
+function wzDelRow(i){
+  State.wizard.rows.splice(i,1);
+  wzValidate();render();
+}
+function wzDemo(){
+  wzAppendRows(DEMO_PASTE);
+}
+function wzAppendPaste(){
+  const el=document.getElementById("pastebox");
+  wzAppendRows(el?el.value:"");
+  State.wizard.showPaste=false;
+}
+/* Tåler både kundens format (POS først) og gammelt format med PTS-ID først */
+function wzAppendRows(raw){
+  const w=State.wizard;
+  const lines=String(raw||"").split(/\r?\n/).filter(l=>l.trim()!=="");
+  if(!lines.length)return;
+  let rows=lines.map(l=>l.split("\t").map(c=>c.trim()));
+  let hasPts=false;
+  if(/pos|pts|hose/i.test(rows[0].join(" "))){hasPts=/pts/i.test(rows[0][0]);rows=rows.slice(1)}
+  else hasPts=/^(?=.*[A-Z])[A-Z0-9]{6,}$/i.test(rows[0][0]||"");
+  rows.forEach(r=>{
+    const o=hasPts?{pts:r[0]||"",pos:r[1]||"",hose:r[2]||"",len:r[3]||"",c1:r[4]||"",c2:r[5]||"",qty:r[6]||"1",mach:r[7]||""}
+                  :{pts:"",pos:r[0]||"",hose:r[1]||"",len:r[2]||"",c1:r[3]||"",c2:r[4]||"",qty:r[5]||"1",mach:r[6]||""};
+    w.rows.push({...o,wp:null,cut:null});
+  });
+  wzValidate();render();
+}
+
+/* ---------- Validering ---------- */
+function wzValidate(){
+  const w=State.wizard;
+  w.issues=validateRows(w.rows);
+}
+function validateRows(rows){
+  const issues=[];
+  const seen={};
+  const lbl=(r,i)=>`Rad ${i+1}${r.pos?` (POS ${r.pos})`:r.pts?` (${r.pts})`:""}`;
+  rows.forEach((r,i)=>{
+    if(r.pts){ // PTS-ID er valgfri ved innlegging – hentes fra registeret
+      if(seen[r.pts]!==undefined)issues.push({sev:"bad",row:i,msg:`${lbl(r,i)}: PTS-ID «${r.pts}» er duplikat av rad ${seen[r.pts]+1}. Hver slange må ha unik ID.`});
+      seen[r.pts]=i;
+    }
+    if(!r.pos)issues.push({sev:"warn",row:i,msg:`${lbl(r,i)}: mangler POS – tillatt, men bør fylles ut før tags skrives ut.`});
+    if(!r.hose)issues.push({sev:"bad",row:i,msg:`${lbl(r,i)}: mangler slangetype.`});
+    else if(!MASTER.hoses[r.hose]){
+      const s=suggest(r.hose,MASTER.hoses);
+      issues.push({sev:"bad",row:i,field:"hose",fix:s,msg:`${lbl(r,i)}: slangetypen «${r.hose}» finnes ikke i masterdata.${s?` Mente du «${s}»?`:""}`});
+    }
+    ["c1","c2"].forEach(f=>{
+      const code=r[f];
+      if(!code)issues.push({sev:"bad",row:i,msg:`${lbl(r,i)}: mangler ${f==="c1"?"Coupling 1":"Coupling 2"}.`});
+      else if(!MASTER.couplings[code]){
+        const s=suggest(code,MASTER.couplings);
+        issues.push({sev:"bad",row:i,field:f,fix:s,msg:`${lbl(r,i)}: koblingen «${code}» finnes ikke i masterdata.${s?` Mente du «${s}»?`:""}`});
+      }
+    });
+    const len=Number(r.len);
+    if(!r.len||isNaN(len)||len<=0)issues.push({sev:"bad",row:i,msg:`${lbl(r,i)}: lengde mangler eller er ugyldig («${r.len||"tom"}»).`});
+    const q=Number(r.qty);
+    if(!r.qty||isNaN(q)||q<1)issues.push({sev:"warn",row:i,msg:`${lbl(r,i)}: antall mangler – settes til 1.`});
+  });
+  rows.forEach((r,i)=>{
+    r.wp=wpFor(r.hose,r.c1,r.c2);
+    const c=cutFor(r.len,r.hose,r.c1,r.c2);
+    r.cut=c.cut;r.cutErr=c.err;
+    if(c.err)issues.push({sev:"bad",row:i,msg:`${lbl(r,i)}: kuttemål kan ikke beregnes – ${c.err}.`});
+  });
+  return issues;
+}
+function wzFix(idx){
+  const w=State.wizard,it=w.issues[idx];
+  if(it&&it.fix&&it.field!==undefined){w.rows[it.row][it.field]=it.fix;wzValidate();render()}
+}
+
+/* ---------- Steg 3: Dokumenter ---------- */
+function wz4(){
+  const w=State.wizard;
+  return `<div class="card">
+    <h2 style="margin-top:0">3 · Hvilke dokumenter skal genereres?</h2>
+    <div class="sub">Dokumentene bygges automatisk fra den validerte listen – alltid samme mal, alltid komplett.</div>
+    <div class="docgrid">
+      <div class="doccard"><h3>📄 Produksjonsliste</h3><div class="sub" style="margin:0 0 8px">Sortert per pakke/slange – verkstedets arbeidsliste.</div>
+        <label style="font-size:13px"><input type="checkbox" ${w.docs.prod?"checked":""} onchange="State.wizard.docs.prod=this.checked"> Generer</label></div>
+      <div class="doccard"><h3>🧪 Trykktestsertifikat</h3><div class="sub" style="margin:0 0 8px">WP og testtrykk (1,5 × WP) per slange, med signaturfelt.</div>
+        <label style="font-size:13px"><input type="checkbox" ${w.docs.test?"checked":""} onchange="State.wizard.docs.test=this.checked"> Generer</label></div>
+      <div class="doccard"><h3>🏷️ Tags</h3><div class="sub" style="margin:0 0 8px">Én merkelapp per slange med POS, PTS-ID og WP.</div>
+        <label style="font-size:13px"><input type="checkbox" ${w.docs.tags?"checked":""} onchange="State.wizard.docs.tags=this.checked"> Generer</label></div>
+    </div>
+    <h2>Forhåndsvisning</h2>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn btn-ghost" onclick="State.wizard.preview='prod';render()">Produksjonsliste</button>
+      <button class="btn btn-ghost" onclick="State.wizard.preview='test';render()">Trykktestsertifikat</button>
+      <button class="btn btn-ghost" onclick="State.wizard.preview='tags';render()">Tags</button>
+    </div>
+    ${w.preview?docPreview(w.rows,{title:w.project,order:w.order,po:w.po},w.preview):""}
+    <div class="wizfoot">
+      <button class="btn btn-ghost" onclick="State.wizard.step=2;render()">← Tilbake</button>
+      <button class="btn btn-primary" onclick="State.wizard.step=4;render()">Neste: lagre →</button>
+    </div>
+  </div>`;
+}
+
+function docPreview(rows,meta,kind){
+  if(kind==="prod")return `<div class="docpreview">
+    <h4>Production List / Kutteliste – ${esc(meta.title||"")}</h4>
+    <div style="color:#555;margin-bottom:8px">Order: ${esc(meta.order||"")} · PO: ${esc(meta.po||"–")} · Kuttemål beregnet fra masterdata (CUT = Lengde − B1 − B2 − S)</div>
+    <table><tr><th>PTS ID</th><th style="background:#c55a11">CUT (mm)</th><th>POS</th><th>Hose</th><th>Length</th><th>Coupling 1</th><th>Coupling 2</th><th>QTY</th></tr>
+    ${rows.map(r=>`<tr><td>${esc(r.pts||"(hentes)")}</td><td style="font-weight:700">${r.cut?r.cut.toLocaleString("nb-NO"):"–"}</td><td>${esc(r.pos)}</td><td>${esc(r.hose)}</td><td>${esc(r.len)}</td><td>${esc(r.c1)}</td><td>${esc(r.c2)}</td><td>${esc(r.qty)}</td></tr>`).join("")}</table></div>`;
+  if(kind==="test")return `<div class="docpreview">
+    <h4>Pressure Test Certificate</h4>
+    <div style="color:#555;margin-bottom:8px">${esc(meta.title||"")} · Order ${esc(meta.order||"")} · Test medium: vann · Holdetid: 10 min</div>
+    <table><tr><th>Line</th><th>PTS ID</th><th>Hose</th><th>WP (bar)</th><th>TP = 1,5×WP</th><th>Resultat</th><th>Sign</th></tr>
+    ${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.pts||"(hentes)")}</td><td>${esc(r.hose)}</td><td>${r.wp||"–"}</td><td>${r.wp?Math.round(r.wp*1.5):"–"}</td><td></td><td></td></tr>`).join("")}</table>
+    <div style="margin-top:14px;color:#555">Testet av: ______________ &nbsp;&nbsp; Dato: ____________ &nbsp;&nbsp; Godkjent: ______________</div></div>`;
+  return `<div class="docpreview"><h4>Tags (${rows.length} stk)</h4><div class="tagsgrid" style="margin-top:8px">
+    ${rows.slice(0,8).map(r=>`<div class="tag"><div class="qr"></div>
+      <div class="pts">POS ${esc(r.pos||"–")}</div>
+      <div style="font-weight:700">${esc(r.mach?"Maskin "+r.mach+" · ":"")}PTS ${esc(r.pts||"(hentes)")}</div>
+      <div>${esc(r.hose)} · ${esc(r.len)} mm</div>
+      <div>${esc(r.c1)} / ${esc(r.c2)}</div>
+      <div><b>WP ${r.wp||"–"} bar</b> · Global Onsite AS</div></div>`).join("")}
+    ${rows.length>8?`<div style="align-self:center;color:#555">… + ${rows.length-8} til</div>`:""}</div></div>`;
+}
+
+/* ---------- Steg 4: Lagre ---------- */
+function wz5(){
+  const w=State.wizard;
+  const year=new Date().getFullYear();
+  const id=w.editId||("PM-"+year+"-"+String(State.seq+1).padStart(3,"0"));
+  w.newId=w.editId?null:("PM-"+year+"-"+String(State.seq+1).padStart(3,"0"));
+  const havePts=w.rows.filter(r=>r.pts).length;
+  return `<div class="card">
+    <h2 style="margin-top:0">4 · Oppsummering og lagring</h2>
+    <div class="cardrow">
+      <div class="tile"><div class="t-label">Mappe-ID</div><div class="t-value" style="font-size:19px" class="mono">${id}</div></div>
+      <div class="tile"><div class="t-label">Prosjekt</div><div class="t-value" style="font-size:15px">${esc(w.project||w.customer)}</div><div class="t-note">Ordre ${esc(w.order||"–")} · PO ${esc(w.po||"–")}</div></div>
+      <div class="tile"><div class="t-label">Slanger</div><div class="t-value">${w.rows.length}</div><div class="t-note">alle validert ✓</div></div>
+      <div class="tile"><div class="t-label">🔖 PTS-ID-er</div><div class="t-value">${havePts}/${w.rows.length}</div><div class="t-note">${havePts===w.rows.length?"alle har ID fra PTS-registeret":"hentes fra PTS-registeret"}</div></div>
+      <div class="tile"><div class="t-label">⏱ Estimert produksjonstid</div><div class="t-value">${fmtH(estHoursFolder({lines:w.rows}).hours)}</div><div class="t-note">≈ ${(estHoursFolder({lines:w.rows}).hours/(State.plan.fitters*State.plan.hoursPerDay)).toLocaleString("nb-NO",{maximumFractionDigits:1})} dagsverk med ${State.plan.fitters} montører – legges rett i produksjonsplanen</div></div>
+      <div class="tile"><div class="t-label">Dokumenter</div><div class="t-value" style="font-size:15px">${["prod"in w.docs&&w.docs.prod?"Produksjonsliste":null,w.docs.test?"Trykktest":null,w.docs.tags?"Tags":null].filter(Boolean).join(" · ")}</div></div>
+    </div>
+    ${havePts<w.rows.length?`
+    <div class="vitem v-warn">🔖 <div><b>${w.rows.length-havePts} slanger mangler PTS-ID.</b> Hent dem nå med ett klikk – systemet reserverer neste ledige ID-er i PTS-registeret. (Kan også gjøres senere fra mappen, men må være på plass før produksjon.)</div>
+      <span class="fix"><button class="fixbtn" onclick="wzFetchPts()">🔖 Hent PTS-ID-er til alle slangene</button></span></div>`
+    :`<div class="vitem v-good">🔖 <div><b>Alle ${w.rows.length} slangene har PTS-ID</b> – reservert i PTS-registeret og klare for tags og sporing.</div></div>`}
+    <h2>Slik lagres det i SharePoint</h2>
+    <div class="sptree">
+      <div class="dim">/sites/PMO/Slangeproduksjon/</div>
+      <div class="dim">├─ Produksjonsmapper (liste – metadata, status, logg)</div>
+      <div>└─ ${year}/</div>
+      <div class="new">&nbsp;&nbsp;&nbsp;└─ ${id} – ${esc(w.project||w.customer)}/</div>
+      <div class="new">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ 01_Produksjonsliste.xlsx</div>
+      <div class="new">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ 02_Trykktestsertifikat.pdf</div>
+      <div class="new">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├─ 03_Tags.pdf</div>
+      <div class="new">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└─ Slangeliste (SharePoint-liste, én rad per slange)</div>
+    </div>
+    ${w.project?`<div class="notice" style="margin-top:12px">🔗 Mappen kobles til PMOTION-prosjektet «${esc(w.project)}» og dukker opp som sjekklistepunkt i Fase 4 – Gjennomføring.</div>`
+    :`<div class="notice" style="margin-top:12px">📨 Ikke knyttet til PMOTION-prosjekt – helt greit for enkeltstående slangeforespørsler. Kobling kan legges til senere fra mappen.</div>`}
+    <div class="notice">${w.order||w.po?"📦 Ordre-/PO-nummer er registrert – mappen lagres som <b>Ordre – klar til produksjon</b>.":"📨 Uten ordre/PO lagres mappen som <b>Forespørsel</b>: slangelisten kan bearbeides videre, tilbudsunderlag kan skrives ut, og mappen løftes til ordre når bestillingen kommer."}</div>
+    <div class="notice">⚙️ Etter lagring følger mappen prosessen: <b>opprett slangepakken i Telaris</b> med ett klikk (varenummer + komplett BOM genereres automatisk) → <b>tilbudet sendes fra Telaris</b> på pakkevaren → bestilling registreres når den kommer. Portene i mappen håndhever rekkefølgen.</div>
+    <div class="wizfoot">
+      <button class="btn btn-ghost" onclick="State.wizard.step=3;render()">← Tilbake</button>
+      <button class="btn btn-good btn-big" onclick="wzCreate()">${w.editId?"✅ Lagre oppdatert slangeliste":w.order||w.po?"✅ Opprett produksjonsmappe":"✅ Opprett forespørsel"}</button>
+    </div>
+  </div>`;
+}
+function wzFetchPts(){
+  const w=State.wizard;
+  const n=assignPts(w.rows);
+  w.ptsFetched=(w.ptsFetched||0)+n;
+  wzValidate();render();
+}
+
+function wzCreate(){
+  const w=State.wizard;
+  const newLines=w.rows.map(r=>({...r,len:Number(r.len),qty:Number(r.qty)||1,st:{cut:null,clean:null,press:null,test:null}}));
+  if(w.editId){
+    const f=folder(w.editId);
+    f.customer=w.customer;f.custRef=w.custRef;f.project=w.project;f.order=w.order;f.po=w.po;f.hub=w.hub;
+    // bevar utført arbeid på linjer med samme PTS ID
+    const oldByPts={};f.lines.forEach(l=>{if(l.pts)oldByPts[l.pts]=l});
+    f.lines=newLines.map(l=>l.pts&&oldByPts[l.pts]?{...l,st:oldByPts[l.pts].st,mach:l.mach||oldByPts[l.pts].mach}:l);
+    f.docsStale=true;
+    if(w.ptsFetched)addLog(f,`${w.ptsFetched} PTS-ID-er reservert fra PTS-registeret`);
+    addLog(f,`Slangelisten bearbeidet på nytt – ${f.lines.length} linjer, validering OK. Dokumentene må regenereres.`);
+    State.wizard=null;App.openFolder(f.id);return;
+  }
+  State.seq++;
+  const isOrder=!!(w.order||w.po);
+  const f={id:w.newId,
+    title:(w.customer||"Kunde")+" – "+(w.project?w.project.replace(/^[\d]+ – /,""):(w.custRef||"slangeforespørsel")),
+    project:w.project,order:w.order,po:w.po,custRef:w.custRef,customer:w.customer,hub:w.hub,
+    status:isOrder?"klar":"fsp",
+    created:now(),by:State.user,docsGenerated:true,docsStale:false,plannedStart:null,
+    lines:newLines,log:[]};
+  f.log.unshift({t:now(),who:State.user,msg:isOrder
+    ?`Produksjonsmappe opprettet${w.project?` fra PMOTION-prosjekt «${w.project}»`:""} – ${f.lines.length} slanger, validering OK`
+    :`Forespørsel registrert fra ${w.customer}${w.custRef?" ("+w.custRef+")":""} – slangelisten bearbeidet og validert (${f.lines.length} linjer)`});
+  if(w.ptsFetched)f.log.unshift({t:now(),who:"System",msg:`${w.ptsFetched} PTS-ID-er reservert fra PTS-registeret`});
+  f.log.unshift({t:now(),who:"System",msg:"Dokumenter generert og lagret i SharePoint (simulert i prototypen)"});
+  State.folders.unshift(f);
+  State.wizard=null;
+  App.openFolder(f.id);
+}
+</script>
+<script>
+/* =====================================================================
+   Mappevisning
+   ===================================================================== */
+function vFolder(){
+  const f=folder(State.activeId);
+  if(!f)return "<p>Fant ikke mappen.</p>";
+  const n=f.lines.length,p=f.lines.filter(l=>l.st.cut).length,t=f.lines.filter(l=>l.st.test).length;
+  const flowIdx=FLOWORDER.indexOf(f.status);
+  return `
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+    <div><div class="pm-id mono">${f.id} · opprettet ${f.created} av ${esc(f.by)}</div>
+    <h1>${esc(f.title)}</h1>
+    <div class="sub" style="margin-bottom:6px">📎 ${esc(f.project)} · Ordre/PO: ${esc(f.po||"–")} · Hub: ${esc(f.hub)}${f.lines.length?` · ⏱ Estimat ${fmtH(estHoursFolder(f).hours)}${["prod","test","qc"].includes(f.status)?` (gjenstår ${fmtH(remainingHours(f))})`:""}`:""}${f.telaris?` · <span class="telbadge">⚙️ Telaris ${f.telaris.pkg}</span>`:""}</div></div>
+    <div>${stBadge(f.status)}</div>
+  </div>
+  <div class="flow">${FLOWORDER.slice(0,7).map((s,i)=>{
+    const cls=i<flowIdx?"f past":i===flowIdx?"f on":"f";
+    return `<span class="${cls}">${STATUSES[s].icon} ${STATUSES[s].label}</span>${i<6?'<span class="arr">→</span>':""}`;
+  }).join("")}</div>
+  ${folderActions(f)}
+  <div class="tabs">
+    ${[["liste","📄 Slangeliste ("+n+")"],["dok","🗂️ Dokumenter"],["logg","📝 Logg ("+f.log.length+")"]].map(([k,l])=>
+      `<button class="tab ${State.activeTab===k?"active":""}" onclick="State.activeTab='${k}';render()">${l}</button>`).join("")}
+  </div>
+  ${State.activeTab==="liste"?fTabListe(f,p,t):State.activeTab==="dok"?fTabDok(f):fTabLogg(f)}`;
+}
+
+function folderActions(f){
+  const btns=[];
+  const miss=ptsMissing(f);
+  if(["fsp","tilbud"].includes(f.status)){
+    btns.push(`<button class="btn btn-primary" onclick="fResume('${f.id}')">✏️ Bearbeid slangelisten</button>`);
+  }
+  /* kjeden: bearbeid → hent PTS-ID-er → opprett i Telaris → tilbud fra Telaris → ordre → verksted */
+  if(miss&&["fsp","tilbud","klar"].includes(f.status))
+    btns.push(`<button class="btn btn-good" onclick="fFetchPts('${f.id}')">🔖 Hent PTS-ID-er til alle slangene (${miss} mangler)</button>`);
+  if(!f.telaris&&f.lines.length&&!miss&&["fsp","tilbud","klar"].includes(f.status))
+    btns.push(`<button class="btn btn-good" onclick="fCreateTelaris('${f.id}')">⚙️ Opprett slangepakke i Telaris</button>`);
+  if(["fsp","tilbud"].includes(f.status)){
+    if(f.status==="fsp"){
+      btns.push(`<button class="btn btn-ghost" ${f.telaris?"":`disabled title="Slangepakken må opprettes i Telaris først – tilbudet sendes derfra"`} onclick="fMarkTilbud('${f.id}')">📤 Marker tilbud sendt fra Telaris</button>`);
+      if(f.lines.length&&!f.telaris&&!miss)btns.push(`<span class="gatemsg" style="align-self:center">🔒 Tilbudet sendes fra Telaris – opprett slangepakken først</span>`);
+    }
+    btns.push(`<button class="btn btn-good" ${f.lines.length?"":"disabled title='Slangelisten er tom'"} onclick="State.poForm=State.poForm==='${f.id}'?null:'${f.id}';render()">📦 Registrer bestilling …</button>`);
+  }
+  if(!f.project&&!["ferdig","arkiv"].includes(f.status))btns.push(`<select style="background:var(--surface2);color:var(--text);border:1px solid var(--border2);border-radius:9px;padding:8px 10px;font-size:12.5px" onchange="fLinkProject('${f.id}',this.value)">
+    <option value="">🔗 Koble til PMOTION-prosjekt …</option>${PMPROJECTS.map(p=>`<option>${p}</option>`).join("")}</select>`);
+  if(f.status==="klar"){
+    btns.push(`<button class="btn btn-primary" ${miss||!f.telaris?`disabled title="${miss?"Hent PTS-ID-er først – hver slange må ha ID for tags og sporing":"Opprett slangepakken i Telaris først – BOM-en styrer lagertrekk og kalkyle"}"`:""} onclick="fSend('${f.id}')">🏭 Send til verksted</button>`);
+    if(miss)btns.push(`<span class="gatemsg" style="align-self:center">🔒 ${miss} slanger mangler PTS-ID – hent dem før produksjon</span>`);
+    else if(!f.telaris)btns.push(`<span class="gatemsg" style="align-self:center">🔒 Opprett slangepakken i Telaris før produksjon</span>`);
+  }
+  if(["prod","test"].includes(f.status))btns.push(`<button class="btn btn-ghost" onclick="State.ws.folderId='${f.id}';State.ws.stage=null;State.ws.hoseType=null;App.nav('verksted')">🏭 Åpne i verkstedsmodus</button>`);
+  if(f.status==="qc")btns.push(`<button class="btn btn-primary" onclick="State.ws.folderId='${f.id}';State.ws.stage='qc';App.nav('verksted')">🔍 Åpne spot-check</button>`);
+  if(f.status==="ferdig"&&f.spot)btns.push(`<button class="btn btn-primary" onclick="State.ws.folderId='${f.id}';State.ws.stage='prints';App.nav('verksted')">🖨️ Utskrifter</button>`);
+  if(f.status==="ferdig")btns.push(`<button class="btn btn-ghost" onclick="fArchive('${f.id}')">🗃️ Arkiver mappen</button>`);
+  const poForm=State.poForm===f.id?`
+  <div class="card" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+    <div><label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">Ordrenummer</label><br>
+      <input id="pf-order" value="${esc(f.order||"")}" placeholder="f.eks. 26810" style="background:var(--surface2);border:1px solid var(--border2);border-radius:9px;color:var(--text);padding:9px 12px"></div>
+    <div><label style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px">PO-nummer</label><br>
+      <input id="pf-po" value="${esc(f.po||"")}" placeholder="kundens PO" style="background:var(--surface2);border:1px solid var(--border2);border-radius:9px;color:var(--text);padding:9px 12px"></div>
+    <button class="btn btn-good" onclick="fRegisterPO('${f.id}',document.getElementById('pf-order').value,document.getElementById('pf-po').value)">✅ Registrer – mappen blir klar til produksjon</button>
+  </div>`:"";
+  return (btns.length?`<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">${btns.join("")}</div>`:"")+poForm;
+}
+function fMarkTilbud(id){
+  const f=folder(id);if(!f.lines.length)return;
+  if(!f.telaris)return; // port: tilbudet sendes fra Telaris på pakkevaren
+  f.status="tilbud";
+  addLog(f,`Tilbud sendt til kunden fra Telaris på pakkevare ${f.telaris.pkg} – tilbudsunderlaget ligger i Dokumenter`);
+  render();
+}
+function fRegisterPO(id,order,po){
+  const f=folder(id);
+  if(!order&&!po)return;
+  f.order=(order||"").trim();f.po=(po||"").trim();f.status="klar";State.poForm=null;
+  addLog(f,`Bestilling registrert (ordre ${f.order||"–"} / PO ${f.po||"–"}) – mappen er klar til produksjon og lagt i produksjonsplanen`);
+  render();
+}
+function fLinkProject(id,proj){
+  if(!proj)return;
+  const f=folder(id);f.project=proj;
+  addLog(f,`Mappen koblet til PMOTION-prosjektet «${proj}»`);
+  render();
+}
+function fResume(id){
+  const f=folder(id);
+  App.startWizard();
+  const w=State.wizard;
+  w.editId=f.id;w.project=f.project||"";w.order=f.order||"";w.po=f.po||"";
+  w.customer=f.customer||"";w.custRef=f.custRef||"";w.hub=f.hub||"Lillesand";
+  w.rows=f.lines.map(l=>({pts:l.pts,pos:String(l.pos??""),hose:l.hose,len:String(l.len??""),
+    c1:l.c1,c2:l.c2,qty:String(l.qty??"1"),mach:l.mach||"",wp:l.wp,cut:l.cut}));
+  if(w.rows.length){wzValidate();w.step=2}
+  render();
+}
+function fFetchPts(id){
+  const f=folder(id);
+  const n=assignPts(f.lines);
+  if(n){f.docsStale=true;addLog(f,`${n} PTS-ID-er reservert fra PTS-registeret – tags og dokumenter må regenereres`)}
+  render();
+}
+function fSend(id){
+  const f=folder(id);
+  if(ptsMissing(f)||!f.telaris)return; // port: PTS-ID-er hentet og Telaris-pakke opprettet før produksjon
+  f.status="prod";
+  addLog(f,"Status endret: Klar til produksjon → I produksjon (sendt til verksted)");
+  render();
+}
+function fCreateTelaris(id){
+  const f=folder(id);
+  if(f.telaris)return;
+  f.telaris=buildTelaris(f);
+  addLog(f,`Slangepakke opprettet i Telaris (simulert): vare ${f.telaris.pkg} med ${f.telaris.items.length} slanger og komplett BOM`);
+  render();
+}
+function fArchive(id){
+  const f=folder(id);f.status="arkiv";
+  addLog(f,"Mappen arkivert – historikk og dokumenter beholdes i SharePoint");
+  render();
+}
+
+function fTabListe(f,p,t){
+  const editable=["fsp","tilbud","klar"].includes(f.status);
+  return `
+  ${f.lines.length?`
+  <div class="cardrow">
+    ${STAGES.map(s=>{const c=stageCount(f,s.key);return `<div class="tile"><div class="t-label">${s.icon} ${s.label}</div><div class="t-value">${c}/${f.lines.length}</div><div class="meter ${s.key==="test"?"m-good":""}"><div style="width:${Math.round(100*c/f.lines.length)}%"></div></div></div>`}).join("")}
+  </div>` : `<div class="notice">Utkastet har ingen slangeliste ennå – fortsett i veiviseren.</div>`}
+  ${editable&&f.lines.length?`<div class="notice">✏️ Mappen kan redigeres til den sendes til verksted. Endringer merker dokumentene som utdaterte.</div>`:""}
+  <div class="tblwrap"><table>
+    <tr><th>PTS ID</th><th>POS</th><th>Hose</th><th>Lengde</th><th>Kutt</th><th>Coupling 1</th><th>Coupling 2</th><th>Ant.</th><th>WP</th><th>Operasjoner</th></tr>
+    ${f.lines.map((l,i)=>`<tr>
+      <td class="mono">${l.pts?esc(l.pts):`<span class="ptspill">hentes</span>`}</td><td>${esc(l.pos)}</td><td>${esc(l.hose)}</td><td>${esc(l.len)}</td>
+      <td class="mono" style="font-weight:700">${fmtCut(l)}</td>
+      <td class="mono">${esc(l.c1)}</td><td class="mono">${esc(l.c2)}</td><td>${l.qty}</td><td>${l.wp?l.wp+" bar":"–"}</td>
+      <td>${STAGES.map(s=>`<span title="${s.label}${l.st[s.key]?" – "+l.st[s.key].by+" "+l.st[s.key].at:" – ikke utført"}" style="opacity:${l.st[s.key]?1:.22};font-size:15px">${s.icon}</span>`).join(" ")}</td>
+    </tr>`).join("")}
+  </table></div>
+  ${editable&&f.lines.length?`<div style="margin-top:12px"><button class="btn btn-ghost" onclick="fEditDemo('${f.id}')">✏️ Simuler endring (legg til en slange)</button></div>`:""}`;
+}
+function fEditDemo(id){
+  const f=folder(id);
+  f.lines.push(L("NY"+String(Math.floor(1+f.lines.length*7%899)+100),999,"487ST-8",2000,"1C948-16-8","11C48-16-8",1,0));
+  f.docsStale=true;
+  addLog(f,"Slangeliste endret (1 linje lagt til) – dokumentene er merket som utdaterte");
+  render();
+}
+
+function fTabDok(f){
+  const meta={title:f.title,order:f.po,po:f.po};
+  return `
+  ${f.docsStale?`<div class="vitem v-warn">⚠️ <div><b>Dokumentene er utdaterte:</b> slangelisten er endret etter forrige generering. Regenerer før utskrift.</div>
+    <span class="fix"><button class="fixbtn" onclick="fRegen('${f.id}')">🔁 Regenerer nå</button></span></div>`:""}
+  <div class="docgrid">
+    <div class="doccard"><h3>💰 Tilbudsunderlag</h3>
+      <div class="sub" style="margin:0 0 10px">Mengder, koblinger og estimert tid – prisgrunnlaget for tilbudet som sendes fra Telaris${f.telaris?` (pakkevare <span class="mono">${f.telaris.pkg}</span>)`:""}.</div>
+      <button class="btn btn-ghost" onclick="State.printDoc={fid:'${f.id}',kind:'quote'};render()">🖨️ Vis / skriv ut</button></div>
+    <div class="doccard ${f.docsStale?"doc-stale":""}"><h3>📄 Produksjonsliste</h3>
+      <div class="sub" style="margin:0 0 10px">01_Produksjonsliste.xlsx</div>
+      <button class="btn btn-ghost" onclick="State.docPrev={id:'${f.id}',k:'prod'};render()">Forhåndsvis</button></div>
+    <div class="doccard ${f.docsStale?"doc-stale":""}"><h3>🧪 Trykktestsertifikat</h3>
+      <div class="sub" style="margin:0 0 10px">02_Trykktestsertifikat.pdf</div>
+      <button class="btn btn-ghost" onclick="State.docPrev={id:'${f.id}',k:'test'};render()">Forhåndsvis</button></div>
+    <div class="doccard ${f.docsStale?"doc-stale":""}"><h3>🏷️ Tags (${f.lines.length})</h3>
+      <div class="sub" style="margin:0 0 10px">03_Tags.pdf</div>
+      <button class="btn btn-ghost" onclick="State.docPrev={id:'${f.id}',k:'tags'};render()">Forhåndsvis</button></div>
+    ${["ferdig","arkiv"].includes(f.status)?`
+    <div class="doccard"><h3>📦 Pallemerkelapp</h3>
+      <div class="sub" style="margin:0 0 10px">04_Pallemerkelapp.pdf</div>
+      <button class="btn btn-ghost" onclick="State.printDoc={fid:'${f.id}',kind:'pallet'};render()">🖨️ Vis / skriv ut</button></div>`:""}
+    ${f.spot?`
+    <div class="doccard"><h3>🔍 Spot-check-rapport</h3>
+      <div class="sub" style="margin:0 0 10px">05_SpotCheck.pdf · ${f.spot.completedAt?"godkjent "+f.spot.completedAt:"pågår"}</div>
+      <button class="btn btn-ghost" onclick="State.printDoc={fid:'${f.id}',kind:'spot'};render()">🖨️ Vis / skriv ut</button></div>`:""}
+    <div class="doccard"><h3>⚙️ Telaris – slangepakke + BOM</h3>
+      ${f.telaris
+        ?`<div class="sub" style="margin:0 0 10px">Opprettet ${f.telaris.createdAt} · pakkevare <b class="mono">${f.telaris.pkg}</b> · ${f.telaris.items.length} slangevarer med BOM</div>
+          <button class="btn btn-ghost" onclick="State.printDoc={fid:'${f.id}',kind:'telaris'};render()">📄 Vis vare- og BOM-oversikt</button>`
+        :`<div class="sub" style="margin:0 0 10px">Oppretter slangepakken som vare i Telaris med varenummer per slange og komplett BOM (slange, koblinger, timer, tag) – ingen manuell registrering. <b>Må gjøres før tilbudet</b>: tilbudet sendes fra Telaris på pakkevaren.</div>
+          ${ptsMissing(f)?`<div class="gatemsg" style="margin-bottom:8px">🔒 Hent PTS-ID-er først – de følger varene i Telaris</div>`:""}
+          <button class="btn btn-primary" ${!f.lines.length||ptsMissing(f)?"disabled":""} onclick="fCreateTelaris('${f.id}')">⚙️ Opprett slangepakke i Telaris</button>`}
+    </div>
+  </div>
+  ${State.docPrev&&State.docPrev.id===f.id?docPreview(f.lines,meta,State.docPrev.k):""}
+  <div class="notice" style="margin-top:14px">📁 I drift ligger filene i SharePoint-mappen <span class="mono">/Slangeproduksjon/2026/${f.id} – ${esc(f.title)}/</span> – alltid samme struktur, alltid gjenfinnbart.</div>`;
+}
+function fRegen(id){
+  const f=folder(id);f.docsStale=false;
+  addLog(f,"Dokumenter regenerert fra oppdatert slangeliste");
+  render();
+}
+
+function fTabLogg(f){
+  return `<div class="card"><ul class="log">
+    ${f.log.map(e=>`<li><span class="lt">${e.t}</span><span>${esc(e.msg)}<br><span style="color:var(--muted)">${esc(e.who)}</span></span></li>`).join("")}
+  </ul></div>`;
+}
+
+/* =====================================================================
+   Verkstedsmodus – store flater for PC/skjerm på verkstedet.
+   Slangene er gruppert per slangetype: montøren må aktivt velge typen
+   (med tegning) før kuttelisten vises – det hindrer kapping av feil
+   slange når flere typer ligger i samme mappe.
+   ===================================================================== */
+
+/* Visuell profil per serie: farge + antall lag. Fargen er en skjermkode
+   for å skille typene – typenavnet står alltid påtrykt (aldri farge alene). */
+const SERIES_STYLE={
+  "187ST":{color:"#8a94a8",layers:1,desc:"1-flettet · WP 70 bar"},
+  "387ST":{color:"#3b82f6",layers:2,desc:"2-flettet · WP 210 bar"},
+  "487ST":{color:"#d64545",layers:4,desc:"4-spiral · WP 280 bar"},
+  "787ST":{color:"#2f9e6e",layers:6,desc:"multispiral · WP 350 bar"},
+  "462ST":{color:"#b07d2b",layers:2,desc:"2-flettet · WP 310 bar"},
+  "2390N":{color:"#7c5cd6",layers:2,desc:"kompakt · WP 490 bar"}
+};
+function seriesOf(code){return (code||"").split("-")[0]}
+function sizeOf(code){const p=(code||"").split("-");return Number(p[p.length-1])||8}
+
+/* Skjematisk tegning av slangen: press-nippel i begge ender, hylse,
+   slangekropp med spiralmønster og påtrykt kode ("lay line"). */
+function hoseSVG(code,h){
+  h=h||64;
+  const st=SERIES_STYLE[seriesOf(code)]||{color:"#8892a4",layers:2,desc:""};
+  const size=sizeOf(code);
+  const bodyH=Math.min(12+size*1.5,36);           // tykkelse følger dimensjonen
+  const W=440,cy=h/2,x1=78,x2=W-78;
+  const pid="p"+code.replace(/[^a-zA-Z0-9]/g,"");
+  const fitting=(x,dir)=>`
+    <rect x="${x-14*dir-14}" y="${cy-bodyH/2-5}" width="28" height="${bodyH+10}" rx="3" fill="#9aa3b5"/>
+    <rect x="${dir>0?x-52:x+24}" y="${cy-7}" width="28" height="14" rx="2" fill="#c2c9d6"/>
+    <path d="M ${dir>0?x-66:x+66} ${cy} l ${10*dir} -9 v18 z" fill="#c2c9d6"/>`;
+  return `<svg viewBox="0 0 ${W} ${h}" style="width:100%;max-width:${W}px;height:auto" role="img" aria-label="Tegning av ${esc(code)}">
+    <defs><pattern id="${pid}" width="14" height="${bodyH}" patternUnits="userSpaceOnUse" patternTransform="rotate(0)">
+      <rect width="14" height="${bodyH}" fill="${st.color}"/>
+      <path d="M -2 ${bodyH+2} L 9 -2" stroke="rgba(0,0,0,.28)" stroke-width="${Math.max(2,6-st.layers)}"/>
+      <path d="M 5 ${bodyH+2} L 16 -2" stroke="rgba(255,255,255,.16)" stroke-width="2"/>
+    </pattern></defs>
+    <rect x="${x1}" y="${cy-bodyH/2}" width="${x2-x1}" height="${bodyH}" rx="${bodyH/2.6}" fill="url(#${pid})" stroke="rgba(0,0,0,.4)"/>
+    <rect x="${x1}" y="${cy-bodyH/2+2}" width="${x2-x1}" height="4" rx="2" fill="rgba(255,255,255,.25)"/>
+    ${fitting(x1,1)}${fitting(x2,-1)}
+    <rect x="${(W-190)/2}" y="${cy-8}" width="190" height="16" rx="3" fill="rgba(0,0,0,.45)"/>
+    <text x="${W/2}" y="${cy+4}" text-anchor="middle" font-family="monospace" font-size="12" font-weight="700" fill="#fff">${esc(code)} · ${MASTER.hoses[code]?MASTER.hoses[code].inch:""}</text>
+  </svg>`;
+}
+
+/* =====================================================================
+   Detaljerte tegninger: koblinger (riktig vinkel/system fra masterdata),
+   komplett montasje, bar slange med målpil og UC-propper.
+   ===================================================================== */
+let svgSeq=0;
+function metalDefs(tag){return `<defs>
+  <linearGradient id="met${tag}" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#eef2f7"/><stop offset=".45" stop-color="#aeb8c6"/>
+    <stop offset=".55" stop-color="#98a3b3"/><stop offset="1" stop-color="#5f6875"/>
+  </linearGradient>
+  <linearGradient id="metd${tag}" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#cfd6df"/><stop offset="1" stop-color="#49515c"/>
+  </linearGradient>
+</defs>`}
+function hosePattern(tag,hose,bodyH){
+  const st=SERIES_STYLE[seriesOf(hose)]||{color:"#8892a4",layers:2};
+  return `<defs><pattern id="hp${tag}" width="14" height="${bodyH}" patternUnits="userSpaceOnUse">
+    <rect width="14" height="${bodyH}" fill="${st.color}"/>
+    <path d="M -2 ${bodyH+2} L 9 -2" stroke="rgba(0,0,0,.28)" stroke-width="${Math.max(2,6-(st.layers||2))}"/>
+    <path d="M 5 ${bodyH+2} L 16 -2" stroke="rgba(255,255,255,.16)" stroke-width="2"/>
+  </pattern></defs>`;
+}
+
+/* Én kobling tegnet ut fra hylsa. dir=1: venstre ende, dir=-1: høyre ende. */
+function couplingPart(code,dir,x,cy,bodyH,tag){
+  const c=MASTER.couplings[code]||{};
+  const ang=c.ang??0;
+  const E="#3a414c";
+  const fh=bodyH+14, fw=34;
+  const fx=dir>0?x-fw:x;
+  let g=`<rect x="${fx}" y="${cy-fh/2}" width="${fw}" height="${fh}" rx="4" fill="url(#met${tag})" stroke="${E}"/>`;
+  for(let k=1;k<6;k++){const rx=fx+k*(fw/6);
+    g+=`<line x1="${rx}" y1="${cy-fh/2+3}" x2="${rx}" y2="${cy+fh/2-3}" stroke="#525a66" stroke-width="1.4" opacity=".8"/>`}
+  const stem=13, nutW=26, nutH=bodyH+18, nipW=15;
+  let outer=`<rect x="0" y="${-bodyH/2-2}" width="${stem}" height="${bodyH+4}" fill="url(#metd${tag})" stroke="${E}"/>`;
+  outer+=`<rect x="${stem}" y="${-nutH/2}" width="${nutW}" height="${nutH}" rx="3" fill="url(#met${tag})" stroke="${E}"/>`;
+  outer+=`<line x1="${stem+2}" y1="${-nutH/6}" x2="${stem+nutW-2}" y2="${-nutH/6}" stroke="#6a7482" stroke-width="1.2"/>`;
+  outer+=`<line x1="${stem+2}" y1="${nutH/6}" x2="${stem+nutW-2}" y2="${nutH/6}" stroke="#4d5560" stroke-width="1.2"/>`;
+  outer+=`<rect x="${stem+nutW}" y="${-bodyH/2}" width="${nipW}" height="${bodyH}" fill="url(#metd${tag})" stroke="${E}"/>`;
+  for(let k=2;k<nipW-1;k+=3)
+    outer+=`<line x1="${stem+nutW+k}" y1="${-bodyH/2+1}" x2="${stem+nutW+k}" y2="${bodyH/2-1}" stroke="#e8edf3" stroke-width="1" opacity=".65"/>`;
+  if(c.sys==="ORFS")outer+=`<rect x="${stem+nutW-3}" y="${-bodyH/2-3}" width="3" height="${bodyH+6}" fill="#20242b"/>`;
+  const px=dir>0?fx:fx+fw;
+  const rot=ang===0?0:(ang===45?-45:-90);
+  const elbow=ang?`<rect x="-7" y="${-bodyH/2-5}" width="14" height="${bodyH+10}" rx="3" fill="url(#met${tag})" stroke="${E}"/>`:"";
+  g+=`<g transform="translate(${px},${cy}) scale(${dir>0?-1:1},1)${ang?` rotate(${rot})`:""}">${elbow}${outer}</g>`;
+  return g;
+}
+function cplLabel(code){
+  const c=MASTER.couplings[code]||{};
+  return c.sys?`${c.sys} ${c.dim} · ${c.ang??0}°`:"";
+}
+
+/* Komplett montasjetegning: C1 + slange + C2, med etiketter under hver ende */
+function assemblySVG(l,H){
+  H=H||150;svgSeq++;const tag="a"+svgSeq;
+  const size=sizeOf(l.hose);const bodyH=Math.min(12+size*1.5,32);
+  const W=540,cy=H-44,x1=122,x2=W-122;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto" role="img" aria-label="Montasje ${esc(l.hose)} med ${esc(l.c1)} og ${esc(l.c2)}">
+    ${metalDefs(tag)}${hosePattern(tag,l.hose,bodyH)}
+    <rect x="${x1}" y="${cy-bodyH/2}" width="${x2-x1}" height="${bodyH}" rx="${bodyH/2.6}" fill="url(#hp${tag})" stroke="rgba(0,0,0,.4)"/>
+    <rect x="${x1}" y="${cy-bodyH/2+2}" width="${x2-x1}" height="4" rx="2" fill="rgba(255,255,255,.25)"/>
+    <rect x="${(W-170)/2}" y="${cy-8}" width="170" height="16" rx="3" fill="rgba(0,0,0,.45)"/>
+    <text x="${W/2}" y="${cy+4}" text-anchor="middle" font-family="monospace" font-size="11.5" font-weight="700" fill="#fff">${esc(l.hose)} · ${MASTER.hoses[l.hose]?MASTER.hoses[l.hose].inch:""}</text>
+    ${couplingPart(l.c1,1,x1,cy,bodyH,tag)}
+    ${couplingPart(l.c2,-1,x2,cy,bodyH,tag)}
+    <text x="10" y="${H-10}" font-family="monospace" font-size="12.5" font-weight="800" fill="currentColor">C1: ${esc(l.c1)}</text>
+    <text x="10" y="${H-24}" font-size="10.5" fill="currentColor" opacity=".65">${cplLabel(l.c1)}</text>
+    <text x="${W-10}" y="${H-10}" text-anchor="end" font-family="monospace" font-size="12.5" font-weight="800" fill="currentColor">C2: ${esc(l.c2)}</text>
+    <text x="${W-10}" y="${H-24}" text-anchor="end" font-size="10.5" fill="currentColor" opacity=".65">${cplLabel(l.c2)}</text>
+  </svg>`;
+}
+
+/* Bar slange (før pressing): kappesnitt, valgfri målpil for kuttemål og UC-propper */
+function bareHoseSVG(l,opts){
+  opts=opts||{};svgSeq++;const tag="b"+svgSeq;
+  const size=sizeOf(l.hose);const bodyH=Math.min(12+size*1.5,32);
+  const W=540,H=opts.arrow?120:86,cy=38,x1=46,x2=W-46;
+  let g=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;height:auto" role="img" aria-label="Slange ${esc(l.hose)}">
+    ${metalDefs(tag)}${hosePattern(tag,l.hose,bodyH)}
+    <rect x="${x1}" y="${cy-bodyH/2}" width="${x2-x1}" height="${bodyH}" fill="url(#hp${tag})" stroke="rgba(0,0,0,.4)"/>
+    <rect x="${x1}" y="${cy-bodyH/2+2}" width="${x2-x1}" height="4" rx="2" fill="rgba(255,255,255,.25)"/>
+    <rect x="${(W-170)/2}" y="${cy-8}" width="170" height="16" rx="3" fill="rgba(0,0,0,.45)"/>
+    <text x="${W/2}" y="${cy+4}" text-anchor="middle" font-family="monospace" font-size="11.5" font-weight="700" fill="#fff">${esc(l.hose)} · ${MASTER.hoses[l.hose]?MASTER.hoses[l.hose].inch:""}</text>
+    <line x1="${x1}" y1="${cy-bodyH/2-4}" x2="${x1}" y2="${cy+bodyH/2+4}" stroke="#e8edf3" stroke-width="2.5"/>
+    <line x1="${x2}" y1="${cy-bodyH/2-4}" x2="${x2}" y2="${cy+bodyH/2+4}" stroke="#e8edf3" stroke-width="2.5"/>`;
+  if(opts.plugs){
+    g+=`<rect x="${x1-16}" y="${cy-bodyH/2-3}" width="18" height="${bodyH+6}" rx="4" fill="#f3c614" stroke="#8a6d00"/>
+        <rect x="${x2-2}" y="${cy-bodyH/2-3}" width="18" height="${bodyH+6}" rx="4" fill="#f3c614" stroke="#8a6d00"/>
+        <text x="${W/2}" y="${H-8}" text-anchor="middle" font-size="11" fill="currentColor" opacity=".7">UC-propper i begge ender etter rens</text>`;
+  }
+  if(opts.arrow&&l.cut){
+    const ay=cy+bodyH/2+26;
+    g+=`<line x1="${x1}" y1="${cy+bodyH/2+8}" x2="${x1}" y2="${ay+8}" stroke="currentColor" stroke-width="1" opacity=".5"/>
+        <line x1="${x2}" y1="${cy+bodyH/2+8}" x2="${x2}" y2="${ay+8}" stroke="currentColor" stroke-width="1" opacity=".5"/>
+        <line x1="${x1}" y1="${ay}" x2="${x2}" y2="${ay}" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M ${x1} ${ay} l 9 -4.5 v 9 z" fill="currentColor"/>
+        <path d="M ${x2} ${ay} l -9 -4.5 v 9 z" fill="currentColor"/>
+        <rect x="${W/2-70}" y="${ay-12}" width="140" height="24" rx="5" fill="var(--surface2)" stroke="var(--border2)"/>
+        <text x="${W/2}" y="${ay+5}" text-anchor="middle" font-family="monospace" font-size="15" font-weight="800" fill="currentColor">✂ ${l.cut.toLocaleString("nb-NO")} mm</text>`;
+  }
+  return g+`</svg>`;
+}
+
+/* Lite koblingsikon til lister */
+function miniCplSVG(code){
+  svgSeq++;const tag="m"+svgSeq;
+  return `<svg viewBox="0 0 100 46" style="width:88px;height:40px" role="img" aria-label="${esc(code)}">
+    ${metalDefs(tag)}
+    <rect x="2" y="17" width="12" height="12" rx="3" fill="#333a45"/>
+    ${couplingPart(code,-1,12,23,12,tag)}
+  </svg>`;
+}
+
+/* =====================================================================
+   FOTOBASERT MONTASJEVISNING – kun originalbilder fra Parker.
+   Koblingsfoto speilvendes automatisk slik at nippelen alltid peker inn
+   mot slangen (orientering per fotofamilie ligger i master: imgHoseEnd).
+   ===================================================================== */
+function cplPhotoImg(code,side){
+  const c=MASTER.couplings[code]||{};
+  const end=c.imgHoseEnd||"left";                       // hvor slangeenden peker i originalfotoet
+  const flip=(side==="left"&&end==="left")||(side==="right"&&end==="right");
+  return `<div class="imgclip"><img src="${cplImgURL(code)}" alt="${esc(code)}" loading="lazy"
+    style="transform:scale(1.25)${flip?" scaleX(-1)":""}"
+    onerror="this.parentElement.style.display='none';this.parentElement.nextElementSibling.style.display='flex'"></div>
+  <div class="asm-fallback">${esc(code)}<br>foto mangler</div>`;
+}
+function photoAssembly(l,small){
+  return `<div class="assembly${small?" small":""}">
+    <div class="asm-slot">${cplPhotoImg(l.c1,"left")}
+      <div class="asm-lab">C1: ${esc(l.c1)}</div><div class="asm-geo">${cplLabel(l.c1)} · nippel inn →</div></div>
+    <div class="asm-slot mid"><div class="imgclip"><img src="${hoseImgURL(l.hose)}" alt="${esc(l.hose)}" loading="lazy"
+        onerror="this.parentElement.style.display='none';this.parentElement.nextElementSibling.style.display='flex'"></div>
+      <div class="asm-fallback">${esc(l.hose)}<br>foto mangler</div>
+      <div class="asm-lab">${esc(l.hose)}</div><div class="asm-geo">${MASTER.hoses[l.hose]?MASTER.hoses[l.hose].inch:""} · kutt ${fmtCut(l)}</div></div>
+    <div class="asm-slot">${cplPhotoImg(l.c2,"right")}
+      <div class="asm-lab">C2: ${esc(l.c2)}</div><div class="asm-geo">← nippel inn · ${cplLabel(l.c2)}</div></div>
+  </div>`;
+}
+/* Ren målpil (ingen tegning av selve slangen) */
+function measureSVG(l){
+  if(!l.cut)return "";
+  const W=540,ay=22;
+  return `<svg viewBox="0 0 ${W} 44" style="width:100%;max-width:${W}px;height:auto">
+    <line x1="8" y1="6" x2="8" y2="38" stroke="currentColor" stroke-width="1.5" opacity=".6"/>
+    <line x1="${W-8}" y1="6" x2="${W-8}" y2="38" stroke="currentColor" stroke-width="1.5" opacity=".6"/>
+    <line x1="8" y1="${ay}" x2="${W-8}" y2="${ay}" stroke="currentColor" stroke-width="1.6"/>
+    <path d="M 8 ${ay} l 10 -5 v 10 z" fill="currentColor"/>
+    <path d="M ${W-8} ${ay} l -10 -5 v 10 z" fill="currentColor"/>
+    <rect x="${W/2-78}" y="${ay-14}" width="156" height="28" rx="6" fill="var(--surface2)" stroke="var(--border2)"/>
+    <text x="${W/2}" y="${ay+6}" text-anchor="middle" font-family="monospace" font-size="16" font-weight="800" fill="currentColor">✂ ${l.cut.toLocaleString("nb-NO")} mm</text>
+  </svg>`;
+}
+function hosePhotoPanel(l,opts){
+  opts=opts||{};
+  return `<div>
+    <div class="hpanel"><div class="imgclip zoomh"><img src="${hoseImgURL(l.hose)}" alt="${esc(l.hose)}" loading="lazy"
+      onerror="this.parentElement.style.display='none';this.parentElement.nextElementSibling.style.display='flex'"></div>
+      <div class="asm-fallback" style="height:150px">${esc(l.hose)}<br>foto mangler</div>
+      <div class="asm-lab">${esc(l.hose)} · ${MASTER.hoses[l.hose]?MASTER.hoses[l.hose].inch:""}</div>
+      ${opts.plugs?`<div class="asm-geo">🟡 Sett UC-propper i begge ender etter rens</div>`:""}
+    </div>
+    ${opts.arrow?`<div style="margin-top:8px">${measureSVG(l)}</div>`:""}
+  </div>`;
+}
+function hoseThumb(code){
+  return `<div class="hthumb"><div class="imgclip zoomh"><img src="${hoseImgURL(code)}" alt="${esc(code)}" loading="lazy"
+    onerror="this.parentElement.style.display='none';this.parentElement.nextElementSibling.style.display='flex'"></div>
+    <div class="asm-fallback" style="height:84px">${esc(code)}</div></div>`;
+}
+
+function wsTypes(f,stageKey){
+  const g={};
+  f.lines.forEach((l,i)=>{(g[l.hose]=g[l.hose]||[]).push({l,i})});
+  return Object.entries(g).map(([hose,items])=>({hose,items,
+    done:items.filter(x=>x.l.st[stageKey||"cut"]).length}));
+}
+/* Neste slangetype med gjenstående arbeid i valgt operasjon (wrap-around). */
+function wsNextType(f,current,stageKey){
+  const types=wsTypes(f,stageKey);
+  const start=Math.max(0,types.findIndex(x=>x.hose===current));
+  for(let k=1;k<=types.length;k++){
+    const cand=types[(start+k)%types.length];
+    if(cand.hose!==current&&cand.done<cand.items.length)return cand;
+  }
+  return null;
+}
+function stageDef(key){return STAGES.find(s=>s.key===key)}
+function prevStage(key){const i=STAGES.findIndex(s=>s.key===key);return i>0?STAGES[i-1]:null}
+
+function vVerksted(){
+  const cands=State.folders.filter(f=>["prod","test","qc"].includes(f.status));
+  const f=folder(State.ws.folderId);
+  if(f&&State.ws.stage==="prints")return vPrints(f);
+  if(f&&(f.status==="qc"||State.ws.stage==="qc")&&f.spot)return vQC(f);
+  if(!f||!["prod","test","qc"].includes(f.status)){
+    return `<h1>🏭 Verkstedsmodus</h1>
+    <div class="sub">Velg produksjonsmappen dere jobber med. Kun mapper som er sendt til produksjon vises her.</div>
+    ${cands.length?`<div class="pmgrid">${cands.map(x=>`<div class="pmcard" onclick="State.ws.folderId='${x.id}';State.ws.stage=null;State.ws.hoseType=null;render()">
+      <div class="pm-id">${x.id}</div><div class="pm-title" style="font-size:17px">${esc(x.title)}</div>
+      ${stBadge(x.status)}
+      <div class="meter" style="margin-top:10px"><div style="width:${Math.round(100*x.lines.filter(l=>l.st.cut).length/x.lines.length)}%"></div></div>
+      <div class="meter-label"><span>✂️ Kappet ${x.lines.filter(l=>l.st.cut).length}/${x.lines.length}</span><span>🧪 Testet ${x.lines.filter(l=>l.st.test).length}/${x.lines.length}</span></div>
+    </div>`).join("")}</div>`
+    :`<div class="notice">Ingen mapper i produksjon akkurat nå.</div>`}`;
+  }
+  if(!State.ws.stage)return wsStageSelect(f);
+  if(State.ws.stage==="cut"){
+    if(!(State.ws.hoseType&&f.lines.some(l=>l.hose===State.ws.hoseType)))return wsCutTypeSelect(f);
+    return State.touch?wsFocus(f,"cut"):wsCutView(f);
+  }
+  return State.touch?wsFocus(f,State.ws.stage):wsStageList(f,State.ws.stage);
+}
+
+/* Bryter mellom PC-tabeller og touch-fokus */
+function wsModeBtn(){
+  return `<button class="btn btn-ghost" onclick="State.touch=!State.touch;render()" title="Bytt mellom PC- og nettbrettvisning">${State.touch?"🖥️ PC-visning":"📱 Touch-visning"}</button>`;
+}
+
+/* --- operasjonsvelger: verkstedets startside for mappen --- */
+function wsStageSelect(f){
+  const n=f.lines.length;
+  const allTested=stageCount(f,"test")===n;
+  return `
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <h1 style="font-size:24px">🏭 ${esc(f.title)} <span class="mono" style="font-size:13px;color:var(--muted)">${f.id}</span></h1>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${wsModeBtn()}<button class="btn btn-ghost" onclick="State.ws.folderId=null;State.ws.stage=null;render()">↩︎ Bytt mappe</button></div>
+  </div>
+  <div class="sub" style="margin-bottom:4px"><b>${refLine(f)}</b> · ${f.lines.length} slanger</div>
+  <div class="sub">Velg operasjon. Slik jobber vi: alle slangene kappes først, så renses de med UC-propper, så presses koblingene på, og til slutt trykktestes de. Du kan bytte operasjon når som helst – ingenting låser deg.</div>
+  <div class="pmgrid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
+    ${STAGES.map((s,i)=>{
+      const done=stageCount(f,s.key);
+      const prev=i>0?STAGES[i-1]:null;
+      const ready=prev?stageCount(f,prev.key):n;          // antall som er klare for denne operasjonen
+      const avail=ready-done;                              // klare, men ikke utført
+      return `<div class="pmcard" onclick="State.ws.stage='${s.key}';State.ws.hoseType=null;State.ws.focusPos=-1;render()">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="pm-title" style="font-size:18px">${s.icon} ${i+1}. ${s.label}</div>
+          ${done===n?`<span class="status st-ferdig">✅ Ferdig</span>`
+            :avail>0?`<span class="status st-prod">${avail} klar${avail===1?"":"e"}</span>`
+            :`<span class="status st-utkast">venter på ${prev?prev.label.toLowerCase():""}</span>`}
+        </div>
+        <div class="meter ${s.key==="test"?"m-good":""}" style="margin-top:12px"><div style="width:${Math.round(100*done/n)}%"></div></div>
+        <div class="meter-label"><span>${done}/${n} ${s.verb}</span>${prev&&done<n?`<span>${ready}/${n} klare fra ${prev.label.toLowerCase()}</span>`:"<span></span>"}</div>
+      </div>`}).join("")}
+  </div>
+  <div style="margin-top:18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    ${allTested?`<button class="btn btn-good btn-big wsbig" onclick="wsStartQC('${f.id}')">🔍 Alt utført – start spot-check (annenhåndskontroll)</button>`
+    :`<span class="gatemsg">🔒 Spot-check og utskrifter blir tilgjengelig når alle slanger er gjennom alle fire operasjonene</span>`}
+  </div>`;
+}
+
+/* --- KAPPING: velg slangetype (med tegning) --- */
+function wsCutTypeSelect(f){
+  const types=wsTypes(f,"cut");
+  const done=stageCount(f,"cut"),n=f.lines.length;
+  return `
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <h1 style="font-size:24px">✂️ Kapping – ${esc(f.title)}</h1>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${wsModeBtn()}<button class="btn btn-ghost" onclick="State.ws.stage=null;render()">↩︎ Til operasjonene</button></div>
+  </div>
+  <div class="sub">Mappen har <b>${types.length} slangetyper</b>. Velg typen du skal kappe – kuttelisten vises først når typen er valgt, så ingen kapper feil slange. (${done}/${n} kappet totalt)</div>
+  <div class="pmgrid" style="grid-template-columns:repeat(auto-fill,minmax(400px,1fr))">
+    ${types.map(g=>{
+      const st=SERIES_STYLE[seriesOf(g.hose)]||{desc:""};
+      const left=g.items.length-g.done;
+      return `<div class="pmcard" style="border-left:6px solid ${(SERIES_STYLE[seriesOf(g.hose)]||{color:'var(--border2)'}).color}" onclick="State.ws.hoseType='${esc(g.hose)}';State.ws.focusPos=-1;render()">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div class="pm-title" style="font-size:19px;font-family:var(--mono)">${esc(g.hose)}</div>
+        ${left===0?`<span class="status st-ferdig">✅ Alt kappet</span>`:`<span class="status st-prod">✂️ ${left} igjen å kappe</span>`}
+      </div>
+      <div style="margin:8px 0">${hoseThumb(g.hose)}</div>
+      <div class="pm-meta"><span>${st.desc||""}</span><span>${g.items.length} ${g.items.length===1?"slange":"slanger"}</span><span>S-mål ${MASTER.hoses[g.hose]?.s??"–"} mm</span></div>
+      <div class="meter"><div style="width:${Math.round(100*g.done/g.items.length)}%"></div></div>
+      <div class="meter-label"><span>Kappet ${g.done}/${g.items.length}</span><span></span></div>
+    </div>`}).join("")}
+  </div>`;
+}
+
+/* --- KAPPING: kutteliste for valgt slangetype --- */
+function wsCutView(f){
+  const hose=State.ws.hoseType;
+  const st=SERIES_STYLE[seriesOf(hose)]||{color:"var(--border2)",desc:""};
+  const all=f.lines.map((l,i)=>({l,i})).filter(x=>x.l.hose===hose)
+    .sort((a,b)=>(b.l.cut||0)-(a.l.cut||0));
+  const rows=all.filter(x=>!State.ws.onlyRemaining||!x.l.st.cut);
+  const p=all.filter(x=>x.l.st.cut).length;
+  const allCut=p===all.length;
+  const next=wsNextType(f,hose,"cut");
+  const nextBanner = !allCut ? "" : `
+  <div class="vitem v-good" style="align-items:center">
+    ✅ <div><b>Alle ${all.length} slanger av ${esc(hose)} er kappet.</b>
+    ${next?` Neste type som skal kappes: <b class="mono">${esc(next.hose)}</b> (${next.items.length-next.done} igjen).`
+          :` Alle slangetypene i mappen er ferdig kappet – neste operasjon er 🧼 Rens (UC).`}</div>
+    <span class="fix" style="display:flex;gap:8px;flex-wrap:wrap">
+      ${next?`<button class="btn btn-good" onclick="State.ws.hoseType='${esc(next.hose)}';State.ws.focusPos=-1;render()">➡️ Neste: ${esc(next.hose)}</button>`
+            :`<button class="btn btn-good" onclick="State.ws.stage='clean';State.ws.hoseType=null;State.ws.focusPos=-1;render()">➡️ Gå til Rens (UC)</button>`}
+      <button class="fixbtn" onclick="State.ws.hoseType=null;render()">↩︎ Typeoversikt</button>
+    </span>
+  </div>`;
+  return `
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <h1 style="font-size:24px">✂️ Kapping <span class="mono" style="font-size:13px;color:var(--muted)">${f.id}</span></h1>
+    <div style="display:flex;gap:8px">
+      ${wsModeBtn()}
+      <button class="btn btn-ghost" onclick="State.ws.hoseType=null;render()">↩︎ Velg annen slangetype</button>
+      <button class="btn btn-ghost" onclick="State.ws.stage=null;render()">Operasjoner</button>
+    </div>
+  </div>
+  <div class="card" style="border-left:8px solid ${st.color};display:flex;gap:22px;align-items:center;flex-wrap:wrap">
+    <div style="flex:0 0 240px">${hoseThumb(hose)}</div>
+    <div style="min-width:220px">
+      <div style="font-family:var(--mono);font-size:26px;font-weight:800">${esc(hose)}</div>
+      <div class="sub" style="margin:2px 0 8px">${st.desc||""} · ${MASTER.hoses[hose]?.inch||""} · S-mål ${MASTER.hoses[hose]?.s??"–"} mm</div>
+      <div class="vitem v-warn" style="margin:0">⚠️ <div><b>Kontroller slangen mot tegningen og påtrykket før kapping.</b> Denne listen gjelder KUN ${esc(hose)}.</div></div>
+    </div>
+  </div>
+  ${nextBanner}
+  <div class="cardrow">
+    <div class="tile"><div class="t-label">Kappet (${esc(hose)})</div><div class="t-value">${p} / ${all.length}</div><div class="meter"><div style="width:${Math.round(100*p/all.length)}%"></div></div></div>
+    <div class="tile" style="display:flex;flex-direction:column;justify-content:center">
+      <label style="font-size:13.5px"><input type="checkbox" ${State.ws.onlyRemaining?"checked":""} onchange="State.ws.onlyRemaining=this.checked;render()"> Vis kun gjenstående</label>
+    </div>
+  </div>
+  <div class="tblwrap"><table>
+    <tr><th>POS</th><th>✂️ Kutt</th><th>Maskin</th><th>PTS ID</th><th>Lengde (OAL)</th><th>Ant.</th><th>Kappet</th></tr>
+    ${rows.map(({l,i})=>`<tr class="wsrow">
+      <td class="pos-cell">${esc(l.pos||"–")}</td>
+      <td class="mono" style="font-weight:800;font-size:18px;color:var(--accent2)">${fmtCut(l)}</td>
+      <td class="mono">${esc(l.mach||"–")}</td>
+      <td class="mono" style="color:var(--muted)">${esc(l.pts)}</td>
+      <td>${esc(l.len)} mm</td><td>${l.qty}</td>
+      <td><button class="wsbtn ${l.st.cut?"on-prod":""}" onclick="wsStage('${f.id}',${i},'cut')">${l.st.cut?"✅ "+esc(l.st.cut.by)+" · "+l.st.cut.at:"Bekreft kappet"}</button></td>
+    </tr>`).join("")}
+  </table></div>`;
+}
+
+/* --- RENS / PRESSING / TRYKKTEST: felles liste per operasjon --- */
+function wsStageList(f,key){
+  const s=stageDef(key), prev=prevStage(key);
+  const eligible=f.lines.map((l,i)=>({l,i})).filter(x=>!prev||x.l.st[prev.key]);
+  const waiting=f.lines.length-eligible.length;
+  const done=eligible.filter(x=>x.l.st[key]).length;
+  const todo=eligible.filter(x=>!x.l.st[key]);
+  const rows=(State.ws.onlyRemaining?todo:eligible)
+    .sort((a,b)=>key==="test"?(b.l.wp||0)-(a.l.wp||0):(key==="press"?(a.l.hose+"").localeCompare(b.l.hose):(b.l.cut||0)-(a.l.cut||0)));
+  const grouped=key==="press";
+  let lastHose=null;
+  return `
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <h1 style="font-size:24px">${s.icon} ${s.label} – ${esc(f.title)}</h1>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${wsModeBtn()}<button class="btn btn-ghost" onclick="State.ws.stage=null;render()">↩︎ Til operasjonene</button></div>
+  </div>
+  <div class="sub">${key==="clean"?"Rens innvendig og sett i UC-propper. Kun kappede slanger vises her."
+      :key==="press"?"Press koblingene på. Listen er gruppert per slangetype – kontroller pressinnstillingene når typen skifter. Kun rensede slanger vises."
+      :"Trykktest til testtrykk (1,5 × WP) med 10 min holdetid. Kun pressede slanger vises."} Innlogget: <b>${esc(State.user)}</b></div>
+  <div class="cardrow">
+    <div class="tile"><div class="t-label">${s.verb} </div><div class="t-value">${done} / ${eligible.length}</div><div class="meter ${key==="test"?"m-good":""}"><div style="width:${eligible.length?Math.round(100*done/eligible.length):0}%"></div></div>
+      ${waiting?`<div class="t-note">+ ${waiting} venter på ${prev.label.toLowerCase()}</div>`:""}</div>
+    <div class="tile" style="display:flex;flex-direction:column;justify-content:center;gap:8px">
+      <label style="font-size:13.5px"><input type="checkbox" ${State.ws.onlyRemaining?"checked":""} onchange="State.ws.onlyRemaining=this.checked;render()"> Vis kun gjenstående</label>
+      ${key==="clean"&&todo.length?`<button class="btn btn-primary" onclick="wsStageAll('${f.id}','clean')">🧼 Merk alle ${todo.length} som renset</button>`:""}
+    </div>
+  </div>
+  ${done===eligible.length&&eligible.length===f.lines.length?`
+  <div class="vitem v-good" style="align-items:center">✅ <div><b>Alle ${f.lines.length} slanger er ${s.verb}.</b>${key!=="test"?` Neste operasjon: ${STAGES[STAGES.findIndex(x=>x.key===key)+1].icon} ${STAGES[STAGES.findIndex(x=>x.key===key)+1].label}.`:" Mappen kan meldes ferdig fra operasjonsoversikten."}</div>
+    <span class="fix">${key!=="test"?`<button class="btn btn-good" onclick="State.ws.stage='${STAGES[STAGES.findIndex(x=>x.key===key)+1].key}';render()">➡️ Gå videre</button>`:`<button class="btn btn-good" onclick="State.ws.stage=null;render()">➡️ Til oversikten</button>`}</span></div>`:""}
+  <div class="tblwrap"><table>
+    <tr><th>POS</th><th>Maskin</th><th>PTS ID</th><th>Hose</th><th>Kutt</th>${key==="press"?"<th>Coupling 1</th><th>Coupling 2</th>":""}${key==="test"?"<th>WP</th><th style='color:var(--info)'>Testtrykk</th>":""}<th>${s.label}</th></tr>
+    ${rows.map(({l,i})=>{
+      const hdr=grouped&&l.hose!==lastHose?`<tr><td colspan="8" style="background:var(--surface2);padding:10px 12px">
+        <div style="display:flex;align-items:center;gap:14px"><div style="width:150px">${hoseThumb(l.hose)}</div>
+        <b class="mono" style="font-size:15px">${l.hose}</b><span style="color:var(--muted);font-size:12px">${(SERIES_STYLE[seriesOf(l.hose)]||{}).desc||""}</span></div></td></tr>`:"";
+      lastHose=l.hose;
+      return hdr+`<tr class="wsrow">
+      <td class="pos-cell">${esc(l.pos||"–")}</td>
+      <td class="mono">${esc(l.mach||"–")}</td>
+      <td class="mono" style="color:var(--muted)">${esc(l.pts)}</td>
+      <td class="mono">${esc(l.hose)}</td>
+      <td class="mono">${fmtCut(l)}</td>
+      ${key==="press"?`<td><span class="photo-mini" style="width:64px;height:48px"><img src="${cplImgURL(l.c1)}" loading="lazy" alt="" style="transform:scaleX(${(MASTER.couplings[l.c1]||{}).imgHoseEnd==="right"?1:-1})" onerror="this.parentElement.style.display='none'"></span><div class="mono" style="font-size:11px">${esc(l.c1)}<span style="color:var(--muted)"> · ${cplLabel(l.c1)}</span></div></td>
+      <td><span class="photo-mini" style="width:64px;height:48px"><img src="${cplImgURL(l.c2)}" loading="lazy" alt="" style="transform:scaleX(${(MASTER.couplings[l.c2]||{}).imgHoseEnd==="right"?-1:1})" onerror="this.parentElement.style.display='none'"></span><div class="mono" style="font-size:11px">${esc(l.c2)}<span style="color:var(--muted)"> · ${cplLabel(l.c2)}</span></div></td>`:""}
+      ${key==="test"?`<td class="mono">${l.wp?l.wp+" bar":"–"}</td><td class="mono" style="font-weight:800;font-size:16px;color:var(--info)">${l.wp?Math.round(l.wp*1.5)+" bar":"–"}</td>`:""}
+      <td><button class="wsbtn ${l.st[key]?(key==="test"?"on-test":"on-prod"):""}" onclick="wsStage('${f.id}',${i},'${key}')">${l.st[key]?"✅ "+esc(l.st[key].by)+" · "+l.st[key].at:"Bekreft "+s.verb}</button></td>
+    </tr>`}).join("")}
+  </table></div>
+  ${waiting&&!State.ws.onlyRemaining?`<div class="notice" style="margin-top:12px">⏳ ${waiting} slange${waiting===1?" er":"r er"} ikke ${prev.verb} ennå og vises derfor ikke i denne listen.</div>`:""}`;
+}
+
+/* --- bekreftelser --- */
+function wsStage(id,idx,key){
+  const f=folder(id),l=f.lines[idx];
+  const prev=prevStage(key);
+  if(prev&&!l.st[prev.key])return;                 // rekkefølgen håndheves per slange
+  const s=stageDef(key);
+  if(l.st[key]){
+    l.st[key]=null;
+    // fjernes et steg, fjernes også stegene etter (kan ikke være testet uten å være presset)
+    let after=false;
+    STAGES.forEach(x=>{if(x.key===key)after=true;else if(after)l.st[x.key]=null});
+    addLog(f,`${l.pts}: ${s.verb}-bekreftelse fjernet`);
+  }else{
+    l.st[key]={by:State.user.replace("Verksted – ",""),at:now()};
+    addLog(f,`${l.pts} bekreftet ${s.verb}`);
+  }
+  if(f.status==="prod"&&stageCount(f,"press")===f.lines.length){f.status="test";addLog(f,"Alle slanger presset – status endret til Trykktest")}
+  if(f.status==="test"&&stageCount(f,"press")<f.lines.length)f.status="prod";
+  render();
+}
+function wsStageAll(id,key){
+  const f=folder(id),prev=prevStage(key),s=stageDef(key);
+  let c=0;
+  f.lines.forEach(l=>{
+    if((!prev||l.st[prev.key])&&!l.st[key]){l.st[key]={by:State.user.replace("Verksted – ",""),at:now()};c++}
+  });
+  addLog(f,`${c} slanger bekreftet ${s.verb} (samlet bekreftelse)`);
+  render();
+}
+function wsStartQC(id){
+  const f=folder(id);
+  if(stageCount(f,"test")<f.lines.length)return;
+  if(!f.spot)f.spot=buildSpotCheck(f);
+  f.status="qc";
+  State.ws.stage="qc";
+  addLog(f,`Alle operasjoner utført – spot-check startet (${f.spot.items.length} slanger i utvalget)`);
+  render();
+}
+function qcSet(id,idx,result){
+  const f=folder(id),it=f.spot.items[idx],l=f.lines[it.i];
+  const me=State.user.replace("Verksted – ","");
+  if(l.st.test&&l.st.test.by===me){
+    it.blockMsg=`Annenhåndskontroll: ${me} trykktestet denne slangen selv og kan ikke kontrollere den. Bytt bruker øverst.`;
+    render();return;
+  }
+  it.blockMsg=null;
+  if(it.result===result){it.result=null;it.by=null;it.at=null}
+  else{it.result=result;it.by=State.user;it.at=now();
+    addLog(f,`Spot-check ${l.pts}: ${result==="ok"?"OK":"AVVIK"}${result==="avvik"&&it.comment?" – "+it.comment:""}`);}
+  render();
+}
+function qcComment(id,idx,val){folder(id).spot.items[idx].comment=val}
+function wsCompleteQC(id){
+  const f=folder(id);
+  if(!spotDone(f))return;
+  f.spot.completedAt=now();
+  f.status="ferdig";
+  State.ws.stage="prints";
+  addLog(f,"Spot-check godkjent – mappen er fullført. Trykktestsertifikat, pallemerkelapp og spot-check-rapport er klare for utskrift.");
+  render();
+}
+
+/* =====================================================================
+   TOUCH-/iPad-FOKUS: én slange om gangen, store knapper, auto-videre
+   ===================================================================== */
+function wsFocusQueue(f,key){
+  const prev=prevStage(key);
+  let q=f.lines.map((l,i)=>({l,i})).filter(x=>!prev||x.l.st[prev.key]);
+  if(key==="cut")q=q.filter(x=>x.l.hose===State.ws.hoseType).sort((a,b)=>(b.l.cut||0)-(a.l.cut||0));
+  else if(key==="press")q.sort((a,b)=>(a.l.hose+"").localeCompare(b.l.hose)||(b.l.cut||0)-(a.l.cut||0));
+  else if(key==="test")q.sort((a,b)=>(b.l.wp||0)-(a.l.wp||0));
+  else q.sort((a,b)=>(b.l.cut||0)-(a.l.cut||0));
+  return q;
+}
+function wsFocusAdvance(f,key,fromPos){
+  const q=wsFocusQueue(f,key);
+  for(let k=1;k<=q.length;k++){
+    const p=(fromPos+k)%q.length;
+    if(!q[p].l.st[key]){State.ws.focusPos=p;return}
+  }
+  State.ws.focusPos=fromPos; // ingen gjenstående – done-kortet vises
+}
+function wsFocusConfirm(id,idx,key,pos){
+  const f=folder(id);
+  const wasDone=!!f.lines[idx].st[key];
+  wsStage(id,idx,key);
+  if(!wasDone)wsFocusAdvance(f,key,pos);
+  if(typeof navigator!=="undefined"&&navigator.vibrate)try{navigator.vibrate(30)}catch(e){}
+  render();
+}
+
+function wsFocus(f,key){
+  const s=stageDef(key), prev=prevStage(key);
+  const q=wsFocusQueue(f,key);
+  const total=q.length, done=q.filter(x=>x.l.st[key]).length;
+  const waiting=prev?f.lines.filter(l=>!l.st[prev.key]).length:0;
+  const header=`
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <h1 style="font-size:23px">${s.icon} ${s.label}${key==="cut"?` · <span class="mono">${esc(State.ws.hoseType)}</span>`:""} <span class="mono" style="font-size:12px;color:var(--muted)">${f.id}</span></h1>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${wsModeBtn()}
+      ${key==="cut"?`<button class="btn btn-ghost" onclick="State.ws.hoseType=null;render()">↩︎ Slangetyper</button>`:""}
+      <button class="btn btn-ghost" onclick="State.ws.stage=null;render()">↩︎ Operasjoner</button>
+    </div>
+  </div>`;
+
+  if(total===0)return header+`<div class="focus-wrap"><div class="focus-card donecard">
+    <div class="big">⏳</div><div style="font-size:19px">Ingen slanger er klare for ${s.label.toLowerCase()} ennå${prev?` – ${waiting} venter på ${prev.label.toLowerCase()}`:""}.</div>
+    <button class="bigbtn next" onclick="State.ws.stage=${prev?`'${prev.key}'`:"null"};State.ws.focusPos=-1;render()">Gå til ${prev?prev.icon+" "+prev.label:"operasjonene"}</button>
+  </div></div>`;
+
+  /* alle i køen ferdig? -> done-kort med stor «videre»-knapp */
+  if(done===total){
+    let nextBtn="";
+    if(key==="cut"){
+      const next=wsNextType(f,State.ws.hoseType,"cut");
+      nextBtn=next
+        ?`<button class="bigbtn next" onclick="State.ws.hoseType='${esc(next.hose)}';State.ws.focusPos=-1;render()">➡️ Neste slangetype: ${esc(next.hose)} (${next.items.length-next.done} igjen)</button>
+          <div style="margin-top:10px;display:flex;justify-content:center">${hoseThumb(next.hose)}</div>`
+        :`<button class="bigbtn next" onclick="State.ws.stage='clean';State.ws.hoseType=null;State.ws.focusPos=-1;render()">➡️ Alt kappet – gå til 🧼 Rens (UC)</button>`;
+    }else if(key!=="test"){
+      const nx=STAGES[STAGES.findIndex(x=>x.key===key)+1];
+      nextBtn=stageCount(f,key)===f.lines.length
+        ?`<button class="bigbtn next" onclick="State.ws.stage='${nx.key}';State.ws.focusPos=-1;render()">➡️ Gå til ${nx.icon} ${nx.label}</button>`
+        :`<button class="bigbtn ghostb" onclick="State.ws.stage=null;render()">${waiting} slanger venter fortsatt på ${prev.label.toLowerCase()} – til oversikten</button>`;
+    }else{
+      nextBtn=stageCount(f,"test")===f.lines.length
+        ?`<button class="bigbtn confirm" onclick="wsStartQC('${f.id}')">🔍 Start spot-check (annenhåndskontroll)</button>`
+        :`<button class="bigbtn ghostb" onclick="State.ws.stage=null;render()">Til operasjonene (${waiting} venter oppstrøms)</button>`;
+    }
+    return header+`<div class="focus-wrap"><div class="focus-card donecard">
+      <div class="big">🎉</div>
+      <div style="font-size:21px;font-weight:700">Alle ${total} ${key==="cut"?"av "+esc(State.ws.hoseType):"klare slanger"} er ${s.verb}!</div>
+      ${nextBtn}
+    </div></div>`;
+  }
+
+  let pos=State.ws.focusPos;
+  if(pos<0||pos>=total||q[pos]===undefined)pos=Math.max(0,q.findIndex(x=>!x.l.st[key]));
+  State.ws.focusPos=pos;
+  const {l,i}=q[pos];
+  const doneThis=!!l.st[key];
+  const stStyle=SERIES_STYLE[seriesOf(l.hose)]||{color:"var(--border2)"};
+
+  const main = key==="cut" ? `<div class="focus-main" style="color:var(--accent2)">${fmtCut(l)}</div><div class="focus-sub">KUTTEMÅL · kontroller mot tegningen over</div>`
+    : key==="clean" ? `<div class="focus-main" style="font-size:clamp(34px,6vw,54px)">🧼 ${esc(l.pts)}</div><div class="focus-sub">Rens innvendig og sett UC-propper i begge ender</div>`
+    : key==="press" ? `<div class="focus-main mono" style="font-size:clamp(30px,5vw,46px);line-height:1.25">${esc(l.c1)}<br>${esc(l.c2)}</div><div class="focus-sub">KOBLING 1 / KOBLING 2 · kontroller pressinnstilling for ${esc(l.hose)}</div>`
+    : `<div class="focus-main" style="color:var(--info)">${l.wp?Math.round(l.wp*1.5)+" bar":"–"}</div><div class="focus-sub">TESTTRYKK (1,5 × WP ${l.wp||"–"} bar) · holdetid 10 min</div>`;
+
+  return header+`
+  <div class="focus-wrap">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:6px 0 10px;gap:12px">
+      <span style="font-size:15px;font-weight:700">${s.verb.charAt(0).toUpperCase()+s.verb.slice(1)}: ${done} av ${total}</span>
+      <div class="meter" style="flex:1;max-width:340px"><div style="width:${Math.round(100*done/total)}%"></div></div>
+      ${waiting?`<span style="font-size:12px;color:var(--muted)">+${waiting} venter oppstrøms</span>`:""}
+    </div>
+    <div class="focus-card" style="border-left:10px solid ${stStyle.color}">
+      <div style="display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1;min-width:300px">${key==="cut"?hosePhotoPanel(l,{arrow:true}):key==="clean"?hosePhotoPanel(l,{plugs:true}):photoAssembly(l)}</div>
+        ${posBlock(l,f)}
+      </div>
+      <div style="margin-top:14px">${main}</div>
+      <div class="focus-meta">
+        <div class="fm"><b>${fmtCut(l)}</b><span>Kutt</span></div>
+        <div class="fm"><b>${esc(l.len)} mm</b><span>Lengde (OAL)</span></div>
+        <div class="fm"><b>${l.wp?l.wp+" bar":"–"}</b><span>WP</span></div>
+        ${key!=="press"?`<div class="fm"><b class="mono" style="font-size:14px">${esc(l.c1)}<br>${esc(l.c2)}</b><span>Koblinger</span></div>`:""}
+      </div>
+      ${doneThis
+        ?`<button class="bigbtn confirm" disabled style="opacity:.85">✅ ${s.verb.toUpperCase()} · ${esc(l.st[key].by)} · ${l.st[key].at}</button>
+          <button class="bigbtn undo" onclick="wsFocusConfirm('${f.id}',${i},'${key}',${pos})">↩︎ Angre bekreftelsen</button>`
+        :`<button class="bigbtn confirm" onclick="wsFocusConfirm('${f.id}',${i},'${key}',${pos})">${s.icon} BEKREFT ${s.verb.toUpperCase()}</button>`}
+    </div>
+    <div class="focus-nav">
+      <button class="navarrow" ${pos===0?"disabled":""} onclick="State.ws.focusPos=${pos-1};render()">◀</button>
+      <div class="dots">${total<=30?q.map((x,p)=>`<button class="dot ${x.l.st[key]?"done":""} ${p===pos?"cur":""}" title="POS ${esc(x.l.pos||"–")} · ${esc(x.l.pts)}" onclick="State.ws.focusPos=${p};render()"></button>`).join(""):`<span style="font-size:14px;color:var(--muted)">Slange ${pos+1} av ${total}</span>`}</div>
+      <button class="navarrow" ${pos===total-1?"disabled":""} onclick="State.ws.focusPos=${pos+1};render()">▶</button>
+    </div>
+    ${key==="clean"&&total-done>1?`<button class="bigbtn ghostb" onclick="wsStageAll('${f.id}','clean')">🧼 Merk alle ${total-done} gjenstående som renset</button>`:""}
+  </div>`;
+}
+
+/* =====================================================================
+   SPOT-CHECK (annenhåndskontroll) + UTSKRIFTER
+   ===================================================================== */
+function vQC(f){
+  const sp=f.spot;
+  const answered=sp.items.filter(x=>x.result).length;
+  const oks=sp.items.filter(x=>x.result==="ok").length;
+  const avvik=sp.items.filter(x=>x.result==="avvik");
+  return `
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <h1 style="font-size:23px">🔍 Spot-check – ${esc(f.title)} <span class="mono" style="font-size:12px;color:var(--muted)">${f.id}</span></h1>
+    <button class="btn btn-ghost" onclick="State.ws.stage=null;State.ws.folderId=null;render()">↩︎ Verkstedsmodus</button>
+  </div>
+  <div class="notice">🔍 <div><b>Annenhåndskontroll:</b> ${sp.items.length} av ${f.lines.length} slanger er trukket ut (minst én per slangetype).
+  Kontrollen må utføres av en <b>annen person</b> enn den som trykktestet slangen – systemet håndhever dette.
+  Kontrollpunkter per slange: mål kuttlengde/OAL, riktige koblinger mot listen, merking/tag, renhet og UC-propper. Innlogget: <b>${esc(State.user)}</b></div></div>
+  <div class="cardrow">
+    <div class="tile"><div class="t-label">Kontrollert</div><div class="t-value">${answered} / ${sp.items.length}</div><div class="meter m-good"><div style="width:${Math.round(100*oks/sp.items.length)}%"></div></div></div>
+    ${avvik.length?`<div class="tile" style="border-color:var(--bad)"><div class="t-label">⛔ Avvik</div><div class="t-value" style="color:var(--bad)">${avvik.length}</div><div class="t-note">må løses og re-kontrolleres</div></div>`:""}
+  </div>
+  ${sp.items.map((it,idx)=>{
+    const l=f.lines[it.i];
+    return `<div class="qc-card ${it.result==="ok"?"ok":it.result==="avvik"?"avvik":""}">
+      <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+        <div style="width:380px;flex-shrink:0">${photoAssembly(l,true)}</div>
+        <div style="flex:1;min-width:220px">
+          <span class="mono" style="font-size:20px;font-weight:800;color:var(--accent2)">POS ${esc(l.pos||"–")}</span>
+          <span style="font-size:13px;font-weight:700"> · Maskin ${esc(l.mach||"–")}</span>
+          <span style="color:var(--muted);font-size:12.5px"> · PTS ${esc(l.pts)} · ${esc(l.hose)}</span><br>
+          <span style="font-size:13px">Kutt <b class="mono">${fmtCut(l)}</b> · OAL <b class="mono">${esc(l.len)} mm</b> · <span class="mono">${esc(l.c1)} / ${esc(l.c2)}</span></span><br>
+          <span style="font-size:11.5px;color:var(--muted)">Trykktestet av ${l.st.test?esc(l.st.test.by)+" · "+l.st.test.at:"–"}</span>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="qc-btn ${it.result==="ok"?"ok-on":""}" onclick="qcSet('${f.id}',${idx},'ok')">✔ OK</button>
+          <button class="qc-btn ${it.result==="avvik"?"avvik-on":""}" onclick="qcSet('${f.id}',${idx},'avvik')">⚠ AVVIK</button>
+        </div>
+      </div>
+      ${it.result?`<div style="margin-top:8px;font-size:12px;color:var(--muted)">Signert: ${esc(it.by)} · ${it.at}</div>`:""}
+      ${it.result==="avvik"?`<div style="margin-top:8px"><input style="width:100%;background:var(--surface2);border:1px solid var(--bad);border-radius:8px;color:var(--text);padding:9px 12px" placeholder="Beskriv avviket (påkrevd) …" value="${esc(it.comment)}" onchange="qcComment('${f.id}',${idx},this.value)"></div>`:""}
+      ${it.blockMsg?`<div class="vitem v-bad" style="margin-top:8px">⛔ <div>${esc(it.blockMsg)}</div></div>`:""}
+    </div>`}).join("")}
+  <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    ${spotDone(f)?`<button class="btn btn-good btn-big wsbig" onclick="wsCompleteQC('${f.id}')">✅ Godkjenn spot-check og fullfør mappen</button>`
+    :`<span class="gatemsg">🔒 Alle ${sp.items.length} kontrollene må være OK før mappen kan fullføres${avvik.length?" – løs avvikene og kontroller på nytt":""}</span>`}
+  </div>`;
+}
+
+/* --- utskriftspanel når mappen er fullført --- */
+function vPrints(f){
+  return `
+  <div class="focus-wrap">
+    <div class="focus-card donecard">
+      <div class="big">🎉</div>
+      <div style="font-size:22px;font-weight:800">${esc(f.title)} er fullført!</div>
+      <div class="sub" style="margin-top:4px">Alle ${f.lines.length} slanger er kappet, renset, presset, trykktestet og spot-checket (${f.spot?f.spot.items.length:0} kontroller). Skriv ut og legg ved pallen:</div>
+    </div>
+    <div class="docgrid" style="margin-top:16px">
+      <div class="doccard"><h3>🧪 Trykktestsertifikat</h3><div class="sub" style="margin:0 0 10px">Utfylt med testtrykk, dato og signatur per slange.</div>
+        <button class="btn btn-primary" onclick="State.printDoc={fid:'${f.id}',kind:'test'};render()">🖨️ Vis og skriv ut</button></div>
+      <div class="doccard"><h3>📦 Pallemerkelapp</h3><div class="sub" style="margin:0 0 10px">Stor etikett med ordreinfo så lageret finner pallen igjen.</div>
+        <button class="btn btn-primary" onclick="State.printDoc={fid:'${f.id}',kind:'pallet'};render()">🖨️ Vis og skriv ut</button></div>
+      <div class="doccard"><h3>🔍 Spot-check-rapport</h3><div class="sub" style="margin:0 0 10px">Dokumentert annenhåndskontroll med signaturer.</div>
+        <button class="btn btn-primary" onclick="State.printDoc={fid:'${f.id}',kind:'spot'};render()">🖨️ Vis og skriv ut</button></div>
+    </div>
+    <div style="margin-top:14px;display:flex;gap:10px;justify-content:center">
+      <button class="btn btn-ghost" onclick="State.ws.stage=null;State.ws.folderId=null;App.openFolder('${f.id}')">Åpne mappen</button>
+      <button class="btn btn-ghost" onclick="State.ws.stage=null;State.ws.folderId=null;render()">Til verkstedsmodus</button>
+    </div>
+  </div>`;
+}
+
+/* --- selve utskriftsvisningen (alt annet skjules ved print) --- */
+function vPrintDoc(){
+  const f=folder(State.printDoc.fid);
+  const kind=State.printDoc.kind;
+  const doc = kind==="pallet"?palletHTML(f) : kind==="spot"?spotHTML(f) : kind==="quote"?quoteHTML(f) : kind==="telaris"?telarisHTML(f) : testCertHTML(f);
+  return `
+  <div class="print-toolbar noprint">
+    <button class="btn btn-primary" onclick="window.print()">🖨️ Skriv ut</button>
+    <button class="btn btn-ghost" onclick="State.printDoc=null;render()">✕ Lukk</button>
+    <span style="color:var(--muted);font-size:12.5px">Utskriften inneholder kun dokumentet – app-rammen skjules automatisk.</span>
+  </div>
+  ${doc}`;
+}
+
+function testCertHTML(f){
+  const testers=[...new Set(f.lines.filter(l=>l.st.test).map(l=>l.st.test.by))].join(", ");
+  return `<div class="docpreview">
+    <h4>PRESSURE TEST CERTIFICATE</h4>
+    <div style="color:#555;margin-bottom:2px">Global Onsite AS · ${esc(f.id)} · ${esc(f.title)}</div>
+    <div style="color:#555;margin-bottom:10px">PMOTION-prosjekt: ${esc(f.project)} · Ordre/PO: ${esc(f.po||"–")} · Testmedium: vann · Holdetid: 10 min</div>
+    <table><tr><th>Line</th><th>POS</th><th>Maskin</th><th>PTS ID</th><th>Hose</th><th>OAL (mm)</th><th>WP (bar)</th><th>TP 1,5×WP</th><th>Resultat</th><th>Testet av</th><th>Dato</th></tr>
+    ${f.lines.map((l,i)=>`<tr><td>${i+1}</td><td><b>${esc(l.pos||"–")}</b></td><td>${esc(l.mach||"–")}</td><td>${esc(l.pts)}</td><td>${esc(l.hose)}</td><td>${esc(l.len)}</td><td>${l.wp||"–"}</td><td>${l.wp?Math.round(l.wp*1.5):"–"}</td>
+      <td>${l.st.test?"<b>GODKJENT</b>":""}</td><td>${l.st.test?esc(l.st.test.by):""}</td><td>${l.st.test?l.st.test.at:""}</td></tr>`).join("")}</table>
+    <div style="margin-top:16px;color:#333">Testet av: <b>${esc(testers)}</b> &nbsp;·&nbsp; Spot-check godkjent: <b>${f.spot&&f.spot.completedAt?f.spot.completedAt:"–"}</b> &nbsp;·&nbsp; Godkjent (sign): ______________</div>
+  </div>`;
+}
+
+function palletHTML(f){
+  const types={};
+  f.lines.forEach(l=>{types[l.hose]=(types[l.hose]||0)+1});
+  const totQty=f.lines.reduce((a,l)=>a+(l.qty||1),0);
+  return `<div class="pallet">
+    <div class="qr"></div>
+    <h3>GLOBAL ONSITE AS · SLANGEPRODUKSJON</h3>
+    <div class="pl-id">${esc(f.id)}</div>
+    <div style="font-size:19px;font-weight:700">${esc(f.title)}</div>
+    <div class="pl-row">
+      <div class="pl-f"><b>${esc(f.po||"–")}</b><span>Ordre / PO</span></div>
+      <div class="pl-f"><b>${esc(f.customer||"–")}</b><span>Kunde / rigg</span></div>
+      <div class="pl-f"><b>${esc(f.project)}</b><span>PMOTION-prosjekt</span></div>
+      <div class="pl-f"><b>${esc(f.hub)}</b><span>Hub</span></div>
+    </div>
+    <div class="pl-row">
+      <div class="pl-f"><b>${f.lines.length} slanger (${totQty} stk)</b><span>Innhold</span></div>
+      <div class="pl-f"><b>${now()}</b><span>Ferdig produsert</span></div>
+      <div class="pl-f"><b>✔ Trykktestet</b><span>${stageCount(f,"test")}/${f.lines.length} godkjent</span></div>
+      <div class="pl-f"><b>✔ Spot-check</b><span>${f.spot?f.spot.items.length+" kontroller OK":"–"}</span></div>
+    </div>
+    <table><tr><th>Slangetype</th>${Object.keys(types).map(h=>`<th>${esc(h)}</th>`).join("")}</tr>
+    <tr><td><b>Antall</b></td>${Object.values(types).map(n=>`<td style="text-align:center"><b>${n}</b></td>`).join("")}</tr></table>
+    <div class="pl-row">
+      <div class="pl-f" style="flex:1"><b style="border-bottom:2px solid #111;display:inline-block;min-width:220px">&nbsp;</b><span>Lagerplassering (fylles ut av lager)</span></div>
+      <div class="pl-f"><b style="border-bottom:2px solid #111;display:inline-block;min-width:130px">&nbsp;</b><span>Mottatt dato / sign</span></div>
+    </div>
+  </div>`;
+}
+
+function quoteHTML(f){
+  const hoses={},cpls={};
+  f.lines.forEach(l=>{
+    const h=hoses[l.hose]=hoses[l.hose]||{n:0,qty:0,mm:0};
+    h.n++;h.qty+=l.qty||1;h.mm+=(Number(l.len)||0)*(l.qty||1);
+    [l.c1,l.c2].forEach(c=>{cpls[c]=(cpls[c]||0)+(l.qty||1)});
+  });
+  const est=estHoursFolder(f);
+  return `<div class="docpreview">
+    <h4>TILBUDSUNDERLAG – SLANGEPRODUKSJON</h4>
+    <div style="color:#555;margin-bottom:10px">${esc(f.customer||"")} · ${esc(f.custRef?("Ref. "+f.custRef):"")} · ${esc(f.id)} · generert automatisk fra bearbeidet slangeliste (${f.lines.length} linjer)</div>
+    <div style="color:#555;margin-bottom:10px">${f.telaris?`Prisgrunnlag for tilbud på pakkevare <b>${esc(f.telaris.pkg)}</b> i Telaris – tilbudet sendes derfra.`:`⚠️ Slangepakken er ikke opprettet i Telaris ennå – opprett den før tilbudet sendes (tilbudet sendes fra Telaris).`}</div>
+    <table><tr><th>Slangetype</th><th>Linjer</th><th>Antall</th><th>Sum lengde (m)</th></tr>
+    ${Object.entries(hoses).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.n}</td><td>${v.qty}</td><td>${(v.mm/1000).toLocaleString("nb-NO",{maximumFractionDigits:1})}</td></tr>`).join("")}</table>
+    <table style="margin-top:10px"><tr><th>Kobling</th><th>Antall</th></tr>
+    ${Object.entries(cpls).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join("")}</table>
+    <div style="margin-top:12px;color:#333"><b>Estimert produksjonstid: ${fmtH(est.hours)}</b> (TimeCalc-modellen)${est.unknown?` · ⚠️ ${est.unknown} linjer uten tidsdata`:""}
+    &nbsp;·&nbsp; Trykktest 1,5 × WP med sertifikat, spot-check og merking inkludert i prosessen.</div>
+  </div>`;
+}
+function telarisHTML(f){
+  const t=f.telaris;
+  if(!t)return `<div class="docpreview"><h4>TELARIS</h4><div>Slangepakken er ikke opprettet i Telaris ennå.</div></div>`;
+  return `<div class="docpreview">
+    <h4>TELARIS – SLANGEPAKKE ${esc(t.pkg)} (opprettet automatisk)</h4>
+    <div style="color:#555;margin-bottom:10px">${esc(f.id)} · ${esc(f.title)} · Ordre/PO: ${esc(f.po||"–")} · Opprettet ${t.createdAt} av ${esc(t.by)} · I drift: Telaris-API – her simulert</div>
+    <table><tr><th>Varenr</th><th>Beskrivelse</th><th>POS</th><th>PTS-ID</th><th>Ant.</th><th>BOM (per stk)</th></tr>
+    ${t.items.map(it=>`<tr><td class="mono"><b>${esc(it.itemNo)}</b></td><td>${esc(it.desc)}</td><td><b>${esc(it.pos||"–")}</b></td><td class="mono">${esc(it.pts||"–")}</td><td>${it.qty}</td>
+      <td>${it.bom.map(b=>`${esc(b.no)} × ${b.qty} ${b.unit}`).join(" · ")}</td></tr>`).join("")}</table>
+    <div style="margin-top:12px;font-weight:700">Samlet BOM for pakken (${t.items.length} varelinjer):</div>
+    <table style="margin-top:6px"><tr><th>Varenr</th><th>Beskrivelse</th><th>Sum antall</th><th>Enhet</th></tr>
+    ${t.totals.map(b=>`<tr><td class="mono">${esc(b.no)}</td><td>${esc(b.desc)}</td><td>${b.qty.toLocaleString("nb-NO")}</td><td>${b.unit}</td></tr>`).join("")}</table>
+    <div style="margin-top:12px;color:#333">Pakkevaren <b>${esc(t.pkg)}</b> legges på ordre ${esc(f.order||"–")} i Telaris – lagertrekk, kalkyle og fakturagrunnlag følger BOM-en automatisk.</div>
+  </div>`;
+}
+function spotHTML(f){
+  const sp=f.spot;
+  return `<div class="docpreview">
+    <h4>SPOT-CHECK-RAPPORT (ANNENHÅNDSKONTROLL)</h4>
+    <div style="color:#555;margin-bottom:10px">${esc(f.id)} · ${esc(f.title)} · Ordre/PO: ${esc(f.po||"–")} · Utvalg: ${sp.items.length} av ${f.lines.length} slanger (min. én per slangetype) · Startet ${sp.startedAt} · Godkjent ${sp.completedAt||"–"}</div>
+    <div style="color:#555;margin-bottom:10px">Kontrollpunkter: målt kuttlengde/OAL · riktige koblinger mot produksjonsliste · merking/tag · renhet og UC-propper. Kontrollør skal være en annen enn den som trykktestet slangen.</div>
+    <table><tr><th>POS</th><th>Maskin</th><th>PTS ID</th><th>Hose</th><th>Kutt (mm)</th><th>Koblinger</th><th>Trykktestet av</th><th>Resultat</th><th>Kontrollert av</th><th>Dato</th><th>Kommentar</th></tr>
+    ${sp.items.map(it=>{const l=f.lines[it.i];return `<tr><td><b>${esc(l.pos||"–")}</b></td><td>${esc(l.mach||"–")}</td><td>${esc(l.pts)}</td><td>${esc(l.hose)}</td><td>${l.cut||"–"}</td><td>${esc(l.c1)} / ${esc(l.c2)}</td>
+      <td>${l.st.test?esc(l.st.test.by):""}</td><td><b>${it.result==="ok"?"OK":it.result==="avvik"?"AVVIK":""}</b></td><td>${esc(it.by||"")}</td><td>${it.at||""}</td><td>${esc(it.comment||"")}</td></tr>`}).join("")}</table>
+    <div style="margin-top:16px;color:#333">Kvalitetsansvarlig (sign): ______________ &nbsp;&nbsp; Dato: ____________</div>
+  </div>`;
+}
+
+/* =====================================================================
+   PRODUKSJONSPLAN – kapasitet og kalender
+   ===================================================================== */
+function planDays(nDays){
+  const days=[];const d=new Date();
+  while(days.length<(nDays||15)){
+    if(d.getDay()!==0&&d.getDay()!==6){
+      days.push({date:new Date(d),key:d.toISOString().slice(0,10),
+        label:["sø","ma","ti","on","to","fr","lø"][d.getDay()]+" "+String(d.getDate()).padStart(2,"0")+"."+String(d.getMonth()+1).padStart(2,"0")});
+    }
+    d.setDate(d.getDate()+1);
+  }
+  return days;
+}
+function planFolders(){
+  return State.folders
+    .filter(f=>["klar","prod","test","qc"].includes(f.status)&&f.lines.length)
+    .sort((a,b)=>{
+      const pri=x=>x.status==="klar"?1:0;                 // pågående først
+      if(pri(a)!==pri(b))return pri(a)-pri(b);
+      return (a.plannedStart||"9999")<(b.plannedStart||"9999")?-1:1;
+    });
+}
+function planSchedule(){
+  const days=planDays(15);
+  const cap=State.plan.fitters*State.plan.hoursPerDay;
+  const used=days.map(()=>0);
+  const rowsAlloc=[];
+  let cursor=0;
+  planFolders().forEach(f=>{
+    let rem=remainingHours(f);
+    const alloc={};
+    let d=f.plannedStart?Math.max(days.findIndex(x=>x.key>=f.plannedStart),0):cursor;
+    if(f.plannedStart&&days.findIndex(x=>x.key>=f.plannedStart)<0)d=days.length; // starter etter horisonten
+    let overflow=0;
+    while(rem>0.049){
+      if(d>=days.length){overflow=rem;break}
+      const avail=cap-used[d];
+      if(avail<=0.049){d++;continue}
+      const take=Math.min(avail,rem);
+      alloc[d]=Math.round(take*10)/10;
+      used[d]+=take;rem-=take;
+      if(rem>0.049)d++;
+    }
+    cursor=Math.max(cursor,Math.min(d,days.length));
+    rowsAlloc.push({f,alloc,overflow,doneDay:d});
+  });
+  return {days,cap,used,rowsAlloc};
+}
+const PLANCOLORS=["#3b82f6","#2f9e6e","#b07d2b","#7c5cd6","#d64545","#0e7490"];
+function setPlanStart(id,val){const f=folder(id);f.plannedStart=val||null;addLog(f,val?`Planlagt produksjonsstart satt til ${val}`:"Planlagt start fjernet – planlegges fortløpende");render()}
+
+function vPlan(){
+  const {days,cap,used,rowsAlloc}=planSchedule();
+  const totalRem=rowsAlloc.reduce((a,r)=>a+remainingHours(r.f),0);
+  const capWeek=cap*5;
+  return `<h1>📅 Produksjonsplan</h1>
+  <div class="sub">Tidsestimatet beregnes automatisk fra slangelisten når mappen opprettes (TimeCalc-modellen fra Excel: starttid + tid per meter + tillegg under/over 10 m, per dimensjon). Planen fyller dagene ut fra verkstedets kapasitet – sett planlagt start for å låse en mappe til en dato.</div>
+  <div class="cardrow">
+    <div class="tile"><div class="t-label">Montører</div><div class="t-value"><input type="number" min="1" max="10" value="${State.plan.fitters}" style="width:70px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--text);padding:4px 8px;font-size:20px;font-weight:700" onchange="State.plan.fitters=Math.max(1,Number(this.value)||1);render()"></div></div>
+    <div class="tile"><div class="t-label">Timer per montør/dag</div><div class="t-value"><input type="number" min="1" max="12" step="0.5" value="${State.plan.hoursPerDay}" style="width:80px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;color:var(--text);padding:4px 8px;font-size:20px;font-weight:700" onchange="State.plan.hoursPerDay=Math.max(1,Number(this.value)||7.5);render()"></div></div>
+    <div class="tile"><div class="t-label">Dagskapasitet</div><div class="t-value">${fmtH(cap)}</div><div class="t-note">${fmtH(capWeek)} per uke</div></div>
+    <div class="tile"><div class="t-label">Gjenstående i kø</div><div class="t-value">${fmtH(totalRem)}</div><div class="t-note">${rowsAlloc.length} aktive mapper</div></div>
+  </div>
+  ${rowsAlloc.length?`
+  <div class="tblwrap"><table>
+    <tr><th style="min-width:250px">Produksjonsmappe</th>${days.map((d,i)=>`<th style="text-align:center;${i===0?"color:var(--accent2)":""}">${d.label}${i===0?"<br>i dag":""}</th>`).join("")}</tr>
+    ${rowsAlloc.map((r,ri)=>{
+      const col=PLANCOLORS[ri%PLANCOLORS.length];
+      const est=estHoursFolder(r.f);
+      return `<tr>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="width:12px;height:12px;border-radius:3px;background:${col};display:inline-block;flex-shrink:0"></span>
+          <div>
+            <b class="mono" style="cursor:pointer" onclick="App.openFolder('${r.f.id}')">${r.f.id}</b> ${stBadge(r.f.status)}<br>
+            <span style="font-size:12px">${esc(r.f.title)}</span><br>
+            <span style="font-size:11.5px;color:var(--muted)">Estimat ${fmtH(est.hours)} · gjenstår ${fmtH(remainingHours(r.f))}${est.unknown?` · ⚠️ ${est.unknown} linjer uten tidsdata`:""}</span><br>
+            <span style="font-size:11px;color:var(--muted)">Planlagt start:</span>
+            <input type="date" value="${r.f.plannedStart||""}" min="${days[0].key}" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:2px 6px;font-size:11px" onchange="setPlanStart('${r.f.id}',this.value)">
+          </div>
+        </div>
+        ${r.overflow?`<div class="vitem v-warn" style="margin-top:6px;padding:5px 9px">⚠️ <div style="font-size:11.5px">${fmtH(r.overflow)} får ikke plass innenfor 3 uker – øk kapasiteten eller flytt en mappe.</div></div>`:""}
+      </td>
+      ${days.map((d,i)=>r.alloc[i]
+        ?`<td style="text-align:center;background:${col}22;border-bottom:3px solid ${col}"><b style="font-size:12.5px">${r.alloc[i].toLocaleString("nb-NO")}</b><span style="font-size:9.5px;color:var(--muted)"> t</span></td>`
+        :`<td></td>`).join("")}
+    </tr>`}).join("")}
+    <tr><td style="font-size:11.5px;color:var(--muted)"><b>Belegg</b> (av ${fmtH(cap)}/dag)</td>
+      ${days.map((d,i)=>{
+        const pct=Math.round(100*used[i]/cap);
+        return `<td style="text-align:center">
+          <div class="meter" style="height:7px;margin:0 0 3px">${used[i]?`<div style="width:${Math.min(pct,100)}%;${pct>=100?"background:var(--warn)":""}"></div>`:""}</div>
+          <span style="font-size:10px;color:var(--muted)">${used[i]?Math.round(used[i]*10)/10+" t":""}</span></td>`}).join("")}
+    </tr>
+  </table></div>
+  <div class="notice" style="margin-top:14px">💡 Mappene pakkes automatisk etter kapasitet: pågående mapper fortsetter fra i dag, «klar»-mapper legges i kø etter planlagt start (eller fortløpende). I pilot kobles planen mot PMOTION-prosjektenes frister og vises også i Gantt-en der.</div>`
+  :`<div class="notice">Ingen aktive produksjonsmapper å planlegge akkurat nå.</div>`}`;
+}
+
+/* =====================================================================
+   Masterdata + Om
+   ===================================================================== */
+function vMaster(){
+  return `<h1>🗄️ Masterdata (utdrag)</h1>
+  <div class="sub">Samme kilde som i dag: <span class="mono">Database_Hose_&_fittings.xlsx</span> på SharePoint. Systemet validerer alltid mot denne – én sannhetskilde for koblinger, slanger og WP.</div>
+  <div class="cardrow">
+    <div class="card" style="flex:1;min-width:280px"><h2 style="margin-top:0">Slangetyper</h2><div class="tblwrap"><table>
+      <tr><th></th><th>Kode</th><th>WP (bar)</th><th>Dim</th><th>S-mål (mm)</th></tr>
+      ${Object.entries(MASTER.hoses).map(([k,v])=>`<tr><td><span class="photo-mini"><img src="${hoseImgURL(k)}" loading="lazy" alt="" style="transform:scale(2)" onerror="this.parentElement.style.display='none'"></span></td><td class="mono">${k}</td><td>${v.wp}</td><td>${v.inch}</td><td>${v.s??"–"}</td></tr>`).join("")}
+    </table></div></div>
+    <div class="card" style="flex:1;min-width:280px"><h2 style="margin-top:0">Koblinger</h2><div class="tblwrap"><table>
+      <tr><th></th><th>Kode</th><th>WP (bar)</th><th>B-mål (mm)</th><th>Geometri</th></tr>
+      ${Object.entries(MASTER.couplings).map(([k,v])=>`<tr><td><span class="photo-mini"><img src="${cplImgURL(k)}" loading="lazy" alt="" onerror="this.parentElement.style.display='none'"></span></td><td class="mono">${k}</td><td>${v.wp}</td><td>${v.b??"–"}</td><td style="font-size:11.5px">${v.sys?v.sys+" "+v.dim+" · "+(v.ang??0)+"°":"–"}</td></tr>`).join("")}
+    </table></div></div>
+  </div>
+  <div class="notice">💡 I drift leses masterdata direkte fra databasen på SharePoint (samme fil som Power Query-løsningen bruker), slik at en rettelse dér umiddelbart gjelder overalt.</div>`;
+}
+
+function vOm(){
+  return `<h1>❓ Om prototypen</h1>
+  <div class="card">
+    <h2 style="margin-top:0">Hva dette er</h2>
+    <p style="margin-bottom:10px">En klikkbar prototype av <b>Slangeproduksjon</b> – en egen modul bygget i samme stil som PMOTION. Målet: én idiotsikker vei fra slangeliste til komplett produksjonsmappe, og én felles plattform for PMO og verkstedet.</p>
+    <p>Alt du gjør her er ekte flyt, men <b>demodata i minnet</b> – lukk fanen, og alt nullstilles. Ingen ting lagres.</p>
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">Hva som er simulert vs. ekte i pilot</h2>
+    <div class="tblwrap"><table>
+      <tr><th>I prototypen</th><th>I pilot / drift</th></tr>
+      <tr><td>Demodata i nettleserminnet</td><td>SharePoint-lister + dokumentbibliotek på /sites/PMO/Slangeproduksjon</td></tr>
+      <tr><td>Rollevelger øverst</td><td>Automatisk Microsoft-pålogging (samme som PMOTION)</td></tr>
+      <tr><td>Masterdata som utdrag</td><td>Live oppslag i Database_Hose_&_fittings.xlsx</td></tr>
+      <tr><td>Produktfoto hentes direkte fra parker.com (krever nett)</td><td>Bildene kopieres til SharePoint-mediebibliotek via masterdatabasen – uavhengig av parker.com</td></tr>
+      <tr><td>Forhåndsvisning av dokumenter</td><td>Ekte xlsx/pdf generert og lagret i mappen, klare for utskrift</td></tr>
+      <tr><td>PTS-ID-er genereres lokalt (simulert register)</td><td>Reserveres via oppslag/API mot den ekte PTS-databasen – neste ledige ID-er, atomisk</td></tr>
+      <tr><td>Telaris-pakke som dokumentvisning</td><td>Opprettes via Telaris-API: pakkevare, slangevarer og BOM legges rett i ERP, koblet mot ordren</td></tr>
+      <tr><td>«Kobles til PMOTION» som tekst</td><td>Produksjonsmappen vises som sjekklistepunkt i PMOTION Fase 4</td></tr>
+    </table></div>
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0">Prøv denne runden (2 min)</h2>
+    <p>1. Klikk <b>Ny produksjonsmappe</b> → fyll inn kunde (prosjekt er valgfritt).<br>
+    2. I steg 2, klikk <b>Fyll med demodata</b> – kundens liste legges rett i det redigerbare rutenettet. Skriv i cellene som i Excel (med forslag fra masterdata), legg til/slett rader, eller lim inn flere rader. Merk: kundelister har ingen PTS-ID-er – kolonnen står på «hentes».<br>
+    3. Se valideringen fange ekte feil (bl.a. tastefeilen «14948-18-8» fra dagens slangeliste!) og rett med ett klikk. Kuttemålene (CUT = Lengde − B1 − B2 − S-mål) regnes ut automatisk fra masterdata – samme formel som i Excel-arket, men uten formler som kan mangle eller bli ødelagt.<br>
+    4. Generer dokumenter, og i siste steg: klikk <b>🔖 Hent PTS-ID-er til alle slangene</b> – systemet reserverer neste ledige ID-er i PTS-registeret. Lagre. I mappen følger du så prosessen slik den faktisk er: <b>⚙️ Opprett slangepakke i Telaris</b> (varenummer og BOM genereres automatisk) → <b>📤 Marker tilbud sendt fra Telaris</b> (tilbudet sendes på pakkevaren) → <b>📦 Registrer bestilling</b> når kunden bestiller. Portene håndhever rekkefølgen.<br>
+    5. «Send til verksted», bytt bruker til <b>Verksted – Christian</b> øverst, åpne <b>Verkstedsmodus</b>. Verkstedet jobber i fire operasjoner – ✂️ Kapping, 🧼 Rens (UC), 🔧 Pressing, 🧪 Trykktest – akkurat som på benken: alt kappes først, så renses, presses og testes. I Kapping velges slangetype fra kort med tegninger, så ingen kapper feil slange.<br>
+    6. Når alle fire operasjonene er fullført: «Start spot-check» – annenhåndskontrollen der en annen person enn den som testet må godkjenne et utvalg (bytt bruker øverst for å se regelen håndheves).<br>
+    7. Etter godkjent spot-check: skriv ut trykktestsertifikat, pallemerkelapp og spot-check-rapport fra utskriftspanelet.</p>
+  </div>`;
+}
+
+/* init */
+State.docPrev=null;
+/* demo: West Carina er låst til planlagt start litt frem i tid, så planen viser både
+   automatisk pakking (Saipem fra i dag) og en datolåst mappe */
+(function(){const wc=folder("PM-2026-013");if(wc&&!wc.plannedStart){wc.plannedStart=planDays(6)[3].key}})();
+/* demo: mapper som har passert tilbuds-/ordresteget har Telaris-pakke
+   (prosessen: slangepakken opprettes i Telaris FØR tilbudet sendes derfra) */
+(function(){
+  [["PM-2026-012","04.08 09:20","Simen (PMO)"],["PM-2026-013","07.08 12:05","Kim (PMO)"],["PM-2026-009","15.07 10:10","Kim (PMO)"]].forEach(([id,at,by])=>{
+    const f=folder(id);if(f&&!f.telaris){f.telaris=buildTelaris(f);f.telaris.createdAt=at;f.telaris.by=by}
+  });
+})();
+render();
+</script>
+</body>
+</html>
