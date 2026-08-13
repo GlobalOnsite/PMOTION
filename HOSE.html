@@ -131,6 +131,16 @@ td .ptspill.has{border-style:solid;border-color:var(--accent);color:var(--text)}
 .pastefold{margin-top:12px;padding:12px;border:1px dashed var(--border2);border-radius:var(--radius);background:var(--surface2)}
 .telbadge{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;padding:3px 10px;border-radius:99px;background:var(--good-bg);border:1px solid var(--good);color:var(--text)}
 
+/* ---------- fullskjerm (verksted/iPad): meny og topplinje kollapses ---------- */
+body.fs .topbar,body.fs .sidebar{display:none}
+body.fs .content{padding:58px 18px 18px}      /* plass til den flytende linjen */
+body.fs.touch .content{padding-top:72px}
+.fsbar{position:fixed;top:10px;right:12px;z-index:400;display:none;gap:8px;align-items:center}
+body.fs .fsbar{display:flex}
+.fsbar select,.fsbar button{background:var(--surface);border:1px solid var(--border2);border-radius:99px;color:var(--text);padding:8px 14px;font-size:13px;font-family:var(--font);cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+.fsbar button:hover{border-color:var(--accent)}
+.touch .fsbar select,.touch .fsbar button{padding:12px 18px;font-size:15px}
+
 /* validation list */
 .vitem{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border-radius:9px;margin-bottom:7px;font-size:13px}
 .v-bad{background:var(--bad-bg);border:1px solid var(--bad)}
@@ -326,6 +336,17 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
   </div>
   <button class="iconbtn" onclick="App.toggleTheme()" title="Bytt lys/mørk">🌙</button>
 </header>
+
+<!-- flytende linje i fullskjerm (verksted/iPad) – topplinjen og menyen er skjult -->
+<div class="fsbar noprint">
+  <select id="fsuser" onchange="App.setUser(this.value)" title="Innlogget som">
+    <option>Simen (PMO)</option>
+    <option>Kim (PMO)</option>
+    <option>Verksted – Christian</option>
+    <option>Verksted – Sigfus</option>
+  </select>
+  <button onclick="App.toggleFs()" title="Avslutt fullskjerm – hent tilbake menyen">✕ Avslutt fullskjerm</button>
+</div>
 
 <div class="main">
   <nav class="sidebar">
@@ -606,6 +627,7 @@ const State = {
   view:"dash", activeId:null, activeTab:"liste", showArchived:false,
   ws:{folderId:null,stage:null,hoseType:null,onlyRemaining:false,focusPos:0},
   touch:(typeof matchMedia==='function'&&matchMedia('(pointer: coarse)').matches),
+  fs:false,   /* fullskjerm: meny + topplinje kollapset (verksted/iPad) */
   plan:{fitters:2,hoursPerDay:7.5},
   ptsSeq:4180,      /* neste ledige løpenummer i PTS-registeret (simulert) */
   telarisSeq:118440, /* neste ledige varenummer i Telaris (simulert) */
@@ -710,19 +732,42 @@ const DEMO_PASTE =
 /* =====================================================================
    App
    ===================================================================== */
+/* Fullskjerm (verksted/iPad): kollapser meny + topplinje, og prøver i tillegg
+   ekte fullskjerm via Fullscreen API der nettleseren støtter det (iPadOS/Safari
+   bruker webkit-prefiks). Layout-kollapsen virker uansett. */
+function fsEnter(){
+  State.fs=true;
+  try{const d=document.documentElement;const rf=d.requestFullscreen||d.webkitRequestFullscreen;if(rf)rf.call(d)}catch(e){}
+}
+function fsOff(){
+  if(!State.fs)return;
+  State.fs=false;
+  try{
+    const ef=document.exitFullscreen||document.webkitExitFullscreen;
+    if(ef&&(document.fullscreenElement||document.webkitFullscreenElement))ef.call(document);
+  }catch(e){}
+}
+
 const App = {
-  nav(v){State.view=v;render()},
+  nav(v){
+    if(v!=="verksted")fsOff();
+    State.view=v;
+    if(v==="verksted"&&State.touch)State.fs=true; /* iPad: kollaps automatisk */
+    render();
+  },
   setUser(u){State.user=u;render()},
+  toggleFs(){State.fs?fsOff():fsEnter();render()},
   toggleTheme(){
     const h=document.documentElement;
     h.dataset.theme = h.dataset.theme==="dark" ? "light" : "dark";
   },
   startWizard(){
+    fsOff();
     State.wizard={step:1,project:"",po:"",order:"",customer:"",custRef:"",hub:"Lillesand",editId:null,
       rows:[],issues:[],docs:{prod:true,test:true,tags:true},preview:null,showPaste:false,ptsFetched:0};
     State.view="wizard";render();
   },
-  openFolder(id){State.activeId=id;State.activeTab="liste";State.view="folder";render()},
+  openFolder(id){fsOff();State.activeId=id;State.activeTab="liste";State.view="folder";render()},
 };
 
 function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
@@ -733,7 +778,11 @@ function addLog(f,msg){f.log.unshift({t:now(),who:State.user,msg})}
 
 /* ---------- Render root ---------- */
 function render(){
-  if(document.body&&document.body.classList)document.body.classList.toggle("touch",!!State.touch);
+  if(document.body&&document.body.classList){
+    document.body.classList.toggle("touch",!!State.touch);
+    document.body.classList.toggle("fs",!!State.fs);
+  }
+  const fu=document.getElementById("fsuser");if(fu)fu.value=State.user;
   document.querySelectorAll(".nav-item").forEach(b=>{
     b.classList.toggle("active",
       b.dataset.view===State.view || (State.view==="folder"&&b.dataset.view==="list"));
@@ -1611,8 +1660,11 @@ function vVerksted(){
   if(f&&State.ws.stage==="prints")return vPrints(f);
   if(f&&(f.status==="qc"||State.ws.stage==="qc")&&f.spot)return vQC(f);
   if(!f||!["prod","test","qc"].includes(f.status)){
-    return `<h1>🏭 Verkstedsmodus</h1>
-    <div class="sub">Velg produksjonsmappen dere jobber med. Kun mapper som er sendt til produksjon vises her.</div>
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <h1>🏭 Verkstedsmodus</h1>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${wsModeBtn()}</div>
+    </div>
+    <div class="sub">Velg produksjonsmappen dere jobber med. Kun mapper som er sendt til produksjon vises her.${State.fs?"":" På iPad: trykk <b>⛶ Fullskjerm</b> – menyen og topplinjen kollapses så hele skjermen brukes til arbeidet."}</div>
     ${cands.length?`<div class="pmgrid">${cands.map(x=>`<div class="pmcard" onclick="State.ws.folderId='${x.id}';State.ws.stage=null;State.ws.hoseType=null;render()">
       <div class="pm-id">${x.id}</div><div class="pm-title" style="font-size:17px">${esc(x.title)}</div>
       ${stBadge(x.status)}
@@ -1629,9 +1681,11 @@ function vVerksted(){
   return State.touch?wsFocus(f,State.ws.stage):wsStageList(f,State.ws.stage);
 }
 
-/* Bryter mellom PC-tabeller og touch-fokus */
+/* Brytere: PC/touch-visning + fullskjerm (meny og topplinje kollapses).
+   I fullskjerm vises avslutt-knappen i den flytende linjen øverst til høyre. */
 function wsModeBtn(){
-  return `<button class="btn btn-ghost" onclick="State.touch=!State.touch;render()" title="Bytt mellom PC- og nettbrettvisning">${State.touch?"🖥️ PC-visning":"📱 Touch-visning"}</button>`;
+  return `<button class="btn btn-ghost" onclick="State.touch=!State.touch;render()" title="Bytt mellom PC- og nettbrettvisning">${State.touch?"🖥️ PC-visning":"📱 Touch-visning"}</button>${State.fs?"":`
+  <button class="btn btn-primary" onclick="App.toggleFs()" title="Fullskjerm for iPad/verkstedskjerm – menyen og topplinjen skjules">⛶ Fullskjerm</button>`}`;
 }
 
 /* --- operasjonsvelger: verkstedets startside for mappen --- */
@@ -2309,7 +2363,7 @@ function vOm(){
     2. I steg 2, klikk <b>Fyll med demodata</b> – kundens liste legges rett i det redigerbare rutenettet. Skriv i cellene som i Excel (med forslag fra masterdata), legg til/slett rader, eller lim inn flere rader. Merk: kundelister har ingen PTS-ID-er – kolonnen står på «hentes».<br>
     3. Se valideringen fange ekte feil (bl.a. tastefeilen «14948-18-8» fra dagens slangeliste!) og rett med ett klikk. Kuttemålene (CUT = Lengde − B1 − B2 − S-mål) regnes ut automatisk fra masterdata – samme formel som i Excel-arket, men uten formler som kan mangle eller bli ødelagt.<br>
     4. Generer dokumenter, og i siste steg: klikk <b>🔖 Hent PTS-ID-er til alle slangene</b> – systemet reserverer neste ledige ID-er i PTS-registeret. Lagre. I mappen følger du så prosessen slik den faktisk er: <b>⚙️ Opprett slangepakke i Telaris</b> (varenummer og BOM genereres automatisk) → <b>📤 Marker tilbud sendt fra Telaris</b> (tilbudet sendes på pakkevaren) → <b>📦 Registrer bestilling</b> når kunden bestiller. Portene håndhever rekkefølgen.<br>
-    5. «Send til verksted», bytt bruker til <b>Verksted – Christian</b> øverst, åpne <b>Verkstedsmodus</b>. Verkstedet jobber i fire operasjoner – ✂️ Kapping, 🧼 Rens (UC), 🔧 Pressing, 🧪 Trykktest – akkurat som på benken: alt kappes først, så renses, presses og testes. I Kapping velges slangetype fra kort med tegninger, så ingen kapper feil slange.<br>
+    5. «Send til verksted», bytt bruker til <b>Verksted – Christian</b> øverst, åpne <b>Verkstedsmodus</b>. Trykk <b>⛶ Fullskjerm</b> (på iPad skjer det automatisk): menyen og topplinjen kollapses så hele skjermen brukes til arbeidet – bruker og avslutt-knapp ligger i en liten flytende linje øverst til høyre. Verkstedet jobber i fire operasjoner – ✂️ Kapping, 🧼 Rens (UC), 🔧 Pressing, 🧪 Trykktest – akkurat som på benken: alt kappes først, så renses, presses og testes. I Kapping velges slangetype fra kort med tegninger, så ingen kapper feil slange.<br>
     6. Når alle fire operasjonene er fullført: «Start spot-check» – annenhåndskontrollen der en annen person enn den som testet må godkjenne et utvalg (bytt bruker øverst for å se regelen håndheves).<br>
     7. Etter godkjent spot-check: skriv ut trykktestsertifikat, pallemerkelapp og spot-check-rapport fra utskriftspanelet.</p>
   </div>`;
