@@ -139,19 +139,60 @@ td .ptspill.has{border-style:solid;border-color:var(--accent);color:var(--text)}
 .qtybadge.mini{font-size:12.5px;padding:2px 9px;border-width:1.5px;border-radius:9px}
 .touch .qtybadge.mini{font-size:14px}
 
-/* iPad-optimalisert fokuskort: liggende = to kolonner, stående = én kolonne */
-.fc-grid{display:grid;gap:16px;grid-template-areas:"pos" "main" "photo"}
+/* iPad-optimalisert fokuskort: full bredde. Liggende: POS-banner over hele
+   bredden, stor tegning (slange + koblinger) til venstre, mål/teller til
+   høyre, bekreft-knappen i full bredde nederst. Stående: én kolonne. */
+.touch .focus-wrap{max-width:none}
+.fc-grid{display:grid;gap:14px;grid-template-areas:"pos" "main" "act" "photo"}
 .fc-pos{grid-area:pos}
 .fc-maincol{grid-area:main;min-width:0}
+.fc-act{grid-area:act;min-width:0}
 .fc-photo2{grid-area:photo;border-top:1px dashed var(--border2);padding-top:14px}
 .fc-pos .posref{text-align:left}
 .fc-pos .posref .p-num{font-size:56px;line-height:1}
 @media(orientation:landscape) and (min-width:900px){
-  .touch .fc-grid{grid-template-columns:minmax(300px,5fr) 7fr;grid-template-areas:"pos main" "photo main";align-items:start;column-gap:26px}
-  .touch .fc-photo2{border-top:none;padding-top:0;margin-top:6px}
-  .touch .fc-pos .posref .p-num{font-size:64px}
-  .touch .fc-maincol .focus-main{font-size:clamp(40px,6vw,72px)}
+  .touch .fc-grid{grid-template-columns:11fr 9fr;grid-template-areas:"pos pos" "photo main" "photo act";grid-template-rows:auto auto 1fr;align-items:start;column-gap:28px}
+  .touch .fc-act{align-self:start}
+  .touch .fc-photo2{border-top:none;padding-top:0;margin-top:0}
+  /* POS-banner: alt på én linje over hele bredden */
+  .touch .fc-pos .posref{display:flex;align-items:center;gap:18px;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:10px}
+  .touch .fc-pos .posref .p-label{font-size:15px;letter-spacing:2px}
+  .touch .fc-pos .posref .p-num{font-size:76px}
+  .touch .fc-pos .posref .p-mach{font-size:17px}
+  .touch .fc-pos .posref .p-ctx{font-size:13px}
+  .touch .fc-pos .posref .qtybadge{margin-top:0;margin-left:auto;font-size:24px;padding:10px 22px}
+  /* stor tegning: slange + koblinger skal være tydelige */
+  .touch .fc-photo2 .assembly{max-width:none}
+  .touch .fc-photo2 .assembly .asm-slot .imgclip{height:190px}
+  .touch .fc-photo2 .assembly .asm-lab{font-size:14px}
+  .touch .fc-photo2 .assembly .asm-geo{font-size:11.5px}
+  .touch .fc-photo2 .hpanel{max-width:none}
+  .touch .fc-photo2 .hpanel .imgclip{height:230px}
+  .touch .fc-photo2 .hpanel .asm-lab{font-size:14px}
+  .touch .fc-maincol .focus-main{font-size:clamp(44px,5.5vw,80px)}
+  /* kompakte nøkkeltall i høyrekolonnen så bekreft-knappen alltid er synlig */
+  .touch .fc-grid{row-gap:10px}
+  .touch .fc-maincol .focus-meta{gap:14px;margin:10px 0 2px;flex-wrap:nowrap;overflow-x:auto}
+  .touch .fc-maincol .focus-meta .fm{min-width:0;flex:0 0 auto}
+  .touch .fc-maincol .focus-meta .fm b{font-size:14px}
+  .touch .fc-maincol .focus-meta .fm span{font-size:9.5px}
+  .touch .fc-act .bigbtn{margin-top:6px}
+  /* stram topp: mer plass til selve arbeidskortet */
+  .touch .qrail{padding:2px 2px;margin:4px 0 2px}
+  .touch .qcard{min-width:96px;padding:6px 10px}
+  .touch .qcard .qpos{font-size:19px}
+  .touch .qcard .qst{font-size:11px}
+  body.fs.touch .content{padding-top:52px}
+  .touch .focus-card{padding:16px 20px}
+  .touch .fc-maincol .focus-main{font-size:clamp(38px,4.6vw,64px)}
+  /* koblingskodene på én linje i liggende (de står også i tegningen) */
+  .touch .fc-maincol .press-cpl{font-size:26px}
+  .touch .fc-maincol .press-cpl .cplsep{display:inline}
+  .touch .fc-maincol .press-cpl .cplsep::before{content:"  /  "}
+  .touch .fc-maincol .press-note{display:none}
+  .touch .fc-maincol .crimp-note{display:none}
 }
+.cplsep{display:block}
 .touch .focus-card{padding:20px 22px}
 .touch h1{font-size:20px}
 body.fs.touch .fsver{display:none}
@@ -450,9 +491,10 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
    ===================================================================== */
 
 /* ---------- Versjon (vises i topplinjen, fullskjermlinjen og på Om-siden) ---------- */
-const APP_VERSION="0.22";
+const APP_VERSION="0.23";
 const APP_BUILD="13.08.2026";
 const CHANGELOG=[
+  ["0.23","13.08.2026","Liggende iPad-visning bruker nå hele skjermbredden: POS-banner øverst over full bredde, stor tegning av slange + koblinger til venstre, mål/pressmål og teller til høyre, og bekreft-knapp i full bredde nederst"],
   ["0.22","13.08.2026","Liggende iPad-visning i verkstedet: to kolonner med POS og produktfoto til venstre, mål/teller/bekreft-knapp til høyre – alt synlig samtidig. Stående format beholder én kolonne"],
   ["0.21","13.08.2026","iPad-optimalisert layout i fullskjerm/touch: POS, mål og bekreft-knapp øverst uten scrolling (foto ligger under), kompaktere topplinje, og bedre plassutnyttelse i både liggende og stående format"],
   ["0.20","13.08.2026","Tag-regel etter lengde: slanger med OAL ≥ 2000 mm får 2 tagger (én til hver ende), kortere slanger får 1 – i utskriften ved kapping, i tags-dokumentet og i Telaris-BOM-en (vare 23951)"],
@@ -2893,15 +2935,15 @@ function wsFocus(f,key){
     : key==="pack" ? `<div class="focus-main" style="font-size:clamp(34px,6vw,54px)">📦 Pakking</div><div class="focus-sub">Legg slangen${(l.qty||1)>1?"e ("+l.qty+" stk)":""} i kassen/pallen – kontroller POS ${esc(l.pos||"–")} mot pakklisten</div>`
     : key==="clean" ? `<div class="focus-main" style="font-size:clamp(34px,6vw,54px)">🧼 ${esc(l.pts)}</div><div class="focus-sub">Rens innvendig og sett UC-propper i begge ender</div>`
     : key==="press" ? (()=>{const c=crimpFor(l.hose);
-        return `<div class="focus-main mono" style="font-size:clamp(26px,4vw,40px);line-height:1.25">${esc(l.c1)}<br>${esc(l.c2)}</div>
+        return `<div class="focus-main mono press-cpl" style="font-size:clamp(26px,4vw,40px);line-height:1.25">${esc(l.c1)}<span class="cplsep"></span>${esc(l.c2)}</div>
         ${c?`<div style="margin-top:12px;border:2.5px solid var(--info);border-radius:16px;padding:12px 16px;background:var(--info-bg)">
           <div style="font-size:12px;letter-spacing:1px;color:var(--muted);font-weight:700">PRESSMÅL (${esc(c.series)}, ${esc(c.die)}) · CrimpSource Adjustable crimper</div>
           <div style="font-family:var(--head);font-weight:800;font-size:clamp(34px,6vw,56px);color:var(--info);line-height:1.1">Ø ${fmtMM(c.od)} mm</div>
           <div style="font-size:clamp(16px,2.5vw,22px);font-weight:700">Toleranse: <span class="mono">${crimpRange(c)}</span></div>
-          <div class="focus-sub" style="margin-top:4px">Mål pressdiameteren med mikrometer etter pressing – den skal ligge innenfor båndet</div>
+          <div class="focus-sub crimp-note" style="margin-top:4px">Mål pressdiameteren med mikrometer etter pressing – den skal ligge innenfor båndet</div>
         </div>`
         :`<div class="vitem v-warn" style="margin-top:12px">📖 <div><b>Pressmål mangler i masterdata for ${esc(l.hose)}.</b> Slå opp i <a href="${CRIMPSOURCE_URL}" target="_blank" rel="noopener" style="color:var(--accent2)">Parker CrimpSource (Adjustable crimper)</a> og legg verdien inn i masterdatabasen.</div></div>`}
-        <div class="focus-sub" style="margin-top:8px">KOBLING 1 / KOBLING 2 · kontroller pressinnstilling for ${esc(l.hose)}</div>`})()
+        <div class="focus-sub press-note" style="margin-top:8px">KOBLING 1 / KOBLING 2 · kontroller pressinnstilling for ${esc(l.hose)}</div>`})()
     : `<div class="focus-main" style="color:var(--info)">${l.wp?Math.round(l.wp*1.5)+" bar":"–"}</div><div class="focus-sub">TESTTRYKK (1,5 × WP ${l.wp||"–"} bar) · holdetid 10 min</div>`;
 
   const rail=`<div class="qrail">${q.map((x,p)=>{
@@ -2952,7 +2994,8 @@ function wsFocus(f,key){
         return State.touch
           ?`<div class="fc-grid">
               <div class="fc-pos">${posBlock(l,f)}</div>
-              <div class="fc-maincol"><div style="margin-top:2px">${main}</div>${metaHtml}${actionsHtml}</div>
+              <div class="fc-maincol"><div style="margin-top:2px">${main}</div>${metaHtml}</div>
+              <div class="fc-act">${actionsHtml}</div>
               <div class="fc-photo2">${photoHtml}</div>
             </div>`
           :`<div style="display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap">
