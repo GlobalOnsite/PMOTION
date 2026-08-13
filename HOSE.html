@@ -139,6 +139,22 @@ td .ptspill.has{border-style:solid;border-color:var(--accent);color:var(--text)}
 .qtybadge.mini{font-size:12.5px;padding:2px 9px;border-width:1.5px;border-radius:9px}
 .touch .qtybadge.mini{font-size:14px}
 
+/* kø-rekke i fokusvisningen: små kort som viser tatt / nå / venter */
+.qrail{display:flex;gap:8px;overflow-x:auto;padding:6px 2px;margin:8px 0 4px;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+.qcard{flex:0 0 auto;min-width:88px;border:2px solid var(--border2);border-radius:12px;padding:6px 10px;background:var(--surface);cursor:pointer;text-align:center;font-family:var(--font)}
+.qcard .qpos{font-family:var(--head);font-weight:800;font-size:18px;line-height:1.15;color:var(--text)}
+.qcard .qpts{font-family:var(--mono);font-size:9.5px;color:var(--muted);letter-spacing:.3px}
+.qcard .qst{font-size:11px;margin-top:3px;font-weight:700;color:var(--muted);white-space:nowrap}
+.qcard.done{border-color:var(--good);background:var(--good-bg)}
+.qcard.done .qst{color:var(--good)}
+.qcard.cur{border-color:var(--accent);box-shadow:0 0 0 3px rgba(59,130,246,.28)}
+.qcard.cur .qst{color:var(--accent2)}
+.touch .qcard{min-width:108px;padding:9px 12px}
+.touch .qcard .qpos{font-size:23px}
+.touch .qcard .qst{font-size:12.5px}
+.lastconfirm{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:12px;font-size:14px;font-weight:700;color:var(--good)}
+.touch .lastconfirm{font-size:16.5px}
+
 /* logget trykktest (ESI-sensor): live kurve + måler */
 .gauge{font-family:var(--head);font-size:clamp(46px,7vw,80px);font-weight:800;line-height:1;color:var(--info)}
 .gauge small{font-size:.35em;color:var(--muted);font-weight:700}
@@ -413,9 +429,11 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
    ===================================================================== */
 
 /* ---------- Versjon (vises i topplinjen, fullskjermlinjen og på Om-siden) ---------- */
-const APP_VERSION="0.11";
+const APP_VERSION="0.13";
 const APP_BUILD="13.08.2026";
 const CHANGELOG=[
+  ["0.13","13.08.2026","Tidsmåling mot kalkylen: arbeidsøkter (start/stopp) i verkstedet, faktisk brukt tid per ordre mot estimert og opptjent tid etter fremdrift, med status frempå / on track / bakpå i mappen, verkstedsmodus og produksjonsplanen"],
+  ["0.12","13.08.2026","Visuell kø-rekke i verkstedets fokusvisning: små kort viser hvilke slanger som er tatt (✓ med klokkeslett), hvilken som er «NÅ» og hva som venter – pluss «Sist bekreftet»-kvittering, så man aldri er i tvil om forrige trykk gikk inn"],
   ["0.11","13.08.2026","All produsert dokumentasjon på engelsk (UI fortsatt norsk), og DNV-kobling: AoM AMT00000F4 + typegodkjenning (TAP) per slangetype påføres trykktestsertifikatet automatisk, med varsling ved utløpt/manglende sertifikat"],
   ["0.10","13.08.2026","Unike PTS-ID-er per fysisk slange: linjer med antall N får N ID-er fra registeret, tags og sertifikat får én lapp/rad per slange, stk-telleren logger hvert kutt mot sin PTS-ID, og alle porter teller manglende ID-er i stk"],
   ["0.9","13.08.2026","Integrert trykktestlogging med ESI-sensor (GD4200-USB): live trykkurve, holdetid-nedtelling, automatisk godkjent/avvik på trykkfall, testlogg knyttet til PTS-ID-er og rett inn i sertifikatet – tredjepartsprogrammet trengs ikke"],
@@ -692,6 +710,48 @@ function remainingHours(f){
 }
 function fmtH(h){return (h==null?"–":h.toLocaleString("nb-NO",{maximumFractionDigits:1})+" t")}
 
+/* ---------- Tidsmåling mot kalkylen (earned value) ----------
+   Montørene stempler arbeidsøkter (start/stopp) per mappe i verkstedsmodus.
+   Faktisk brukt tid sammenlignes med OPPTJENT tid = estimat × utført andel
+   av operasjonene. Da ser vi løpende om vi er frempå, on track eller bakpå
+   – og over tid kalibreres TimeCalc-modellen med reelle tall. */
+function activeSession(f,user){return (f.sessions||[]).find(s=>!s.endAt&&(!user||s.by===user))}
+function actualMins(f){
+  return (f.sessions||[]).reduce((a,s)=>a+(s.mins!=null?s.mins:Math.max(0,(Date.now()-s.startMs)/60000)),0);
+}
+function earnedHours(f){
+  const n=f.lines.length;if(!n)return 0;
+  const frac=STAGES.reduce((a,s)=>a+stageCount(f,s.key),0)/(4*n);
+  return Math.round(estHoursFolder(f).hours*frac*10)/10;
+}
+function timeStatus(f){
+  if(!(f.sessions&&f.sessions.length))return null;
+  const used=Math.round(actualMins(f)/60*10)/10, earned=earnedHours(f);
+  const diff=Math.round((earned-used)*10)/10;   /* + = frempå, − = bakpå */
+  const st=used<=earned*0.9?"ahead":used<=earned*1.1?"ontrack":"behind";
+  return {used,earned,diff,st,
+    label:st==="ahead"?"✅ Frempå":st==="ontrack"?"🟦 On track":"⚠️ Bakpå",
+    cls:st==="ahead"?"good":st==="ontrack"?"info":"warn"};
+}
+function wsClockIn(id){
+  const f=folder(id);
+  const me=State.user;
+  if(activeSession(f,me))return;
+  f.sessions=f.sessions||[];
+  f.sessions.push({by:me,startAt:now(),startMs:Date.now()});
+  addLog(f,`Arbeidsøkt startet (${me.replace("Verksted – ","")})`);
+  render();
+}
+function wsClockOut(id){
+  const f=folder(id);
+  const s=activeSession(f,State.user);
+  if(!s)return;
+  s.endAt=now();
+  s.mins=Math.max(1,Math.round((Date.now()-s.startMs)/60000));
+  addLog(f,`Arbeidsøkt avsluttet (${s.by.replace("Verksted – ","")}) – ${(s.mins/60).toLocaleString("nb-NO",{maximumFractionDigits:1})} t registrert. Totalt brukt: ${fmtH(actualMins(f)/60)} av estimert ${fmtH(estHoursFolder(f).hours)}`);
+  render();
+}
+
 const State = {
   user:"Simen (PMO)",
   seq:15,
@@ -846,6 +906,14 @@ function buildTelaris(f){
 
 /* Maskinnr (Equipment NO) på demolinjene – L4021 er fra den reelle BOP Skid-listen */
 State.folders.find(f=>f.id==="PM-2026-012").lines.forEach(l=>l.mach="L4021");
+State.folders.find(f=>f.id==="PM-2026-012").sessions=[
+  {by:"Verksted – Christian",startAt:"05.08 07:00",endAt:"05.08 09:20",mins:140},
+  {by:"Verksted – Sigfus",startAt:"06.08 07:00",endAt:"06.08 08:16",mins:76}
+];
+State.folders.find(f=>f.id==="PM-2026-009").sessions=[
+  {by:"Verksted – Christian",startAt:"17.07 07:00",endAt:"17.07 09:00",mins:120},
+  {by:"Verksted – Sigfus",startAt:"18.07 07:00",endAt:"18.07 08:12",mins:72}
+];
 State.folders.find(f=>f.id==="PM-2026-014").lines.forEach(l=>l.mach="PK-"+l.pos);
 State.folders.find(f=>f.id==="PM-2026-013").lines.forEach((l,i)=>l.mach="WC-M"+(1+(i%2)));
 State.folders.find(f=>f.id==="PM-2026-009").lines.forEach(l=>l.mach="DS15");
@@ -942,6 +1010,10 @@ function render(){
     document.body.classList.toggle("fs",!!State.fs);
   }
   const fu=document.getElementById("fsuser");if(fu)fu.value=State.user;
+  if(typeof requestAnimationFrame!=="undefined")requestAnimationFrame(()=>{
+    const el=document.querySelector&&document.querySelector(".qcard.cur");
+    if(el&&el.scrollIntoView)try{el.scrollIntoView({inline:"center",block:"nearest"})}catch(e){}
+  });
   const vb=document.getElementById("verbadge");if(vb)vb.textContent="v"+APP_VERSION;
   const fv=document.getElementById("fsver");if(fv)fv.textContent="HoseMaker v"+APP_VERSION;
   document.querySelectorAll(".nav-item").forEach(b=>{
@@ -1410,11 +1482,37 @@ function vFolder(){
     return `<span class="${cls}">${STATUSES[s].icon} ${STATUSES[s].label}</span>${i<6?'<span class="arr">→</span>':""}`;
   }).join("")}</div>
   ${folderActions(f)}
+  ${timePanel(f)}
   <div class="tabs">
     ${[["liste","📄 Slangeliste ("+n+")"],["dok","🗂️ Dokumenter"],["logg","📝 Logg ("+f.log.length+")"]].map(([k,l])=>
       `<button class="tab ${State.activeTab===k?"active":""}" onclick="State.activeTab='${k}';render()">${l}</button>`).join("")}
   </div>
   ${State.activeTab==="liste"?fTabListe(f,p,t):State.activeTab==="dok"?fTabDok(f):fTabLogg(f)}`;
+}
+
+/* ⏱ Tid mot kalkyle: estimat vs brukt vs opptjent (fremdrift) */
+function timePanel(f){
+  if(!["prod","test","qc","ferdig","arkiv"].includes(f.status)&&!(f.sessions&&f.sessions.length))return "";
+  const est=estHoursFolder(f).hours;
+  const ts=timeStatus(f);
+  const run=(f.sessions||[]).filter(s=>!s.endAt);
+  const used=ts?ts.used:0, earned=earnedHours(f);
+  const pctUsed=est?Math.min(100,Math.round(100*used/est)):0;
+  const pctEarned=est?Math.min(100,Math.round(100*earned/est)):0;
+  return `<div class="card" style="padding:14px 18px">
+    <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      <b style="font-family:var(--head)">⏱ Tid mot kalkyle</b>
+      <span class="sub" style="margin:0">Estimat <b style="color:var(--text)">${fmtH(est)}</b></span>
+      <span class="sub" style="margin:0">Brukt <b style="color:var(--text)">${fmtH(used)}</b>${run.length?` <span class="status st-prod">⏵ ${run.length} økt${run.length>1?"er":""} pågår</span>`:""}</span>
+      <span class="sub" style="margin:0">Opptjent iht. fremdrift <b style="color:var(--text)">${fmtH(earned)}</b></span>
+      ${ts?`<span class="status ${ts.st==="ahead"?"st-ferdig":ts.st==="ontrack"?"st-klar":"st-prod"}">${ts.label}${ts.diff?` ${Math.abs(ts.diff).toLocaleString("nb-NO")} t`:""}</span>`
+          :`<span class="sub" style="margin:0">ingen økter registrert ennå – trykk ▶ Start arbeidsøkt i verkstedsmodus</span>`}
+    </div>
+    <div style="display:flex;gap:14px;align-items:center;margin-top:8px;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px"><div style="font-size:11px;color:var(--muted)">Fremdrift (opptjent av estimat: ${pctEarned} %)</div><div class="meter m-good"><div style="width:${pctEarned}%"></div></div></div>
+      <div style="flex:1;min-width:220px"><div style="font-size:11px;color:var(--muted)">Tidsbruk (brukt av estimat: ${pctUsed} %)</div><div class="meter"><div style="width:${pctUsed}%;${ts&&ts.st==="behind"?"background:var(--warn)":""}"></div></div></div>
+    </div>
+  </div>`;
 }
 
 function folderActions(f){
@@ -1921,6 +2019,13 @@ function wsStageSelect(f){
     <div style="display:flex;gap:8px;flex-wrap:wrap">${wsModeBtn()}<button class="btn btn-ghost" onclick="State.ws.folderId=null;State.ws.stage=null;render()">↩︎ Bytt mappe</button></div>
   </div>
   <div class="sub" style="margin-bottom:4px"><b>${refLine(f)}</b> · ${f.lines.length} slanger</div>
+  ${(()=>{const ts=timeStatus(f),act=activeSession(f,State.user),run=(f.sessions||[]).filter(x=>!x.endAt);
+    return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+    <span class="sensorchip ${act?"on":""}">⏱ Brukt ${fmtH(actualMins(f)/60)} av est. ${fmtH(estHoursFolder(f).hours)}${ts?` · ${ts.label}${ts.diff?" "+Math.abs(ts.diff).toLocaleString("nb-NO")+" t":""}`:""}</span>
+    ${act?`<button class="btn btn-ghost" onclick="wsClockOut('${f.id}')">⏹ Stopp arbeidsøkten min</button>`
+         :`<button class="btn btn-good" onclick="wsClockIn('${f.id}')">▶ Start arbeidsøkt (${esc(State.user.replace("Verksted – ",""))})</button>`}
+    ${run.length?`<span class="sub" style="margin:0">⏵ pågår: ${run.map(x=>esc(x.by.replace("Verksted – ",""))+" fra "+x.startAt.split(" ")[1]).join(", ")}</span>`:""}
+  </div>`})()}
   <div class="sub">Velg operasjon. Slik jobber vi: alle slangene kappes først, så renses de med UC-propper (én samlet kvittering), så presses koblingene på, og til slutt trykktestes de i puljer per testtrykk. Du kan bytte operasjon når som helst – ingenting låser deg.</div>
   <div class="pmgrid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
     ${STAGES.map((s,i)=>{
@@ -2011,6 +2116,7 @@ function wsCutView(f){
     </div>
   </div>
   ${nextBanner}
+  ${State.ws.lastConfirm&&State.ws.lastConfirm.key==="cut"?`<div class="lastconfirm" style="justify-content:flex-start">✅ Sist: POS ${esc(State.ws.lastConfirm.pos||"–")} ${esc(State.ws.lastConfirm.what)} kl. ${(State.ws.lastConfirm.at||"").split(" ")[1]||State.ws.lastConfirm.at} av ${esc(State.ws.lastConfirm.by)}</div>`:""}
   ${measurePanel(all.map(x=>x.l),f.id)}
   <div class="cardrow">
     <div class="tile"><div class="t-label">Linjer kappet (${esc(hose)})</div><div class="t-value">${p} / ${all.length}</div><div class="meter"><div style="width:${Math.round(100*p/all.length)}%"></div></div></div>
@@ -2346,6 +2452,7 @@ function wsStageList(f,key){
       ${key==="clean"&&todo.length?`<button class="btn btn-primary" onclick="wsStageAll('${f.id}','clean')">🧼 Merk alle ${todo.length} som renset</button>`:""}
     </div>
   </div>
+  ${State.ws.lastConfirm&&State.ws.lastConfirm.key===key?`<div class="lastconfirm" style="justify-content:flex-start">✅ Sist: POS ${esc(State.ws.lastConfirm.pos||"–")} ${esc(State.ws.lastConfirm.what)} kl. ${(State.ws.lastConfirm.at||"").split(" ")[1]||State.ws.lastConfirm.at} av ${esc(State.ws.lastConfirm.by)}</div>`:""}
   ${done===eligible.length&&eligible.length===f.lines.length?`
   <div class="vitem v-good" style="align-items:center">✅ <div><b>Alle ${f.lines.length} slanger er ${s.verb}.</b>${key!=="test"?` Neste operasjon: ${STAGES[STAGES.findIndex(x=>x.key===key)+1].icon} ${STAGES[STAGES.findIndex(x=>x.key===key)+1].label}.`:" Mappen kan meldes ferdig fra operasjonsoversikten."}</div>
     <span class="fix">${key!=="test"?`<button class="btn btn-good" onclick="State.ws.stage='${STAGES[STAGES.findIndex(x=>x.key===key)+1].key}';render()">➡️ Gå videre</button>`:`<button class="btn btn-good" onclick="State.ws.stage=null;render()">➡️ Til oversikten</button>`}</span></div>`:""}
@@ -2382,7 +2489,8 @@ function wsCutPiece(id,idx,d){
   l.cutN=Math.max(0,Math.min(qty,before+d));
   if(l.cutN===before)return null;
   const ids=ptsAll(l);
-  if(d>0)addLog(f,`${ids[l.cutN-1]||l.pts||"(uten ID)"} kappet (${l.cutN} av ${qty} på POS ${l.pos||"–"})`);
+  if(d>0){addLog(f,`${ids[l.cutN-1]||l.pts||"(uten ID)"} kappet (${l.cutN} av ${qty} på POS ${l.pos||"–"})`);
+    State.ws.lastConfirm={key:"cut",pos:l.pos,pts:ids[l.cutN-1]||l.pts,at:now(),by:State.user.replace("Verksted – ",""),what:`kappet ${l.cutN} av ${qty}`};}
   else addLog(f,`POS ${l.pos||"–"}: kappeteller justert ned til ${l.cutN} av ${qty}`);
   if(l.cutN===qty){
     l.st.cut={by:State.user.replace("Verksted – ",""),at:now()};
@@ -2417,6 +2525,7 @@ function wsStage(id,idx,key){
   }else{
     l.st[key]={by:State.user.replace("Verksted – ",""),at:now()};
     addLog(f,`${l.pts} bekreftet ${s.verb}`);
+    State.ws.lastConfirm={key,pos:l.pos,pts:l.pts,at:l.st[key].at,by:l.st[key].by,what:s.verb};
   }
   if(f.status==="prod"&&stageCount(f,"press")===f.lines.length){f.status="test";addLog(f,"Alle slanger presset – status endret til Trykktest")}
   if(f.status==="test"&&stageCount(f,"press")<f.lines.length)f.status="prod";
@@ -2556,13 +2665,26 @@ function wsFocus(f,key){
     : key==="press" ? `<div class="focus-main mono" style="font-size:clamp(30px,5vw,46px);line-height:1.25">${esc(l.c1)}<br>${esc(l.c2)}</div><div class="focus-sub">KOBLING 1 / KOBLING 2 · kontroller pressinnstilling for ${esc(l.hose)}</div>`
     : `<div class="focus-main" style="color:var(--info)">${l.wp?Math.round(l.wp*1.5)+" bar":"–"}</div><div class="focus-sub">TESTTRYKK (1,5 × WP ${l.wp||"–"} bar) · holdetid 10 min</div>`;
 
+  const rail=`<div class="qrail">${q.map((x,p)=>{
+    const dn=!!x.l.st[key];
+    return `<button class="qcard ${dn?"done":""} ${p===pos?"cur":""}" onclick="State.ws.focusPos=${p};render()" title="POS ${esc(x.l.pos||"–")} · ${esc(x.l.pts)}">
+      <div class="qpos">${esc(x.l.pos||"–")}</div>
+      <div class="qpts">${esc(x.l.pts)}</div>
+      <div class="qst">${dn?`✓ ${(x.l.st[key].at||"").split(" ")[1]||x.l.st[key].at}`
+        :key==="cut"&&(x.l.cutN||0)>0?`${p===pos?"◉ ":""}✂ ${x.l.cutN}/${x.l.qty}`
+        :p===pos?"◉ NÅ"
+        :x.l.qty>1?`${x.l.qty} stk`:"venter"}</div>
+    </button>`}).join("")}</div>`;
+  const lc=State.ws.lastConfirm;
+  const lastLine=lc&&lc.key===key?`<div class="lastconfirm">✅ Sist: POS ${esc(lc.pos||"–")} ${esc(lc.what)} kl. ${(lc.at||"").split(" ")[1]||lc.at} av ${esc(lc.by)}</div>`:"";
   return header+`
   <div class="focus-wrap">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin:6px 0 10px;gap:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:6px 0 2px;gap:12px">
       <span style="font-size:15px;font-weight:700">${s.verb.charAt(0).toUpperCase()+s.verb.slice(1)}: ${done} av ${total}</span>
       <div class="meter" style="flex:1;max-width:340px"><div style="width:${Math.round(100*done/total)}%"></div></div>
       ${waiting?`<span style="font-size:12px;color:var(--muted)">+${waiting} venter oppstrøms</span>`:""}
     </div>
+    ${rail}
     <div class="focus-card" style="border-left:10px solid ${stStyle.color}">
       <div style="display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap">
         <div style="flex:1;min-width:300px">${key==="cut"?hosePhotoPanel(l,{arrow:true}):key==="clean"?hosePhotoPanel(l,{plugs:true}):photoAssembly(l)}</div>
@@ -2591,9 +2713,10 @@ function wsFocus(f,key){
           <div class="focus-sub" style="text-align:center;margin-top:8px">${(l.cutN||0)<l.qty?`Neste kutt kvitteres på <b class="mono">PTS ${esc(ptsAll(l)[l.cutN||0]||"–")}</b> · `:""}hver fysiske slange har sin egen PTS-ID – linjen fullføres ved ${l.qty} av ${l.qty}</div>`
         :`<button class="bigbtn confirm" onclick="wsFocusConfirm('${f.id}',${i},'${key}',${pos})">${s.icon} BEKREFT ${s.verb.toUpperCase()}</button>`}
     </div>
+    ${lastLine}
     <div class="focus-nav">
       <button class="navarrow" ${pos===0?"disabled":""} onclick="State.ws.focusPos=${pos-1};render()">◀</button>
-      <div class="dots">${total<=30?q.map((x,p)=>`<button class="dot ${x.l.st[key]?"done":""} ${p===pos?"cur":""}" title="POS ${esc(x.l.pos||"–")} · ${esc(x.l.pts)}" onclick="State.ws.focusPos=${p};render()"></button>`).join(""):`<span style="font-size:14px;color:var(--muted)">Slange ${pos+1} av ${total}</span>`}</div>
+      <span style="font-size:14.5px;color:var(--muted);font-weight:700">Slange ${pos+1} av ${total} · trykk et kort i rekken over for å hoppe</span>
       <button class="navarrow" ${pos===total-1?"disabled":""} onclick="State.ws.focusPos=${pos+1};render()">▶</button>
     </div>
     ${key==="clean"&&total-done>1?`<button class="bigbtn ghostb" onclick="wsStageAll('${f.id}','clean')">🧼 Merk alle ${total-done} gjenstående som renset</button>`:""}
@@ -2873,6 +2996,7 @@ function vPlan(){
             <b class="mono" style="cursor:pointer" onclick="App.openFolder('${r.f.id}')">${r.f.id}</b> ${stBadge(r.f.status)}<br>
             <span style="font-size:12px">${esc(r.f.title)}</span><br>
             <span style="font-size:11.5px;color:var(--muted)">Estimat ${fmtH(est.hours)} · gjenstår ${fmtH(remainingHours(r.f))}${est.unknown?` · ⚠️ ${est.unknown} linjer uten tidsdata`:""}</span><br>
+            ${(()=>{const ts=timeStatus(r.f);return ts?`<span style="font-size:11.5px">⏱ Brukt ${fmtH(ts.used)} · opptjent ${fmtH(ts.earned)} · <b style="color:${ts.st==="ahead"?"var(--good)":ts.st==="ontrack"?"var(--accent2)":"var(--warn)"}">${ts.label}${ts.diff?" "+Math.abs(ts.diff).toLocaleString("nb-NO")+" t":""}</b></span><br>`:""})()}
             <span style="font-size:11px;color:var(--muted)">Planlagt start:</span>
             <input type="date" value="${r.f.plannedStart||""}" min="${days[0].key}" style="background:var(--surface2);border:1px solid var(--border2);border-radius:6px;color:var(--text);padding:2px 6px;font-size:11px" onchange="setPlanStart('${r.f.id}',this.value)">
           </div>
@@ -2951,6 +3075,7 @@ function vOm(){
       <tr><td>PTS-ID-er genereres lokalt (simulert register)</td><td>Reserveres via oppslag/API mot den ekte PTS-databasen – neste ledige ID-er, atomisk</td></tr>
       <tr><td>Telaris-pakke som dokumentvisning</td><td>Opprettes via Telaris-API: pakkevare, slangevarer og BOM legges rett i ERP, koblet mot ordren</td></tr>
       <tr><td>ESI-trykksensor simulert (kurve, holdetid, trykkfall)</td><td>ESI GD4200-USB leses direkte: Web Serial i Chrome/Edge, eller en liten lokal brotjeneste på ESIs offisielle API-DLL – tredjepartsprogrammet erstattes helt</td></tr>
+      <tr><td>Arbeidsøkter stemples manuelt (start/stopp)</td><td>Kan i tillegg utledes automatisk fra bekreftelsene i verkstedet, og rapporteres per ordre/kunde/periode for kalibrering av TimeCalc-kalkylen</td></tr>
       <tr><td>DNV-sertifikater (AoM + TAP) som register i prototypen</td><td>Vedlikeholdes i masterdatabasen med gyldighetsdatoer; sertifikatnumrene påføres trykktestsertifikatet automatisk (DNV-krav), med varsling før utløp</td></tr>
       <tr><td>«Kobles til PMOTION» som tekst</td><td>Produksjonsmappen vises som sjekklistepunkt i PMOTION Fase 4</td></tr>
     </table></div>
@@ -2961,7 +3086,7 @@ function vOm(){
     2. I steg 2, klikk <b>Fyll med demodata</b> – kundens liste legges rett i det redigerbare rutenettet. Skriv i cellene som i Excel (med forslag fra masterdata), legg til/slett rader, eller lim inn flere rader. Merk: kundelister har ingen PTS-ID-er – kolonnen står på «hentes».<br>
     3. Se valideringen fange ekte feil (bl.a. tastefeilen «14948-18-8» fra dagens slangeliste!) og rett med ett klikk. Kuttemålene (CUT = Lengde − B1 − B2 − S-mål) regnes ut automatisk fra masterdata – samme formel som i Excel-arket, men uten formler som kan mangle eller bli ødelagt.<br>
     4. Generer dokumenter, og i siste steg: klikk <b>🔖 Hent PTS-ID-er til alle slangene</b> – systemet reserverer neste ledige ID-er i PTS-registeret. Lagre. I mappen følger du så prosessen slik den faktisk er: <b>⚙️ Opprett slangepakke i Telaris</b> (varenummer og BOM genereres automatisk) → <b>📤 Marker tilbud sendt fra Telaris</b> (tilbudet sendes på pakkevaren) → <b>📦 Registrer bestilling</b> når kunden bestiller. Portene håndhever rekkefølgen.<br>
-    5. «Send til verksted», bytt bruker til <b>Verksted – Christian</b> øverst, åpne <b>Verkstedsmodus</b>. Trykk <b>⛶ Fullskjerm</b> (på iPad skjer det automatisk): menyen og topplinjen kollapses så hele skjermen brukes til arbeidet – bruker og avslutt-knapp ligger i en liten flytende linje øverst til høyre. Verkstedet jobber i fire operasjoner – ✂️ Kapping, 🧼 Rens (UC), 🔧 Pressing, 🧪 Trykktest – akkurat som på benken. I Kapping velges slangetype fra kort med tegninger, så ingen kapper feil slange. Rens kvitteres med <b>én samlet kvittering</b> for alt som er kappet, og trykktesten kjøres i <b>puljer per testtrykk</b> – hak bort slanger som ikke får plass i benken, så blir de liggende til neste pulje. Koble til <b>ESI-sensoren</b> i trykktest-skjermen og trykk «Start logget trykktest»: hele forløpet logges med live kurve, holdetid-nedtelling og automatisk godkjent/avvik på trykkfall (prøv «Simuler lekkasje»!) – loggen havner rett i sertifikatet.<br>
+    5. «Send til verksted», bytt bruker til <b>Verksted – Christian</b> øverst, åpne <b>Verkstedsmodus</b>. Trykk <b>▶ Start arbeidsøkt</b> i operasjonsvelgeren – tiden måles løpende mot kalkylen, og mappen viser om dere er frempå, on track eller bakpå. Trykk <b>⛶ Fullskjerm</b> (på iPad skjer det automatisk): menyen og topplinjen kollapses så hele skjermen brukes til arbeidet – bruker og avslutt-knapp ligger i en liten flytende linje øverst til høyre. Verkstedet jobber i fire operasjoner – ✂️ Kapping, 🧼 Rens (UC), 🔧 Pressing, 🧪 Trykktest – akkurat som på benken. I Kapping velges slangetype fra kort med tegninger, så ingen kapper feil slange. Rens kvitteres med <b>én samlet kvittering</b> for alt som er kappet, og trykktesten kjøres i <b>puljer per testtrykk</b> – hak bort slanger som ikke får plass i benken, så blir de liggende til neste pulje. Koble til <b>ESI-sensoren</b> i trykktest-skjermen og trykk «Start logget trykktest»: hele forløpet logges med live kurve, holdetid-nedtelling og automatisk godkjent/avvik på trykkfall (prøv «Simuler lekkasje»!) – loggen havner rett i sertifikatet.<br>
     6. Når alle fire operasjonene er fullført: «Start spot-check» – annenhåndskontrollen der en annen person enn den som testet må godkjenne et utvalg (bytt bruker øverst for å se regelen håndheves).<br>
     7. Etter godkjent spot-check: skriv ut trykktestsertifikat, pallemerkelapp og spot-check-rapport fra utskriftspanelet.</p>
   </div>`;
