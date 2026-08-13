@@ -413,9 +413,10 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
    ===================================================================== */
 
 /* ---------- Versjon (vises i topplinjen, fullskjermlinjen og på Om-siden) ---------- */
-const APP_VERSION="0.10";
+const APP_VERSION="0.11";
 const APP_BUILD="13.08.2026";
 const CHANGELOG=[
+  ["0.11","13.08.2026","All produsert dokumentasjon på engelsk (UI fortsatt norsk), og DNV-kobling: AoM AMT00000F4 + typegodkjenning (TAP) per slangetype påføres trykktestsertifikatet automatisk, med varsling ved utløpt/manglende sertifikat"],
   ["0.10","13.08.2026","Unike PTS-ID-er per fysisk slange: linjer med antall N får N ID-er fra registeret, tags og sertifikat får én lapp/rad per slange, stk-telleren logger hvert kutt mot sin PTS-ID, og alle porter teller manglende ID-er i stk"],
   ["0.9","13.08.2026","Integrert trykktestlogging med ESI-sensor (GD4200-USB): live trykkurve, holdetid-nedtelling, automatisk godkjent/avvik på trykkfall, testlogg knyttet til PTS-ID-er og rett inn i sertifikatet – tredjepartsprogrammet trengs ikke"],
   ["0.8","13.08.2026","Stk-teller på kapping ved antall > 1: ett trykk per kutt med stor teller, −1 for feiltelling, hvert kutt loggføres, og linjen fullføres først når riktig antall er nådd"],
@@ -456,6 +457,51 @@ const MASTER = {
     "1JC48-10-10":{wp:380,b:24,ang:0,sys:"ORFS",dim:'5/8"'}
   }
 };
+
+/* ---------- DNV-sertifisering (fra AoM AMT00000F4, DNVGL-CP-0183) ----------
+   DNV-krav (Production testing-klausulen i AoM): hver slange trykktestes til
+   1,5 × MWP og leveres med testrapport med referanse til BÅDE typegodkjennings-
+   sertifikatet (TAP) og AoM-sertifikatet. HoseMaker påfører derfor begge
+   automatisk på trykktestsertifikatet. TAP-listen under speiler tabellen i
+   AoM-sertifikatet; gyldighetsdatoer er demo-fornyede revisjoner, med ett
+   utløpt sertifikat (462) beholdt for å vise varslingen. */
+const DNV={
+  aom:{no:"AMT00000F4",desc:"Assembling of type approved hoses and couplings",
+       program:"DNVGL-CP-0183 – Type approval – Flexible hoses",validUntil:"2026-10-19"},
+  taps:[
+    {no:"TAP00001N6 Rev. 2",types:["387","387TC","387ST","487","487TC","487ST"],dash:[4,16],validUntil:"2027-12-31"},
+    {no:"TAP00001N7 Rev. 2",types:["722TC","722ST","787","787TC","787ST","797","797TC","797ST"],dash:[4,16],validUntil:"2027-12-31"},
+    {no:"TAP000013N Rev. 1",types:["722TC","722ST","787TC","787ST","797","797TC","797ST"],dash:[4,24],validUntil:"2026-11-08"},
+    {no:"TAP00001Y1 Rev. 1",types:["R56TC"],dash:[4,8],validUntil:"2027-09-29"},
+    {no:"TAP000000E Rev. 1",types:["462","462ST","462TC"],dash:[4,48],validUntil:"2022-06-30"},
+    {no:"TAP000013G Rev. 1",types:["301SN","421SN"],dash:[4,32],validUntil:"2026-12-27"},
+    {no:"TAP0000158 Rev. 1",types:["811","811SN"],dash:[12,80],validUntil:"2026-06-30"}
+  ]
+};
+function todayISO(){const d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")}
+function hoseTypeDash(code){const m=String(code||"").match(/^(\d[0-9A-Z]*?)-(\d+)$/);return m?{type:m[1],dash:Number(m[2])}:null}
+/* Finn gjeldende TAP for en slangekode («487ST-8» → type 487ST, dash 8) */
+function dnvCertFor(hose){
+  const td=hoseTypeDash(hose);if(!td)return null;
+  const hits=DNV.taps.filter(t=>t.types.includes(td.type)&&td.dash>=t.dash[0]&&td.dash<=t.dash[1]);
+  if(!hits.length)return null;
+  hits.sort((a,b)=>b.validUntil.localeCompare(a.validUntil));
+  return {no:hits[0].no,validUntil:hits[0].validUntil,expired:hits[0].validUntil<todayISO()};
+}
+function aomStatus(){
+  const t=todayISO();
+  const soon=new Date(DNV.aom.validUntil)-new Date(t)<90*24*3600*1000;
+  return {expired:DNV.aom.validUntil<t,soon};
+}
+/* DNV-status for en hel mappe: per slangetype + samlet vurdering */
+function dnvForFolder(f){
+  const types=[...new Set(f.lines.map(l=>l.hose))];
+  const rows=types.map(h=>({hose:h,cert:dnvCertFor(h)}));
+  return {rows,
+    missing:rows.filter(r=>!r.cert).length,
+    expired:rows.filter(r=>r.cert&&r.cert.expired).length,
+    aom:aomStatus()};
+}
 
 /* Enkel likhetssøk for «mente du …?» */
 function editDist(a,b){
@@ -1239,26 +1285,26 @@ function wz4(){
 
 function docPreview(rows,meta,kind){
   if(kind==="prod")return `<div class="docpreview">
-    <h4>Production List / Kutteliste – ${esc(meta.title||"")}</h4>
-    <div style="color:#555;margin-bottom:8px">Order: ${esc(meta.order||"")} · PO: ${esc(meta.po||"–")} · Kuttemål beregnet fra masterdata (CUT = Lengde − B1 − B2 − S)</div>
+    <h4>Production List / Cutting List – ${esc(meta.title||"")}</h4>
+    <div style="color:#555;margin-bottom:8px">Order: ${esc(meta.order||"")} · PO: ${esc(meta.po||"–")} · Cut lengths calculated from master data (CUT = Length − B1 − B2 − S)</div>
     <table><tr><th>PTS ID</th><th style="background:#c55a11">CUT (mm)</th><th>POS</th><th>Hose</th><th>Length</th><th>Coupling 1</th><th>Coupling 2</th><th>QTY</th></tr>
-    ${rows.map(r=>`<tr><td>${esc(r.pts||"(hentes)")}</td><td style="font-weight:700">${r.cut?r.cut.toLocaleString("nb-NO"):"–"}</td><td>${esc(r.pos)}</td><td>${esc(r.hose)}</td><td>${esc(r.len)}</td><td>${esc(r.c1)}</td><td>${esc(r.c2)}</td><td>${esc(r.qty)}</td></tr>`).join("")}</table></div>`;
+    ${rows.map(r=>`<tr><td>${esc(r.pts||"(pending)")}</td><td style="font-weight:700">${r.cut?r.cut.toLocaleString("nb-NO"):"–"}</td><td>${esc(r.pos)}</td><td>${esc(r.hose)}</td><td>${esc(r.len)}</td><td>${esc(r.c1)}</td><td>${esc(r.c2)}</td><td>${esc(r.qty)}</td></tr>`).join("")}</table></div>`;
   if(kind==="test")return `<div class="docpreview">
     <h4>Pressure Test Certificate</h4>
-    <div style="color:#555;margin-bottom:8px">${esc(meta.title||"")} · Order ${esc(meta.order||"")} · Test medium: vann · Holdetid: 10 min</div>
-    <table><tr><th>Line</th><th>PTS ID</th><th>Hose</th><th>WP (bar)</th><th>TP = 1,5×WP</th><th>Resultat</th><th>Sign</th></tr>
-    ${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.pts||"(hentes)")}</td><td>${esc(r.hose)}</td><td>${r.wp||"–"}</td><td>${r.wp?Math.round(r.wp*1.5):"–"}</td><td></td><td></td></tr>`).join("")}</table>
-    <div style="margin-top:14px;color:#555">Testet av: ______________ &nbsp;&nbsp; Dato: ____________ &nbsp;&nbsp; Godkjent: ______________</div></div>`;
+    <div style="color:#555;margin-bottom:8px">${esc(meta.title||"")} · Order ${esc(meta.order||"")} · Test medium: water · Hold time: 10 min</div>
+    <table><tr><th>Line</th><th>PTS ID</th><th>Hose</th><th>WP (bar)</th><th>TP = 1.5×WP</th><th>Result</th><th>Sign</th></tr>
+    ${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.pts||"(pending)")}</td><td>${esc(r.hose)}</td><td>${r.wp||"–"}</td><td>${r.wp?Math.round(r.wp*1.5):"–"}</td><td></td><td></td></tr>`).join("")}</table>
+    <div style="margin-top:14px;color:#555">Tested by: ______________ &nbsp;&nbsp; Date: ____________ &nbsp;&nbsp; Approved: ______________</div></div>`;
   const pieces=rows.flatMap(r=>{const n=Number(r.qty)||1,ids=ptsAll(r);
-    return Array.from({length:n},(_,k)=>({r,id:ids[k]||"(hentes)",k:k+1,n}))});
-  return `<div class="docpreview"><h4>Tags (${pieces.length} stk – én per fysisk slange)</h4><div class="tagsgrid" style="margin-top:8px">
+    return Array.from({length:n},(_,k)=>({r,id:ids[k]||"(pending)",k:k+1,n}))});
+  return `<div class="docpreview"><h4>Tags (${pieces.length} pcs – one per hose)</h4><div class="tagsgrid" style="margin-top:8px">
     ${pieces.slice(0,8).map(x=>`<div class="tag"><div class="qr"></div>
       <div class="pts">POS ${esc(x.r.pos||"–")}${x.n>1?` (${x.k}/${x.n})`:""}</div>
-      <div style="font-weight:700">${esc(x.r.mach?"Maskin "+x.r.mach+" · ":"")}PTS ${esc(x.id)}</div>
+      <div style="font-weight:700">${esc(x.r.mach?"Machine "+x.r.mach+" · ":"")}PTS ${esc(x.id)}</div>
       <div>${esc(x.r.hose)} · ${esc(x.r.len)} mm</div>
       <div>${esc(x.r.c1)} / ${esc(x.r.c2)}</div>
-      <div><b>WP ${x.r.wp||"–"} bar</b> · Global Onsite AS</div></div>`).join("")}
-    ${pieces.length>8?`<div style="align-self:center;color:#555">… + ${pieces.length-8} til</div>`:""}</div></div>`;
+      <div><b>WP ${x.r.wp||"–"} bar</b>${(()=>{const c=dnvCertFor(x.r.hose);return c?` · DNV ${esc(c.no.split(" ")[0])}`:""})()} · Global Onsite AS</div></div>`).join("")}
+    ${pieces.length>8?`<div style="align-self:center;color:#555">… + ${pieces.length-8} more</div>`:""}</div></div>`;
 }
 
 /* ---------- Steg 4: Lagre ---------- */
@@ -1523,6 +1569,15 @@ function fTabDok(f){
     <div class="doccard"><h3>🔍 Spot-check-rapport</h3>
       <div class="sub" style="margin:0 0 10px">05_SpotCheck.pdf · ${f.spot.completedAt?"godkjent "+f.spot.completedAt:"pågår"}</div>
       <button class="btn btn-ghost" onclick="State.printDoc={fid:'${f.id}',kind:'spot'};render()">🖨️ Vis / skriv ut</button></div>`:""}
+    <div class="doccard"><h3>🏅 DNV-sertifisering</h3>
+      ${(()=>{const d=dnvForFolder(f);
+        return `<div class="sub" style="margin:0 0 8px">AoM <b class="mono">${DNV.aom.no}</b> · gyldig til ${DNV.aom.validUntil}${d.aom.expired?' <b style="color:var(--bad)">UTLØPT</b>':d.aom.soon?' <b style="color:var(--warn)">⚠ fornyelse nærmer seg</b>':" ✓"}</div>
+        <div style="font-size:12px;display:flex;flex-direction:column;gap:3px;margin-bottom:8px">
+          ${d.rows.map(r=>`<span>${esc(r.hose)} → ${r.cert?`<span class="mono">${esc(r.cert.no)}</span> ${r.cert.expired?'<b style="color:var(--bad)">UTLØPT '+r.cert.validUntil+"</b>":"✓ til "+r.cert.validUntil}`:'<b style="color:var(--bad)">ingen typegodkjenning</b>'}</span>`).join("")}
+        </div>
+        ${d.missing||d.expired?`<div class="gatemsg" style="margin-bottom:6px">⚠️ ${d.expired?d.expired+" utløpt TAP":""}${d.expired&&d.missing?" · ":""}${d.missing?d.missing+" slangetype uten TAP":""} – gjelder DNV-leveranser</div>`:""}
+        <div class="sub" style="margin:0">Sertifikatnumrene påføres trykktestsertifikatet automatisk (DNV-krav: referanse til TAP + AoM).</div>`})()}
+    </div>
     <div class="doccard"><h3>⚙️ Telaris – slangepakke + BOM</h3>
       ${f.telaris
         ?`<div class="sub" style="margin:0 0 10px">Opprettet ${f.telaris.createdAt} · pakkevare <b class="mono">${f.telaris.pkg}</b> · ${f.telaris.items.length} slangevarer med BOM</div>
@@ -2122,7 +2177,7 @@ function svgCurve(samples,tp,opts){
     <line x1="${mx}" y1="${Y(tp)}" x2="${W-10}" y2="${Y(tp)}" stroke="${target}" stroke-width="1.5" stroke-dasharray="6 4"/>
     <text x="${W-10}" y="${Y(tp)-5}" font-size="11" fill="${target}" text-anchor="end">TP ${tp} bar</text>
     <path d="${path}" fill="none" stroke="${line}" stroke-width="2.5" stroke-linejoin="round"/>
-    <text x="${X(RUN.RAMP+RUN.HOLD/2)}" y="${H-2}" font-size="11" fill="${ink}" text-anchor="middle">holdetid 10 min</text>
+    <text x="${X(RUN.RAMP+RUN.HOLD/2)}" y="${H-2}" font-size="11" fill="${ink}" text-anchor="middle">hold time 10 min</text>
   </svg>`;
 }
 /* Live-skjermen for pågående logget test */
@@ -2632,21 +2687,31 @@ function vPrintDoc(){
 
 function testCertHTML(f){
   const testers=[...new Set(f.lines.filter(l=>l.st.test).map(l=>l.st.test.by))].join(", ");
+  const dnv=dnvForFolder(f),aom=dnv.aom;
   return `<div class="docpreview">
     <h4>PRESSURE TEST CERTIFICATE</h4>
-    <div style="color:#555;margin-bottom:2px">Global Onsite AS · ${esc(f.id)} · ${esc(f.title)}</div>
-    <div style="color:#555;margin-bottom:10px">PMOTION-prosjekt: ${esc(f.project)} · Ordre/PO: ${esc(f.po||"–")} · Testmedium: vann · Holdetid: 10 min</div>
-    <table><tr><th>Line</th><th>POS</th><th>Maskin</th><th>PTS ID</th><th>Hose</th><th>OAL (mm)</th><th>WP (bar)</th><th>TP 1,5×WP</th><th>Resultat</th><th>Logg</th><th>Testet av</th><th>Dato</th></tr>
-    ${(()=>{let n=0;return f.lines.flatMap(l=>{const ids=ptsAll(l),q=l.qty||1;
+    <div style="color:#555;margin-bottom:2px">Global Onsite AS, Birkeland, Norway · ${esc(f.id)} · ${esc(f.title)}</div>
+    <div style="color:#555;margin-bottom:6px">PMOTION project: ${esc(f.project||"–")} · Order/PO: ${esc(f.po||"–")} · Test medium: water · Hold time: 10 min</div>
+    <div style="border:1.5px solid #333;border-radius:8px;padding:8px 12px;margin-bottom:10px">
+      <b>DNV references (per Approval of Manufacturer, production testing clause):</b><br>
+      Each hose assembly is hydraulic pressure tested to 1.5 × maximum working pressure before delivery.<br>
+      DNV Approval of Manufacturer: <b>${esc(DNV.aom.no)}</b> – ${esc(DNV.aom.desc)} (${esc(DNV.aom.program)}) · valid until ${esc(DNV.aom.validUntil)}${aom.expired?' <b style="color:#b91c1c">– EXPIRED</b>':aom.soon?' <b style="color:#b45309">– renewal due</b>':""}<br>
+      DNV Type Approval per hose type: ${dnv.rows.map(r=>`${esc(r.hose)} → ${r.cert?`<b>${esc(r.cert.no)}</b> (valid until ${r.cert.validUntil}${r.cert.expired?' – <b style="color:#b91c1c">EXPIRED</b>':""})`:'<b style="color:#b91c1c">no type approval</b>'}`).join(" · ")}
+    </div>
+    ${(dnv.missing||dnv.expired||aom.expired)?`<div style="border:1.5px solid #b45309;background:#fdf3e3;border-radius:8px;padding:8px 12px;margin-bottom:10px;color:#7a4a06">
+      <b>NOTE:</b> Items marked above lack a valid DNV type approval${aom.expired?" and/or the AoM certificate has expired":""}. For DNV deliveries, this certificate is only valid as DNV-referenced documentation for items covered by valid certificates.</div>`:""}
+    <table><tr><th>Line</th><th>POS</th><th>Machine</th><th>PTS ID</th><th>Hose</th><th>OAL (mm)</th><th>WP (bar)</th><th>TP 1.5×WP</th><th>DNV TAP</th><th>Result</th><th>Log</th><th>Tested by</th><th>Date</th></tr>
+    ${(()=>{let n=0;return f.lines.flatMap(l=>{const ids=ptsAll(l),q=l.qty||1,c=dnvCertFor(l.hose);
       return Array.from({length:q},(_,k)=>{n++;
-        return `<tr><td>${n}</td><td><b>${esc(l.pos||"–")}</b>${q>1?` <span style="color:#777">(${k+1}/${q})</span>`:""}</td><td>${esc(l.mach||"–")}</td><td>${esc(ids[k]||"(hentes)")}</td><td>${esc(l.hose)}</td><td>${esc(l.len)}</td><td>${l.wp||"–"}</td><td>${l.wp?Math.round(l.wp*1.5):"–"}</td>
-        <td>${l.st.test?"<b>GODKJENT</b>":""}</td><td>${l.st.test?(l.st.test.log?l.st.test.log:"manuell"):""}</td><td>${l.st.test?esc(l.st.test.by):""}</td><td>${l.st.test?l.st.test.at:""}</td></tr>`})}).join("")})()}</table>
-    <div style="margin-top:16px;color:#333">Testet av: <b>${esc(testers)}</b> &nbsp;·&nbsp; Spot-check godkjent: <b>${f.spot&&f.spot.completedAt?f.spot.completedAt:"–"}</b> &nbsp;·&nbsp; Godkjent (sign): ______________</div>
+        return `<tr><td>${n}</td><td><b>${esc(l.pos||"–")}</b>${q>1?` <span style="color:#777">(${k+1}/${q})</span>`:""}</td><td>${esc(l.mach||"–")}</td><td>${esc(ids[k]||"(pending)")}</td><td>${esc(l.hose)}</td><td>${esc(l.len)}</td><td>${l.wp||"–"}</td><td>${l.wp?Math.round(l.wp*1.5):"–"}</td>
+        <td>${c?esc(c.no)+(c.expired?' <b style="color:#b91c1c">EXP.</b>':""):"–"}</td>
+        <td>${l.st.test?"<b>PASSED</b>":""}</td><td>${l.st.test?(l.st.test.log?l.st.test.log:"manual"):""}</td><td>${l.st.test?esc(l.st.test.by):""}</td><td>${l.st.test?l.st.test.at:""}</td></tr>`})}).join("")})()}</table>
+    <div style="margin-top:16px;color:#333">Tested by: <b>${esc(testers)}</b> &nbsp;·&nbsp; Spot check approved: <b>${f.spot&&f.spot.completedAt?f.spot.completedAt:"–"}</b> &nbsp;·&nbsp; Approved (sign): ______________</div>
     ${(f.testLogs&&f.testLogs.length)?`
-    <h4 style="margin-top:22px">VEDLEGG: TRYKKTESTLOGGER (${State.sensor.model})</h4>
+    <h4 style="margin-top:22px">APPENDIX: PRESSURE TEST LOGS (${State.sensor.model})</h4>
     ${f.testLogs.map(tl=>`<div style="margin:12px 0;padding:10px;border:1px solid #ccc;border-radius:8px;page-break-inside:avoid">
-      <div style="font-weight:700">${tl.id} · ${tl.tp} bar · ${tl.pass?"GODKJENT":"IKKE GODKJENT"} · trykkfall ${tl.dropPct} % (grense 2 %) · holdetid 10 min · operatør ${esc(tl.by)} · ${tl.startedAt}–${tl.endedAt}</div>
-      <div style="color:#555;font-size:12px;margin:4px 0">Slanger: ${tl.pts.map(p=>esc(p)).join(", ")}</div>
+      <div style="font-weight:700">${tl.id} · ${tl.tp} bar · ${tl.pass?"PASSED":"FAILED"} · pressure drop ${tl.dropPct} % (limit 2 %) · hold time 10 min · operator ${esc(tl.by)} · ${tl.startedAt}–${tl.endedAt}</div>
+      <div style="color:#555;font-size:12px;margin:4px 0">Hose assemblies: ${tl.pts.map(p=>esc(p)).join(", ")}</div>
       ${svgCurve(tl.samples,tl.tp,{light:true})}
     </div>`).join("")}`:""}
   </div>`;
@@ -2662,22 +2727,22 @@ function palletHTML(f){
     <div class="pl-id">${esc(f.id)}</div>
     <div style="font-size:19px;font-weight:700">${esc(f.title)}</div>
     <div class="pl-row">
-      <div class="pl-f"><b>${esc(f.po||"–")}</b><span>Ordre / PO</span></div>
-      <div class="pl-f"><b>${esc(f.customer||"–")}</b><span>Kunde / rigg</span></div>
-      <div class="pl-f"><b>${esc(f.project)}</b><span>PMOTION-prosjekt</span></div>
+      <div class="pl-f"><b>${esc(f.po||"–")}</b><span>Order / PO</span></div>
+      <div class="pl-f"><b>${esc(f.customer||"–")}</b><span>Customer / rig</span></div>
+      <div class="pl-f"><b>${esc(f.project)}</b><span>PMOTION project</span></div>
       <div class="pl-f"><b>${esc(f.hub)}</b><span>Hub</span></div>
     </div>
     <div class="pl-row">
-      <div class="pl-f"><b>${f.lines.length} slanger (${totQty} stk)</b><span>Innhold</span></div>
-      <div class="pl-f"><b>${now()}</b><span>Ferdig produsert</span></div>
-      <div class="pl-f"><b>✔ Trykktestet</b><span>${stageCount(f,"test")}/${f.lines.length} godkjent</span></div>
-      <div class="pl-f"><b>✔ Spot-check</b><span>${f.spot?f.spot.items.length+" kontroller OK":"–"}</span></div>
+      <div class="pl-f"><b>${f.lines.length} lines (${totQty} hoses)</b><span>Contents</span></div>
+      <div class="pl-f"><b>${now()}</b><span>Production completed</span></div>
+      <div class="pl-f"><b>✔ Pressure tested</b><span>${stageCount(f,"test")}/${f.lines.length} passed</span></div>
+      <div class="pl-f"><b>✔ Spot check</b><span>${f.spot?f.spot.items.length+" checks OK":"–"}</span></div>
     </div>
-    <table><tr><th>Slangetype</th>${Object.keys(types).map(h=>`<th>${esc(h)}</th>`).join("")}</tr>
-    <tr><td><b>Antall</b></td>${Object.values(types).map(n=>`<td style="text-align:center"><b>${n}</b></td>`).join("")}</tr></table>
+    <table><tr><th>Hose type</th>${Object.keys(types).map(h=>`<th>${esc(h)}</th>`).join("")}</tr>
+    <tr><td><b>Qty</b></td>${Object.values(types).map(n=>`<td style="text-align:center"><b>${n}</b></td>`).join("")}</tr></table>
     <div class="pl-row">
-      <div class="pl-f" style="flex:1"><b style="border-bottom:2px solid #111;display:inline-block;min-width:220px">&nbsp;</b><span>Lagerplassering (fylles ut av lager)</span></div>
-      <div class="pl-f"><b style="border-bottom:2px solid #111;display:inline-block;min-width:130px">&nbsp;</b><span>Mottatt dato / sign</span></div>
+      <div class="pl-f" style="flex:1"><b style="border-bottom:2px solid #111;display:inline-block;min-width:220px">&nbsp;</b><span>Storage location (filled in by warehouse)</span></div>
+      <div class="pl-f"><b style="border-bottom:2px solid #111;display:inline-block;min-width:130px">&nbsp;</b><span>Received date / sign</span></div>
     </div>
   </div>`;
 }
@@ -2691,42 +2756,42 @@ function quoteHTML(f){
   });
   const est=estHoursFolder(f);
   return `<div class="docpreview">
-    <h4>TILBUDSUNDERLAG – SLANGEPRODUKSJON (HoseMaker)</h4>
-    <div style="color:#555;margin-bottom:10px">${esc(f.customer||"")} · ${esc(f.custRef?("Ref. "+f.custRef):"")} · ${esc(f.id)} · generert automatisk fra bearbeidet slangeliste (${f.lines.length} linjer)</div>
-    <div style="color:#555;margin-bottom:10px">${f.telaris?`Prisgrunnlag for tilbud på pakkevare <b>${esc(f.telaris.pkg)}</b> i Telaris – tilbudet sendes derfra.`:`⚠️ Slangepakken er ikke opprettet i Telaris ennå – opprett den før tilbudet sendes (tilbudet sendes fra Telaris).`}</div>
-    <table><tr><th>Slangetype</th><th>Linjer</th><th>Antall</th><th>Sum lengde (m)</th></tr>
+    <h4>QUOTATION BASIS – HOSE PRODUCTION (HoseMaker)</h4>
+    <div style="color:#555;margin-bottom:10px">${esc(f.customer||"")} · ${esc(f.custRef?("Ref. "+f.custRef):"")} · ${esc(f.id)} · generated automatically from the processed hose list (${f.lines.length} lines)</div>
+    <div style="color:#555;margin-bottom:10px">${f.telaris?`Price basis for the quotation on package item <b>${esc(f.telaris.pkg)}</b> in Telaris – the quotation is issued from Telaris.`:`⚠️ The hose package has not been created in Telaris yet – create it before the quotation is issued (quotations are issued from Telaris).`}</div>
+    <table><tr><th>Hose type</th><th>Lines</th><th>Qty</th><th>Total length (m)</th></tr>
     ${Object.entries(hoses).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v.n}</td><td>${v.qty}</td><td>${(v.mm/1000).toLocaleString("nb-NO",{maximumFractionDigits:1})}</td></tr>`).join("")}</table>
-    <table style="margin-top:10px"><tr><th>Kobling</th><th>Antall</th></tr>
+    <table style="margin-top:10px"><tr><th>Coupling</th><th>Qty</th></tr>
     ${Object.entries(cpls).map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join("")}</table>
-    <div style="margin-top:12px;color:#333"><b>Estimert produksjonstid: ${fmtH(est.hours)}</b> (TimeCalc-modellen)${est.unknown?` · ⚠️ ${est.unknown} linjer uten tidsdata`:""}
-    &nbsp;·&nbsp; Trykktest 1,5 × WP med sertifikat, spot-check og merking inkludert i prosessen.</div>
+    <div style="margin-top:12px;color:#333"><b>Estimated production time: ${fmtH(est.hours)}</b> (TimeCalc model)${est.unknown?` · ⚠️ ${est.unknown} lines without time data`:""}
+    &nbsp;·&nbsp; Pressure test at 1.5 × WP with certificate, spot check and tagging included in the process.</div>
   </div>`;
 }
 function telarisHTML(f){
   const t=f.telaris;
-  if(!t)return `<div class="docpreview"><h4>TELARIS</h4><div>Slangepakken er ikke opprettet i Telaris ennå.</div></div>`;
+  if(!t)return `<div class="docpreview"><h4>TELARIS</h4><div>The hose package has not been created in Telaris yet.</div></div>`;
   return `<div class="docpreview">
-    <h4>TELARIS – SLANGEPAKKE ${esc(t.pkg)} (opprettet automatisk)</h4>
-    <div style="color:#555;margin-bottom:10px">${esc(f.id)} · ${esc(f.title)} · Ordre/PO: ${esc(f.po||"–")} · Opprettet ${t.createdAt} av ${esc(t.by)} · I drift: Telaris-API – her simulert</div>
-    <table><tr><th>Varenr</th><th>Beskrivelse</th><th>POS</th><th>PTS-ID</th><th>Ant.</th><th>BOM (per stk)</th></tr>
+    <h4>TELARIS – HOSE PACKAGE ${esc(t.pkg)} (created automatically)</h4>
+    <div style="color:#555;margin-bottom:10px">${esc(f.id)} · ${esc(f.title)} · Order/PO: ${esc(f.po||"–")} · Created ${t.createdAt} by ${esc(t.by)} · In production: Telaris API – simulated here</div>
+    <table><tr><th>Item no.</th><th>Description</th><th>POS</th><th>PTS ID</th><th>Qty</th><th>BOM (each)</th></tr>
     ${t.items.map(it=>`<tr><td class="mono"><b>${esc(it.itemNo)}</b></td><td>${esc(it.desc)}</td><td><b>${esc(it.pos||"–")}</b></td><td class="mono" style="font-size:10.5px">${(it.ptsAll&&it.ptsAll.length?it.ptsAll:[it.pts||"–"]).map(esc).join("<br>")}</td><td>${it.qty}</td>
       <td>${it.bom.map(b=>`${esc(b.no)} × ${b.qty} ${b.unit}`).join(" · ")}</td></tr>`).join("")}</table>
-    <div style="margin-top:12px;font-weight:700">Samlet BOM for pakken (${t.items.length} varelinjer):</div>
-    <table style="margin-top:6px"><tr><th>Varenr</th><th>Beskrivelse</th><th>Sum antall</th><th>Enhet</th></tr>
+    <div style="margin-top:12px;font-weight:700">Total BOM for the package (${t.items.length} item lines):</div>
+    <table style="margin-top:6px"><tr><th>Item no.</th><th>Description</th><th>Total qty</th><th>Unit</th></tr>
     ${t.totals.map(b=>`<tr><td class="mono">${esc(b.no)}</td><td>${esc(b.desc)}</td><td>${b.qty.toLocaleString("nb-NO")}</td><td>${b.unit}</td></tr>`).join("")}</table>
-    <div style="margin-top:12px;color:#333">Pakkevaren <b>${esc(t.pkg)}</b> legges på ordre ${esc(f.order||"–")} i Telaris – lagertrekk, kalkyle og fakturagrunnlag følger BOM-en automatisk.</div>
+    <div style="margin-top:12px;color:#333">Package item <b>${esc(t.pkg)}</b> is placed on order ${esc(f.order||"–")} in Telaris – stock withdrawal, costing and invoicing follow the BOM automatically.</div>
   </div>`;
 }
 function spotHTML(f){
   const sp=f.spot;
   return `<div class="docpreview">
-    <h4>SPOT-CHECK-RAPPORT (ANNENHÅNDSKONTROLL)</h4>
-    <div style="color:#555;margin-bottom:10px">${esc(f.id)} · ${esc(f.title)} · Ordre/PO: ${esc(f.po||"–")} · Utvalg: ${sp.items.length} av ${f.lines.length} slanger (min. én per slangetype) · Startet ${sp.startedAt} · Godkjent ${sp.completedAt||"–"}</div>
-    <div style="color:#555;margin-bottom:10px">Kontrollpunkter: målt kuttlengde/OAL · riktige koblinger mot produksjonsliste · merking/tag · renhet og UC-propper. Kontrollør skal være en annen enn den som trykktestet slangen.</div>
-    <table><tr><th>POS</th><th>Maskin</th><th>PTS ID</th><th>Hose</th><th>Kutt (mm)</th><th>Koblinger</th><th>Trykktestet av</th><th>Resultat</th><th>Kontrollert av</th><th>Dato</th><th>Kommentar</th></tr>
+    <h4>SPOT CHECK REPORT (SECOND-PERSON VERIFICATION)</h4>
+    <div style="color:#555;margin-bottom:10px">${esc(f.id)} · ${esc(f.title)} · Order/PO: ${esc(f.po||"–")} · Sample: ${sp.items.length} of ${f.lines.length} hose lines (min. one per hose type) · Started ${sp.startedAt} · Approved ${sp.completedAt||"–"}</div>
+    <div style="color:#555;margin-bottom:10px">Check points: measured cut length/OAL · correct couplings vs. production list · marking/tag · cleanliness and UC plugs. The verifier must be a different person than the one who pressure tested the hose.</div>
+    <table><tr><th>POS</th><th>Machine</th><th>PTS ID</th><th>Hose</th><th>Cut (mm)</th><th>Couplings</th><th>Tested by</th><th>Result</th><th>Verified by</th><th>Date</th><th>Comment</th></tr>
     ${sp.items.map(it=>{const l=f.lines[it.i];return `<tr><td><b>${esc(l.pos||"–")}</b></td><td>${esc(l.mach||"–")}</td><td>${esc(l.pts)}</td><td>${esc(l.hose)}</td><td>${l.cut||"–"}</td><td>${esc(l.c1)} / ${esc(l.c2)}</td>
-      <td>${l.st.test?esc(l.st.test.by):""}</td><td><b>${it.result==="ok"?"OK":it.result==="avvik"?"AVVIK":""}</b></td><td>${esc(it.by||"")}</td><td>${it.at||""}</td><td>${esc(it.comment||"")}</td></tr>`}).join("")}</table>
-    <div style="margin-top:16px;color:#333">Kvalitetsansvarlig (sign): ______________ &nbsp;&nbsp; Dato: ____________</div>
+      <td>${l.st.test?esc(l.st.test.by):""}</td><td><b>${it.result==="ok"?"OK":it.result==="avvik"?"NC":""}</b></td><td>${esc(it.by||"")}</td><td>${it.at||""}</td><td>${esc(it.comment||"")}</td></tr>`}).join("")}</table>
+    <div style="margin-top:16px;color:#333">Quality responsible (sign): ______________ &nbsp;&nbsp; Date: ____________</div>
   </div>`;
 }
 
@@ -2838,15 +2903,24 @@ function vMaster(){
   <div class="sub">Samme kilde som i dag: <span class="mono">Database_Hose_&_fittings.xlsx</span> på SharePoint. Systemet validerer alltid mot denne – én sannhetskilde for koblinger, slanger og WP.</div>
   <div class="cardrow">
     <div class="card" style="flex:1;min-width:280px"><h2 style="margin-top:0">Slangetyper</h2><div class="tblwrap"><table>
-      <tr><th></th><th>Kode</th><th>WP (bar)</th><th>Dim</th><th>S-mål (mm)</th></tr>
-      ${Object.entries(MASTER.hoses).map(([k,v])=>`<tr><td><span class="photo-mini"><img src="${hoseImgURL(k)}" loading="lazy" alt="" style="transform:scale(2)" onerror="this.parentElement.style.display='none'"></span></td><td class="mono">${k}</td><td>${v.wp}</td><td>${v.inch}</td><td>${v.s??"–"}</td></tr>`).join("")}
+      <tr><th></th><th>Kode</th><th>WP (bar)</th><th>Dim</th><th>S-mål (mm)</th><th>DNV-typegodkjenning</th></tr>
+      ${Object.entries(MASTER.hoses).map(([k,v])=>{const c=dnvCertFor(k);
+        return `<tr><td><span class="photo-mini"><img src="${hoseImgURL(k)}" loading="lazy" alt="" style="transform:scale(2)" onerror="this.parentElement.style.display='none'"></span></td><td class="mono">${k}</td><td>${v.wp}</td><td>${v.inch}</td><td>${v.s??"–"}</td>
+        <td style="font-size:11.5px">${c?`<span class="mono">${esc(c.no)}</span> ${c.expired?'<b style="color:var(--bad)">UTLØPT '+c.validUntil+"</b>":"✓ "+c.validUntil}`:'<span style="color:var(--muted)">–</span>'}</td></tr>`}).join("")}
     </table></div></div>
     <div class="card" style="flex:1;min-width:280px"><h2 style="margin-top:0">Koblinger</h2><div class="tblwrap"><table>
       <tr><th></th><th>Kode</th><th>WP (bar)</th><th>B-mål (mm)</th><th>Geometri</th></tr>
       ${Object.entries(MASTER.couplings).map(([k,v])=>`<tr><td><span class="photo-mini"><img src="${cplImgURL(k)}" loading="lazy" alt="" onerror="this.parentElement.style.display='none'"></span></td><td class="mono">${k}</td><td>${v.wp}</td><td>${v.b??"–"}</td><td style="font-size:11.5px">${v.sys?v.sys+" "+v.dim+" · "+(v.ang??0)+"°":"–"}</td></tr>`).join("")}
     </table></div></div>
   </div>
-  <div class="notice">💡 I drift leses masterdata direkte fra databasen på SharePoint (samme fil som Power Query-løsningen bruker), slik at en rettelse dér umiddelbart gjelder overalt.</div>`;
+  <div class="notice">💡 I drift leses masterdata direkte fra databasen på SharePoint (samme fil som Power Query-løsningen bruker), slik at en rettelse dér umiddelbart gjelder overalt.</div>
+  <div class="card"><h2 style="margin-top:0">🏅 DNV-sertifikater</h2>
+    <div class="sub">Approval of Manufacturer <b class="mono">${DNV.aom.no}</b> – ${esc(DNV.aom.desc)} (${esc(DNV.aom.program)}) · gyldig til <b>${DNV.aom.validUntil}</b>${aomStatus().soon?' <b style="color:var(--warn)">⚠ fornyelse nærmer seg</b>':""}. DNV krever at trykktestsertifikatet refererer både typegodkjenningen (TAP) og AoM – HoseMaker gjør det automatisk.</div>
+    <div class="tblwrap"><table>
+      <tr><th>TAP-sertifikat</th><th>Slangetyper</th><th>Dash</th><th>Gyldig til</th></tr>
+      ${DNV.taps.map(t=>`<tr${t.validUntil<todayISO()?' class="rowbad"':""}><td class="mono">${esc(t.no)}</td><td>${t.types.join(", ")}</td><td>-${t.dash[0]} til -${t.dash[1]}</td><td>${t.validUntil}${t.validUntil<todayISO()?' <b style="color:var(--bad)">UTLØPT</b>':""}</td></tr>`).join("")}
+    </table></div>
+  </div>`;
 }
 
 function vOm(){
@@ -2856,6 +2930,7 @@ function vOm(){
     <p style="margin-bottom:10px">En klikkbar prototype av <b>HoseMaker</b> – slangeproduksjonsmodulen, bygget i samme stil som PMOTION. Målet: én idiotsikker vei fra forespørsel til leverte, dokumenterte slanger – én felles plattform for PMO og verkstedet.</p>
     <p style="margin-bottom:10px">💡 Navnet viderefører Excel-programmet <b>HoseMaker</b> som Simen lagde for slangelister for over ti år siden – nå gjenoppstått som komplett system med PTS-register, Telaris-integrasjon og verkstedsmodus.</p>
     <p>Alt du gjør her er ekte flyt, men <b>demodata i minnet</b> – lukk fanen, og alt nullstilles. Ingen ting lagres.</p>
+    <p>🌐 <b>All produsert dokumentasjon er på engelsk</b> (produksjonsliste, trykktestsertifikat, tags, pallemerkelapp, spot check-rapport, tilbudsunderlag) – kravet fra kunder og DNV. Selve arbeidsflaten er på norsk for PMO og verkstedet.</p>
   </div>
   <div class="card">
     <h2 style="margin-top:0">Versjon <span class="mono" style="color:var(--accent2)">v${APP_VERSION}</span> <span class="sub" style="display:inline">· ${APP_BUILD} – versjonen vises alltid øverst i topplinjen, så det er lett å se at du er på siste</span></h2>
@@ -2876,6 +2951,7 @@ function vOm(){
       <tr><td>PTS-ID-er genereres lokalt (simulert register)</td><td>Reserveres via oppslag/API mot den ekte PTS-databasen – neste ledige ID-er, atomisk</td></tr>
       <tr><td>Telaris-pakke som dokumentvisning</td><td>Opprettes via Telaris-API: pakkevare, slangevarer og BOM legges rett i ERP, koblet mot ordren</td></tr>
       <tr><td>ESI-trykksensor simulert (kurve, holdetid, trykkfall)</td><td>ESI GD4200-USB leses direkte: Web Serial i Chrome/Edge, eller en liten lokal brotjeneste på ESIs offisielle API-DLL – tredjepartsprogrammet erstattes helt</td></tr>
+      <tr><td>DNV-sertifikater (AoM + TAP) som register i prototypen</td><td>Vedlikeholdes i masterdatabasen med gyldighetsdatoer; sertifikatnumrene påføres trykktestsertifikatet automatisk (DNV-krav), med varsling før utløp</td></tr>
       <tr><td>«Kobles til PMOTION» som tekst</td><td>Produksjonsmappen vises som sjekklistepunkt i PMOTION Fase 4</td></tr>
     </table></div>
   </div>
