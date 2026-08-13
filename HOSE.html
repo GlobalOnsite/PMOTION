@@ -429,9 +429,11 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
    ===================================================================== */
 
 /* ---------- Versjon (vises i topplinjen, fullskjermlinjen og på Om-siden) ---------- */
-const APP_VERSION="0.14";
+const APP_VERSION="0.16";
 const APP_BUILD="13.08.2026";
 const CHANGELOG=[
+  ["0.16","13.08.2026","Automatisk tidtaking: arbeidsøkten starter i det montøren åpner en produksjonsmappe i verkstedsmodus, og stopper automatisk ved mappebytte, brukerbytte, navigering ut eller når mappen fullføres – ingen knapper å huske"],
+  ["0.15","13.08.2026","Feilretting: pakking av siste slange stoppet opp (krasj på siste operasjon). Tag på er nå ÉN samlet kvittering (utskriften skjer fortsatt automatisk per kapping), og hver gang en slangetype er ferdig i en prosess får du valget: fortsett med typen til neste prosess, eller ta neste type i samme prosess"],
   ["0.14","13.08.2026","Salgssjefens 7-stegs flyt: Kapp → Sett på tag → Rens → Pressing → Trykktest → Preservering → Pakking. Taggen skrives ut automatisk på benkeskriveren i det kappingen bekreftes (én per PTS-ID) – idiotsikker identitet fra første steg"],
   ["0.13","13.08.2026","Tidsmåling mot kalkylen: arbeidsøkter (start/stopp) i verkstedet, faktisk brukt tid per ordre mot estimert og opptjent tid etter fremdrift, med status frempå / on track / bakpå i mappen, verkstedsmodus og produksjonsplanen"],
   ["0.12","13.08.2026","Visuell kø-rekke i verkstedets fokusvisning: små kort viser hvilke slanger som er tatt (✓ med klokkeslett), hvilken som er «NÅ» og hva som venter – pluss «Sist bekreftet»-kvittering, så man aldri er i tvil om forrige trykk gikk inn"],
@@ -756,6 +758,36 @@ function wsClockOut(id){
   addLog(f,`Arbeidsøkt avsluttet (${s.by.replace("Verksted – ","")}) – ${(s.mins/60).toLocaleString("nb-NO",{maximumFractionDigits:1})} t registrert. Totalt brukt: ${fmtH(actualMins(f)/60)} av estimert ${fmtH(estHoursFolder(f).hours)}`);
   render();
 }
+/* Automatisk tidtaking: økten starter når mappen ÅPNES i verkstedsmodus,
+   og stopper når man forlater den – ingen knapper å huske på benken. */
+function autoClockStart(fid){
+  const f=fid?folder(fid):null;if(!f)return;
+  if(!["prod","test","qc"].includes(f.status))return;   // kun aktive produksjonsmapper
+  if(activeSession(f,State.user))return;
+  f.sessions=f.sessions||[];
+  f.sessions.push({by:State.user,startAt:now(),startMs:Date.now(),auto:true});
+  addLog(f,`⏱ Arbeidsøkt startet automatisk – ${State.user.replace("Verksted – ","")} åpnet mappen i verkstedsmodus`);
+}
+function autoClockStop(fid,reason){
+  const f=fid?folder(fid):null;if(!f)return;
+  const s=activeSession(f,State.user);
+  if(!s)return;
+  s.endAt=now();
+  s.mins=Math.max(1,Math.round((Date.now()-s.startMs)/60000));
+  addLog(f,`⏱ Arbeidsøkt stoppet automatisk (${s.by.replace("Verksted – ","")}${reason?" – "+reason:""}) – ${(s.mins/60).toLocaleString("nb-NO",{maximumFractionDigits:1})} t. Totalt brukt: ${fmtH(actualMins(f)/60)} av estimert ${fmtH(estHoursFolder(f).hours)}`);
+}
+/* Åpne/forlat mappe i verkstedsmodus (fra mappevalget) */
+function wsEnter(id){
+  if(State.ws.folderId&&State.ws.folderId!==id)autoClockStop(State.ws.folderId,"byttet mappe");
+  State.ws.folderId=id;State.ws.stage=null;State.ws.hoseType=null;State.ws.typeChoice=null;State.ws.testSel={};
+  if(State.view==="verksted")autoClockStart(id);
+  render();
+}
+function wsLeaveFolder(){
+  autoClockStop(State.ws.folderId,"forlot mappen");
+  State.ws.folderId=null;State.ws.stage=null;State.ws.typeChoice=null;
+  render();
+}
 
 const State = {
   user:"Simen (PMO)",
@@ -982,12 +1014,21 @@ function fsOff(){
 
 const App = {
   nav(v){
-    if(v!=="verksted")fsOff();
+    if(v!=="verksted"){
+      fsOff();
+      if(State.view==="verksted")autoClockStop(State.ws.folderId,"forlot verkstedsmodus");
+    }
     State.view=v;
     if(v==="verksted"&&State.touch)State.fs=true; /* iPad: kollaps automatisk */
+    if(v==="verksted")autoClockStart(State.ws.folderId);
     render();
   },
-  setUser(u){State.user=u;render()},
+  setUser(u){
+    if(State.view==="verksted")autoClockStop(State.ws.folderId,"byttet bruker");
+    State.user=u;
+    if(State.view==="verksted")autoClockStart(State.ws.folderId);
+    render();
+  },
   toggleFs(){State.fs?fsOff():fsEnter();render()},
   toggleTheme(){
     const h=document.documentElement;
@@ -995,11 +1036,16 @@ const App = {
   },
   startWizard(){
     fsOff();
+    if(State.view==="verksted")autoClockStop(State.ws.folderId,"gikk til veiviseren");
     State.wizard={step:1,project:"",po:"",order:"",customer:"",custRef:"",hub:"Lillesand",editId:null,
       rows:[],issues:[],docs:{prod:true,test:true,tags:true},preview:null,showPaste:false,ptsFetched:0};
     State.view="wizard";render();
   },
-  openFolder(id){fsOff();State.activeId=id;State.activeTab="liste";State.view="folder";render()},
+  openFolder(id){
+    fsOff();
+    if(State.view==="verksted")autoClockStop(State.ws.folderId,"gikk til mappevisningen");
+    State.activeId=id;State.activeTab="liste";State.view="folder";render();
+  },
 };
 
 function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
@@ -1511,7 +1557,7 @@ function timePanel(f){
       <span class="sub" style="margin:0">Brukt <b style="color:var(--text)">${fmtH(used)}</b>${run.length?` <span class="status st-prod">⏵ ${run.length} økt${run.length>1?"er":""} pågår</span>`:""}</span>
       <span class="sub" style="margin:0">Opptjent iht. fremdrift <b style="color:var(--text)">${fmtH(earned)}</b></span>
       ${ts?`<span class="status ${ts.st==="ahead"?"st-ferdig":ts.st==="ontrack"?"st-klar":"st-prod"}">${ts.label}${ts.diff?` ${Math.abs(ts.diff).toLocaleString("nb-NO")} t`:""}</span>`
-          :`<span class="sub" style="margin:0">ingen økter registrert ennå – trykk ▶ Start arbeidsøkt i verkstedsmodus</span>`}
+          :`<span class="sub" style="margin:0">ingen økter ennå – tiden starter automatisk når mappen åpnes i verkstedsmodus</span>`}
     </div>
     <div style="display:flex;gap:14px;align-items:center;margin-top:8px;flex-wrap:wrap">
       <div style="flex:1;min-width:220px"><div style="font-size:11px;color:var(--muted)">Fremdrift (opptjent av estimat: ${pctEarned} %)</div><div class="meter m-good"><div style="width:${pctEarned}%"></div></div></div>
@@ -1955,7 +2001,7 @@ function vVerksted(){
       <div style="display:flex;gap:8px;flex-wrap:wrap">${wsModeBtn()}</div>
     </div>
     <div class="sub">Velg produksjonsmappen dere jobber med. Kun mapper som er sendt til produksjon vises her.${State.fs?"":" På iPad: trykk <b>⛶ Fullskjerm</b> – menyen og topplinjen kollapses så hele skjermen brukes til arbeidet."}</div>
-    ${cands.length?`<div class="pmgrid">${cands.map(x=>`<div class="pmcard" onclick="State.ws.folderId='${x.id}';State.ws.stage=null;State.ws.hoseType=null;render()">
+    ${cands.length?`<div class="pmgrid">${cands.map(x=>`<div class="pmcard" onclick="wsEnter('${x.id}')">
       <div class="pm-id">${x.id}</div><div class="pm-title" style="font-size:17px">${esc(x.title)}</div>
       ${stBadge(x.status)}
       <div class="meter" style="margin-top:10px"><div style="width:${Math.round(100*x.lines.filter(l=>l.st.cut).length/x.lines.length)}%"></div></div>
@@ -1968,6 +2014,7 @@ function vVerksted(){
     if(!(State.ws.hoseType&&f.lines.some(l=>l.hose===State.ws.hoseType)))return wsCutTypeSelect(f);
     return State.touch?wsFocus(f,"cut"):wsCutView(f);
   }
+  if(State.ws.stage==="tag")return wsTagView(f);       // én samlet kvittering (utskrift skjer ved kapping)
   if(State.ws.stage==="clean")return wsCleanView(f);   // én samlet kvittering
   if(State.ws.stage==="test")return wsTestView(f);     // puljer per testtrykk
   return State.touch?wsFocus(f,State.ws.stage):wsStageList(f,State.ws.stage);
@@ -2021,15 +2068,14 @@ function wsStageSelect(f){
   return `
   <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
     <h1 style="font-size:24px">🏭 ${esc(f.title)} <span class="mono" style="font-size:13px;color:var(--muted)">${f.id}</span></h1>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">${wsModeBtn()}<button class="btn btn-ghost" onclick="State.ws.folderId=null;State.ws.stage=null;render()">↩︎ Bytt mappe</button></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${wsModeBtn()}<button class="btn btn-ghost" onclick="wsLeaveFolder()">↩︎ Bytt mappe</button></div>
   </div>
   <div class="sub" style="margin-bottom:4px"><b>${refLine(f)}</b> · ${f.lines.length} slanger</div>
   ${(()=>{const ts=timeStatus(f),act=activeSession(f,State.user),run=(f.sessions||[]).filter(x=>!x.endAt);
     return `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
     <span class="sensorchip ${act?"on":""}">⏱ Brukt ${fmtH(actualMins(f)/60)} av est. ${fmtH(estHoursFolder(f).hours)}${ts?` · ${ts.label}${ts.diff?" "+Math.abs(ts.diff).toLocaleString("nb-NO")+" t":""}`:""}</span>
-    ${act?`<button class="btn btn-ghost" onclick="wsClockOut('${f.id}')">⏹ Stopp arbeidsøkten min</button>`
-         :`<button class="btn btn-good" onclick="wsClockIn('${f.id}')">▶ Start arbeidsøkt (${esc(State.user.replace("Verksted – ",""))})</button>`}
-    ${run.length?`<span class="sub" style="margin:0">⏵ pågår: ${run.map(x=>esc(x.by.replace("Verksted – ",""))+" fra "+x.startAt.split(" ")[1]).join(", ")}</span>`:""}
+    ${act?`<span class="sub" style="margin:0">⏵ Økten din går automatisk (startet ${act.startAt.split(" ")[1]}) – stoppes når du forlater mappen</span>`:""}
+    ${run.filter(x=>x.by!==State.user).length?`<span class="sub" style="margin:0">· også pågår: ${run.filter(x=>x.by!==State.user).map(x=>esc(x.by.replace("Verksted – ",""))+" fra "+x.startAt.split(" ")[1]).join(", ")}</span>`:""}
   </div>`})()}
   <div class="sub">Velg operasjon. Flyten på benken: ✂️ kapp → 🏷️ sett på taggen (skrives ut automatisk ved kapping) → 🧼 rens med UC-propper (samlet kvittering) → 🔧 press → 🧪 trykktest i puljer → 🛡️ preserver med krympehetter/plugger → 📦 pakk. Du kan bytte operasjon når som helst – ingenting låser deg.</div>
   <div class="pmgrid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
@@ -2038,7 +2084,7 @@ function wsStageSelect(f){
       const prev=i>0?STAGES[i-1]:null;
       const ready=prev?stageCount(f,prev.key):n;          // antall som er klare for denne operasjonen
       const avail=ready-done;                              // klare, men ikke utført
-      return `<div class="pmcard" onclick="State.ws.stage='${s.key}';State.ws.hoseType=null;State.ws.focusPos=-1;State.ws.testSel={};render()">
+      return `<div class="pmcard" onclick="State.ws.stage='${s.key}';State.ws.hoseType=null;State.ws.focusPos=-1;State.ws.testSel={};State.ws.typeChoice=null;render()">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <div class="pm-title" style="font-size:18px">${s.icon} ${i+1}. ${s.label}</div>
           ${done===n?`<span class="status st-ferdig">✅ Ferdig</span>`
@@ -2098,8 +2144,8 @@ function wsCutView(f){
     ${next?` Neste type som skal kappes: <b class="mono">${esc(next.hose)}</b> (${next.items.length-next.done} igjen).`
           :` Alle slangetypene i mappen er ferdig kappet – neste operasjon er 🏷️ Tag på.`}</div>
     <span class="fix" style="display:flex;gap:8px;flex-wrap:wrap">
-      ${next?`<button class="btn btn-good" onclick="State.ws.hoseType='${esc(next.hose)}';State.ws.focusPos=-1;render()">➡️ Neste: ${esc(next.hose)}</button>`
-            :`<button class="btn btn-good" onclick="State.ws.stage='tag';State.ws.hoseType=null;State.ws.focusPos=-1;render()">➡️ Gå til Tag på</button>`}
+      <button class="btn btn-good" onclick="State.ws.stage='tag';State.ws.focusPos=-1;render()">➡️ Fortsett med ${esc(hose)} → Tag på</button>
+      ${next?`<button class="btn btn-primary" onclick="State.ws.hoseType='${esc(next.hose)}';State.ws.focusPos=-1;render()">✂️ Kapp neste: ${esc(next.hose)}</button>`:""}
       <button class="fixbtn" onclick="State.ws.hoseType=null;render()">↩︎ Typeoversikt</button>
     </span>
   </div>`;
@@ -2149,6 +2195,56 @@ function wsCutView(f){
         :`<button class="wsbtn" onclick="wsStage('${f.id}',${i},'cut')">Bekreft kappet</button>`}</td>
     </tr>`}).join("")}
   </table></div>`;
+}
+
+/* --- TAG PÅ: én samlet kvittering – utskriften skjer automatisk ved kapping ---
+   Taggene ligger allerede klare i benkeskriveren (én per PTS-ID). Her kvitteres
+   det SAMLET for at alle lapper er festet – samme mønster som rens. --- */
+function wsTagView(f){
+  const elig=f.lines.map((l,i)=>({l,i})).filter(x=>x.l.st.cut);
+  const todo=elig.filter(x=>!x.l.st.tag);
+  const doneArr=elig.filter(x=>x.l.st.tag);
+  const notCut=f.lines.length-elig.length;
+  const tagsN=todo.reduce((a,x)=>a+(x.l.qty||1),0);
+  const header=`
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <h1 style="font-size:24px">🏷️ Tag på – ${esc(f.title)} <span class="mono" style="font-size:12px;color:var(--muted)">${f.id}</span></h1>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${wsModeBtn()}<button class="btn btn-ghost" onclick="State.ws.stage=null;render()">↩︎ Til operasjonene</button></div>
+  </div>
+  <div class="sub">Taggene er allerede skrevet ut automatisk ved kapping (én per PTS-ID). Fest lappene, og kvitter <b>samlet</b> – ett sjekkpunkt, ikke én bekreftelse per slange. Innlogget: <b>${esc(State.user)}</b></div>`;
+  if(!elig.length)return header+`
+  <div class="focus-wrap"><div class="focus-card donecard">
+    <div class="big">⏳</div><div style="font-size:19px">Ingen slanger er kappet ennå – taggene skrives ut i det kappingen bekreftes.</div>
+    <button class="bigbtn next" onclick="State.ws.stage='cut';State.ws.focusPos=-1;render()">Gå til ✂️ Kapping</button>
+  </div></div>`;
+  if(!todo.length)return header+`
+  <div class="focus-wrap"><div class="focus-card donecard">
+    <div class="big">🎉</div>
+    <div style="font-size:21px;font-weight:700">Alle ${elig.length} kappede slanger er merket med tag.</div>
+    ${notCut?`<div class="sub">${notCut} slanger er ikke kappet ennå – de får egen kvittering senere.</div>`:""}
+    <button class="bigbtn next" onclick="State.ws.stage='clean';State.ws.focusPos=-1;render()">➡️ Gå til 🧼 Rens (UC)</button>
+  </div></div>`;
+  return header+`
+  <div class="focus-wrap"><div class="focus-card" style="border-left:10px solid var(--accent)">
+    <div style="font-size:clamp(26px,4vw,40px);font-weight:800;margin-bottom:6px">🏷️ ${todo.length} slange${todo.length===1?" klar":"r klare"} for merking (${tagsN} lapp${tagsN===1?"":"er"})</div>
+    <div class="sub" style="font-size:14.5px">Lappene ligger i benkeskriveren i kapperekkefølge. Kontroller PTS-ID mot slangen, fest – og kvitter samlet.</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 4px">
+      ${todo.map(x=>`<span class="status st-utkast mono" title="${ptsAll(x.l).map(esc).join(" · ")}">POS ${esc(x.l.pos||"–")}${x.l.qty>1?` ✕${x.l.qty}`:""}</span>`).join("")}
+    </div>
+    ${doneArr.length?`<div class="sub" style="margin-top:8px">✅ ${doneArr.length} allerede kvittert tidligere.</div>`:""}
+    ${notCut?`<div class="sub">⏳ ${notCut} slanger venter fortsatt på kapping og er ikke med i denne kvitteringen.</div>`:""}
+    <button class="bigbtn confirm" onclick="wsTagAll('${f.id}')">🏷️ BEKREFT: ${tagsN===1?"TAGGEN ER":"ALLE "+tagsN+" TAGGER ER"} SATT PÅ</button>
+  </div></div>`;
+}
+function wsTagAll(id){
+  const f=folder(id);
+  const todo=f.lines.filter(l=>l.st.cut&&!l.st.tag);
+  if(!todo.length)return;
+  const by=State.user.replace("Verksted – ",""),at=now();
+  const tagsN=todo.reduce((a,l)=>a+(l.qty||1),0);
+  todo.forEach(l=>l.st.tag={by,at});
+  addLog(f,`Tag på: samlet kvittering – ${todo.length} slanger merket (${tagsN} tagger) (${by})`);
+  render();
 }
 
 /* --- RENS (UC): én samlet kvittering for alt som er kappet ---
@@ -2458,9 +2554,13 @@ function wsStageList(f,key){
     </div>
   </div>
   ${State.ws.lastConfirm&&State.ws.lastConfirm.key===key?`<div class="lastconfirm" style="justify-content:flex-start">✅ Sist: POS ${esc(State.ws.lastConfirm.pos||"–")} ${esc(State.ws.lastConfirm.what)} kl. ${(State.ws.lastConfirm.at||"").split(" ")[1]||State.ws.lastConfirm.at} av ${esc(State.ws.lastConfirm.by)}</div>`:""}
-  ${done===eligible.length&&eligible.length===f.lines.length?`
-  <div class="vitem v-good" style="align-items:center">✅ <div><b>Alle ${f.lines.length} slanger er ${s.verb}.</b>${key!=="test"?` Neste operasjon: ${STAGES[STAGES.findIndex(x=>x.key===key)+1].icon} ${STAGES[STAGES.findIndex(x=>x.key===key)+1].label}.`:" Mappen kan meldes ferdig fra operasjonsoversikten."}</div>
-    <span class="fix">${key!=="test"?`<button class="btn btn-good" onclick="State.ws.stage='${STAGES[STAGES.findIndex(x=>x.key===key)+1].key}';render()">➡️ Gå videre</button>`:`<button class="btn btn-good" onclick="State.ws.stage=null;render()">➡️ Til oversikten</button>`}</span></div>`:""}
+  ${done===eligible.length&&eligible.length===f.lines.length?(()=>{
+    const nxs=STAGES[STAGES.findIndex(x=>x.key===key)+1];
+    const allDoneF=STAGES.every(st=>stageCount(f,st.key)===f.lines.length);
+    return `<div class="vitem v-good" style="align-items:center">✅ <div><b>Alle ${f.lines.length} slanger er ${s.verb}.</b>${nxs?` Neste operasjon: ${nxs.icon} ${nxs.label}.`:allDoneF?" Mappen er klar for spot-check.":" Venter på oppstrøms operasjoner."}</div>
+    <span class="fix">${nxs?`<button class="btn btn-good" onclick="State.ws.stage='${nxs.key}';render()">➡️ Gå videre</button>`
+      :allDoneF?`<button class="btn btn-good" onclick="wsStartQC('${f.id}')">🔍 Start spot-check</button>`
+      :`<button class="btn btn-good" onclick="State.ws.stage=null;render()">➡️ Til oversikten</button>`}</span></div>`})():""}
   <div class="tblwrap"><table>
     <tr><th>POS</th><th>Maskin</th><th>PTS ID</th><th>Hose</th><th>Kutt</th>${key==="press"?"<th>Coupling 1</th><th>Coupling 2</th>":""}${key==="test"?"<th>WP</th><th style='color:var(--info)'>Testtrykk</th>":""}<th>${s.label}</th></tr>
     ${rows.map(({l,i})=>{
@@ -2579,6 +2679,7 @@ function qcComment(id,idx,val){folder(id).spot.items[idx].comment=val}
 function wsCompleteQC(id){
   const f=folder(id);
   if(!spotDone(f))return;
+  autoClockStop(id,"mappen fullført");
   f.spot.completedAt=now();
   f.status="ferdig";
   State.ws.stage="prints";
@@ -2600,11 +2701,45 @@ function wsFocusQueue(f,key){
 }
 function wsFocusAdvance(f,key,fromPos){
   const q=wsFocusQueue(f,key);
+  if(!q.length)return;
+  const cur=q[fromPos]?q[fromPos].l:null;
+  if(cur&&key!=="cut"){
+    /* 1) hold deg på SAMME slangetype til den er ferdig */
+    for(let k=1;k<=q.length;k++){
+      const p=(fromPos+k)%q.length;
+      if(!q[p].l.st[key]&&q[p].l.hose===cur.hose){State.ws.focusPos=p;return}
+    }
+    /* 2) typen er ferdig for dette steget – gjenstår andre typer? → valg */
+    if(q.some(x=>!x.l.st[key])){
+      State.ws.typeChoice={key,hose:cur.hose};
+      State.ws.focusPos=fromPos;
+      return;
+    }
+  }
   for(let k=1;k<=q.length;k++){
     const p=(fromPos+k)%q.length;
     if(!q[p].l.st[key]){State.ws.focusPos=p;return}
   }
   State.ws.focusPos=fromPos; // ingen gjenstående – done-kortet vises
+}
+/* Type-valget: fortsett med typen til neste prosess, eller ta neste type her */
+function wsTypeGo(id,hose,nextKey){
+  State.ws.typeChoice=null;State.ws.stage=nextKey;State.ws.focusPos=-1;
+  if(nextKey==="cut")State.ws.hoseType=hose;
+  const f=folder(id);
+  if(!["tag","clean","test"].includes(nextKey)){
+    const q=wsFocusQueue(f,nextKey);
+    const p=q.findIndex(x=>!x.l.st[nextKey]&&x.l.hose===hose);
+    if(p>=0)State.ws.focusPos=p;
+  }
+  render();
+}
+function wsTypeStay(id,key,hose){
+  State.ws.typeChoice=null;
+  const q=wsFocusQueue(folder(id),key);
+  const p=q.findIndex(x=>!x.l.st[key]&&x.l.hose===hose);
+  if(p>=0)State.ws.focusPos=p;
+  render();
 }
 function wsFocusConfirm(id,idx,key,pos){
   const f=folder(id);
@@ -2630,6 +2765,22 @@ function wsFocus(f,key){
     </div>
   </div>`;
 
+  const tc=State.ws.typeChoice;
+  if(tc&&tc.key===key){
+    const nx=STAGES[STAGES.findIndex(x=>x.key===key)+1];
+    const undone=q.filter(x=>!x.l.st[key]);
+    const nextHose=undone.length?undone[0].l.hose:null;
+    const nleft=nextHose?undone.filter(x=>x.l.hose===nextHose).length:0;
+    return header+`<div class="focus-wrap"><div class="focus-card donecard">
+      <div class="big">✅</div>
+      <div style="font-size:21px;font-weight:700">Alle ${esc(tc.hose)} er ${s.verb}!</div>
+      <div class="sub" style="margin-top:4px">Hva vil du gjøre nå?</div>
+      ${nx?`<button class="bigbtn confirm" onclick="wsTypeGo('${f.id}','${esc(tc.hose)}','${nx.key}')">➡️ Fortsett med ${esc(tc.hose)} → ${nx.icon} ${nx.label}</button>`:""}
+      ${nextHose?`<button class="bigbtn next" onclick="wsTypeStay('${f.id}','${key}','${esc(nextHose)}')">${s.icon} ${s.label} neste type: ${esc(nextHose)} (${nleft} igjen)</button>
+        <div style="margin-top:10px;display:flex;justify-content:center">${hoseThumb(nextHose)}</div>`:""}
+      <button class="bigbtn ghostb" onclick="State.ws.typeChoice=null;State.ws.stage=null;render()">Til operasjonene</button>
+    </div></div>`;
+  }
   if(total===0)return header+`<div class="focus-wrap"><div class="focus-card donecard">
     <div class="big">⏳</div><div style="font-size:19px">Ingen slanger er klare for ${s.label.toLowerCase()} ennå${prev?` – ${waiting} venter på ${prev.label.toLowerCase()}`:""}.</div>
     <button class="bigbtn next" onclick="State.ws.stage=${prev?`'${prev.key}'`:"null"};State.ws.focusPos=-1;render()">Gå til ${prev?prev.icon+" "+prev.label:"operasjonene"}</button>
@@ -2640,13 +2791,18 @@ function wsFocus(f,key){
     let nextBtn="";
     if(key==="cut"){
       const next=wsNextType(f,State.ws.hoseType,"cut");
-      nextBtn=next
-        ?`<button class="bigbtn next" onclick="State.ws.hoseType='${esc(next.hose)}';State.ws.focusPos=-1;render()">➡️ Neste slangetype: ${esc(next.hose)} (${next.items.length-next.done} igjen)</button>
-          <div style="margin-top:10px;display:flex;justify-content:center">${hoseThumb(next.hose)}</div>`
-        :`<button class="bigbtn next" onclick="State.ws.stage='tag';State.ws.hoseType=null;State.ws.focusPos=-1;render()">➡️ Alt kappet – gå til 🏷️ Tag på</button>`;
+      nextBtn=`
+        <button class="bigbtn confirm" onclick="State.ws.stage='tag';State.ws.focusPos=-1;render()">➡️ Fortsett med ${esc(State.ws.hoseType)} → 🏷️ Tag på</button>
+        ${next?`<button class="bigbtn next" onclick="State.ws.hoseType='${esc(next.hose)}';State.ws.focusPos=-1;render()">✂️ Kapp neste slangetype: ${esc(next.hose)} (${next.items.length-next.done} igjen)</button>
+          <div style="margin-top:10px;display:flex;justify-content:center">${hoseThumb(next.hose)}</div>`:""}`;
     }else if(key!=="test"){
       const nx=STAGES[STAGES.findIndex(x=>x.key===key)+1];
-      nextBtn=stageCount(f,key)===f.lines.length
+      const allDoneF=STAGES.every(st=>stageCount(f,st.key)===f.lines.length);
+      nextBtn=!nx
+        ?(allDoneF
+          ?`<button class="bigbtn confirm" onclick="wsStartQC('${f.id}')">🔍 Alt pakket – start spot-check (annenhåndskontroll)</button>`
+          :`<button class="bigbtn ghostb" onclick="State.ws.stage=null;render()">Alt pakket her – noe venter oppstrøms, til oversikten</button>`)
+        :stageCount(f,key)===f.lines.length
         ?`<button class="bigbtn next" onclick="State.ws.stage='${nx.key}';State.ws.focusPos=-1;render()">➡️ Gå til ${nx.icon} ${nx.label}</button>`
         :`<button class="bigbtn ghostb" onclick="State.ws.stage=null;render()">${waiting} slanger venter fortsatt på ${prev.label.toLowerCase()} – til oversikten</button>`;
     }else{
@@ -2696,7 +2852,7 @@ function wsFocus(f,key){
 
   const rail=`<div class="qrail">${q.map((x,p)=>{
     const dn=!!x.l.st[key];
-    return `<button class="qcard ${dn?"done":""} ${p===pos?"cur":""}" onclick="State.ws.focusPos=${p};render()" title="POS ${esc(x.l.pos||"–")} · ${esc(x.l.pts)}">
+    return `<button class="qcard ${dn?"done":""} ${p===pos?"cur":""}" onclick="State.ws.typeChoice=null;State.ws.focusPos=${p};render()" title="POS ${esc(x.l.pos||"–")} · ${esc(x.l.pts)}">
       <div class="qpos">${esc(x.l.pos||"–")}</div>
       <div class="qpts">${esc(x.l.pts)}</div>
       <div class="qst">${dn?`✓ ${(x.l.st[key].at||"").split(" ")[1]||x.l.st[key].at}`
@@ -2744,9 +2900,9 @@ function wsFocus(f,key){
     </div>
     ${lastLine}
     <div class="focus-nav">
-      <button class="navarrow" ${pos===0?"disabled":""} onclick="State.ws.focusPos=${pos-1};render()">◀</button>
+      <button class="navarrow" ${pos===0?"disabled":""} onclick="State.ws.typeChoice=null;State.ws.focusPos=${pos-1};render()">◀</button>
       <span style="font-size:14.5px;color:var(--muted);font-weight:700">Slange ${pos+1} av ${total} · trykk et kort i rekken over for å hoppe</span>
-      <button class="navarrow" ${pos===total-1?"disabled":""} onclick="State.ws.focusPos=${pos+1};render()">▶</button>
+      <button class="navarrow" ${pos===total-1?"disabled":""} onclick="State.ws.typeChoice=null;State.ws.focusPos=${pos+1};render()">▶</button>
     </div>
     ${key==="clean"&&total-done>1?`<button class="bigbtn ghostb" onclick="wsStageAll('${f.id}','clean')">🧼 Merk alle ${total-done} gjenstående som renset</button>`:""}
   </div>`;
@@ -2763,7 +2919,7 @@ function vQC(f){
   return `
   <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
     <h1 style="font-size:23px">🔍 Spot-check – ${esc(f.title)} <span class="mono" style="font-size:12px;color:var(--muted)">${f.id}</span></h1>
-    <button class="btn btn-ghost" onclick="State.ws.stage=null;State.ws.folderId=null;render()">↩︎ Verkstedsmodus</button>
+    <button class="btn btn-ghost" onclick="wsLeaveFolder()">↩︎ Verkstedsmodus</button>
   </div>
   <div class="notice">🔍 <div><b>Annenhåndskontroll:</b> ${sp.items.length} av ${f.lines.length} slanger er trukket ut (minst én per slangetype).
   Kontrollen må utføres av en <b>annen person</b> enn den som trykktestet slangen – systemet håndhever dette.
@@ -2818,7 +2974,7 @@ function vPrints(f){
     </div>
     <div style="margin-top:14px;display:flex;gap:10px;justify-content:center">
       <button class="btn btn-ghost" onclick="State.ws.stage=null;State.ws.folderId=null;App.openFolder('${f.id}')">Åpne mappen</button>
-      <button class="btn btn-ghost" onclick="State.ws.stage=null;State.ws.folderId=null;render()">Til verkstedsmodus</button>
+      <button class="btn btn-ghost" onclick="wsLeaveFolder()">Til verkstedsmodus</button>
     </div>
   </div>`;
 }
@@ -3104,7 +3260,7 @@ function vOm(){
       <tr><td>PTS-ID-er genereres lokalt (simulert register)</td><td>Reserveres via oppslag/API mot den ekte PTS-databasen – neste ledige ID-er, atomisk</td></tr>
       <tr><td>Telaris-pakke som dokumentvisning</td><td>Opprettes via Telaris-API: pakkevare, slangevarer og BOM legges rett i ERP, koblet mot ordren</td></tr>
       <tr><td>ESI-trykksensor simulert (kurve, holdetid, trykkfall)</td><td>ESI GD4200-USB leses direkte: Web Serial i Chrome/Edge, eller en liten lokal brotjeneste på ESIs offisielle API-DLL – tredjepartsprogrammet erstattes helt</td></tr>
-      <tr><td>Arbeidsøkter stemples manuelt (start/stopp)</td><td>Kan i tillegg utledes automatisk fra bekreftelsene i verkstedet, og rapporteres per ordre/kunde/periode for kalibrering av TimeCalc-kalkylen</td></tr>
+      <tr><td>Arbeidsøkter startes/stoppes automatisk når mappen åpnes/forlates i verkstedsmodus</td><td>Samme automatikk, pluss rapportering per ordre/kunde/periode for kalibrering av TimeCalc-kalkylen</td></tr>
       <tr><td>DNV-sertifikater (AoM + TAP) som register i prototypen</td><td>Vedlikeholdes i masterdatabasen med gyldighetsdatoer; sertifikatnumrene påføres trykktestsertifikatet automatisk (DNV-krav), med varsling før utløp</td></tr>
       <tr><td>«Kobles til PMOTION» som tekst</td><td>Produksjonsmappen vises som sjekklistepunkt i PMOTION Fase 4</td></tr>
     </table></div>
@@ -3115,7 +3271,7 @@ function vOm(){
     2. I steg 2, klikk <b>Fyll med demodata</b> – kundens liste legges rett i det redigerbare rutenettet. Skriv i cellene som i Excel (med forslag fra masterdata), legg til/slett rader, eller lim inn flere rader. Merk: kundelister har ingen PTS-ID-er – kolonnen står på «hentes».<br>
     3. Se valideringen fange ekte feil (bl.a. tastefeilen «14948-18-8» fra dagens slangeliste!) og rett med ett klikk. Kuttemålene (CUT = Lengde − B1 − B2 − S-mål) regnes ut automatisk fra masterdata – samme formel som i Excel-arket, men uten formler som kan mangle eller bli ødelagt.<br>
     4. Generer dokumenter, og i siste steg: klikk <b>🔖 Hent PTS-ID-er til alle slangene</b> – systemet reserverer neste ledige ID-er i PTS-registeret. Lagre. I mappen følger du så prosessen slik den faktisk er: <b>⚙️ Opprett slangepakke i Telaris</b> (varenummer og BOM genereres automatisk) → <b>📤 Marker tilbud sendt fra Telaris</b> (tilbudet sendes på pakkevaren) → <b>📦 Registrer bestilling</b> når kunden bestiller. Portene håndhever rekkefølgen.<br>
-    5. «Send til verksted», bytt bruker til <b>Verksted – Christian</b> øverst, åpne <b>Verkstedsmodus</b>. Trykk <b>▶ Start arbeidsøkt</b> i operasjonsvelgeren – tiden måles løpende mot kalkylen, og mappen viser om dere er frempå, on track eller bakpå. Trykk <b>⛶ Fullskjerm</b> (på iPad skjer det automatisk): menyen og topplinjen kollapses så hele skjermen brukes til arbeidet – bruker og avslutt-knapp ligger i en liten flytende linje øverst til høyre. Verkstedet følger benkens 7-stegs flyt: ✂️ Kapping → 🏷️ Tag på (taggen skrives ut automatisk på benkeskriveren i det kappingen bekreftes – idiotsikker identitet fra første steg) → 🧼 Rens → 🔧 Pressing → 🧪 Trykktest → 🛡️ Preservering → 📦 Pakking. I Kapping velges slangetype fra kort med tegninger, så ingen kapper feil slange. Rens kvitteres med <b>én samlet kvittering</b> for alt som er kappet, og trykktesten kjøres i <b>puljer per testtrykk</b> – hak bort slanger som ikke får plass i benken, så blir de liggende til neste pulje. Koble til <b>ESI-sensoren</b> i trykktest-skjermen og trykk «Start logget trykktest»: hele forløpet logges med live kurve, holdetid-nedtelling og automatisk godkjent/avvik på trykkfall (prøv «Simuler lekkasje»!) – loggen havner rett i sertifikatet.<br>
+    5. «Send til verksted», bytt bruker til <b>Verksted – Christian</b> øverst, åpne <b>Verkstedsmodus</b>. Tiden begynner å gå <b>automatisk</b> i det mappen åpnes i verkstedsmodus, og stopper når du forlater den – mappen viser løpende om dere er frempå, on track eller bakpå mot kalkylen. Trykk <b>⛶ Fullskjerm</b> (på iPad skjer det automatisk): menyen og topplinjen kollapses så hele skjermen brukes til arbeidet – bruker og avslutt-knapp ligger i en liten flytende linje øverst til høyre. Verkstedet følger benkens 7-stegs flyt: ✂️ Kapping → 🏷️ Tag på (taggen skrives ut automatisk på benkeskriveren i det kappingen bekreftes – idiotsikker identitet fra første steg) → 🧼 Rens → 🔧 Pressing → 🧪 Trykktest → 🛡️ Preservering → 📦 Pakking. I Kapping velges slangetype fra kort med tegninger, så ingen kapper feil slange. Rens kvitteres med <b>én samlet kvittering</b> for alt som er kappet, og trykktesten kjøres i <b>puljer per testtrykk</b> – hak bort slanger som ikke får plass i benken, så blir de liggende til neste pulje. Koble til <b>ESI-sensoren</b> i trykktest-skjermen og trykk «Start logget trykktest»: hele forløpet logges med live kurve, holdetid-nedtelling og automatisk godkjent/avvik på trykkfall (prøv «Simuler lekkasje»!) – loggen havner rett i sertifikatet.<br>
     6. Når alle sju operasjonene er fullført: «Start spot-check» – annenhåndskontrollen der en annen person enn den som testet må godkjenne et utvalg (bytt bruker øverst for å se regelen håndheves).<br>
     7. Etter godkjent spot-check: skriv ut trykktestsertifikat, pallemerkelapp og spot-check-rapport fra utskriftspanelet.</p>
   </div>`;
