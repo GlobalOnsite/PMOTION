@@ -139,11 +139,19 @@ td .ptspill.has{border-style:solid;border-color:var(--accent);color:var(--text)}
 .qtybadge.mini{font-size:12.5px;padding:2px 9px;border-width:1.5px;border-radius:9px}
 .touch .qtybadge.mini{font-size:14px}
 
-/* iPad-optimalisert fokuskort: POS øverst, foto nederst, kompakt topp */
-.fc-top .posref{text-align:left}
-.fc-top .posref .p-num{font-size:56px;line-height:1}
-.fc-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
-.fc-photo{margin-top:16px;border-top:1px dashed var(--border2);padding-top:14px}
+/* iPad-optimalisert fokuskort: liggende = to kolonner, stående = én kolonne */
+.fc-grid{display:grid;gap:16px;grid-template-areas:"pos" "main" "photo"}
+.fc-pos{grid-area:pos}
+.fc-maincol{grid-area:main;min-width:0}
+.fc-photo2{grid-area:photo;border-top:1px dashed var(--border2);padding-top:14px}
+.fc-pos .posref{text-align:left}
+.fc-pos .posref .p-num{font-size:56px;line-height:1}
+@media(orientation:landscape) and (min-width:900px){
+  .touch .fc-grid{grid-template-columns:minmax(300px,5fr) 7fr;grid-template-areas:"pos main" "photo main";align-items:start;column-gap:26px}
+  .touch .fc-photo2{border-top:none;padding-top:0;margin-top:6px}
+  .touch .fc-pos .posref .p-num{font-size:64px}
+  .touch .fc-maincol .focus-main{font-size:clamp(40px,6vw,72px)}
+}
 .touch .focus-card{padding:20px 22px}
 .touch h1{font-size:20px}
 body.fs.touch .fsver{display:none}
@@ -442,9 +450,10 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
    ===================================================================== */
 
 /* ---------- Versjon (vises i topplinjen, fullskjermlinjen og på Om-siden) ---------- */
-const APP_VERSION="0.21";
+const APP_VERSION="0.22";
 const APP_BUILD="13.08.2026";
 const CHANGELOG=[
+  ["0.22","13.08.2026","Liggende iPad-visning i verkstedet: to kolonner med POS og produktfoto til venstre, mål/teller/bekreft-knapp til høyre – alt synlig samtidig. Stående format beholder én kolonne"],
   ["0.21","13.08.2026","iPad-optimalisert layout i fullskjerm/touch: POS, mål og bekreft-knapp øverst uten scrolling (foto ligger under), kompaktere topplinje, og bedre plassutnyttelse i både liggende og stående format"],
   ["0.20","13.08.2026","Tag-regel etter lengde: slanger med OAL ≥ 2000 mm får 2 tagger (én til hver ende), kortere slanger får 1 – i utskriften ved kapping, i tags-dokumentet og i Telaris-BOM-en (vare 23951)"],
   ["0.19","13.08.2026","TAG-steget fjernet: taggingen skjer samtidig med kappingen – taggen skrives ut per stk i det hvert kutt kvitteres, og kutt-knappen dekker begge («Bekreft kappet + tag på»). Spot-checken beholder tag-kontrollpunktet. Flyten er nå 6 operasjoner"],
@@ -2916,38 +2925,43 @@ function wsFocus(f,key){
     </div>
     ${rail}
     <div class="focus-card" style="border-left:10px solid ${stStyle.color}">
-      ${(()=>{ /* iPad-optimalisert rekkefølge i touch: POS/mål/knapp først, foto nederst */
+      ${(()=>{ /* iPad: liggende = to kolonner (POS+foto venstre, mål+knapp høyre); stående = én kolonne */
         const photoHtml=key==="cut"?hosePhotoPanel(l,{arrow:true}):key==="clean"?hosePhotoPanel(l,{plugs:true}):photoAssembly(l);
+        const metaHtml=`<div class="focus-meta">
+          <div class="fm"><b>${l.cut?fmtCut(l):(missingMeasures(l).length?"📏":"–")}</b><span>Kutt</span></div>
+          <div class="fm"><b>${l.qty>1?`<span style="color:var(--warn)">✕ ${l.qty} STK</span>`:"1 stk"}</b><span>Antall</span></div>
+          <div class="fm"><b>${esc(l.len)} mm</b><span>Lengde (OAL)</span></div>
+          <div class="fm"><b>${l.wp?l.wp+" bar":"–"}</b><span>WP</span></div>
+          ${key!=="press"?`<div class="fm"><b class="mono" style="font-size:14px">${esc(l.c1)}<br>${esc(l.c2)}</b><span>Koblinger</span></div>`
+            :(()=>{const c=crimpFor(l.hose);return c?`<div class="fm"><b style="color:var(--info)">Ø ${fmtMM(c.od)}</b><span>Pressmål (±${fmtMM(c.tol)})</span></div>`:""})()}
+        </div>`;
+        const actionsHtml=doneThis
+          ?`<button class="bigbtn confirm" disabled style="opacity:.85">✅ ${s.verb.toUpperCase()} · ${esc(l.st[key].by)} · ${l.st[key].at}${key==="cut"&&l.qty>1?` · ${l.qty} STK`:""}</button>
+            <button class="bigbtn undo" onclick="wsFocusConfirm('${f.id}',${i},'${key}',${pos})">↩︎ Angre bekreftelsen</button>`
+          :mmCut.length
+          ?`<button class="bigbtn confirm" disabled style="opacity:.45">🔒 LEGG INN ${mmCut.map(m=>m.label.toUpperCase()).join(" + ")} FØRST</button>`
+          :key==="cut"&&l.qty>1
+          ?`<div class="cutcount">
+              <div class="ccnum"><b>${l.cutN||0}</b><span>av ${l.qty}</span><div class="cclabel">KAPPET</div></div>
+              <button class="bigbtn confirm" style="margin-top:0;flex:1" onclick="wsCutPieceF('${f.id}',${i},${pos},1)">✂️ KAPPET +1 · 🏷️ ${tagCountFor(l)===2?"2 tagger":"tag"} skrives ut</button>
+              <button class="ccminus" title="Juster ned (feiltelling)" ${l.cutN?"":"disabled"} onclick="wsCutPieceF('${f.id}',${i},${pos},-1)">−1</button>
+            </div>
+            <div class="pieces">${Array.from({length:l.qty},(_,k)=>`<span class="piece ${k<(l.cutN||0)?"done":""}" title="${esc(ptsAll(l)[k]||"")}"></span>`).join("")}</div>
+            <div class="focus-sub" style="text-align:center;margin-top:8px">${(l.cutN||0)<l.qty?`Neste kutt kvitteres på <b class="mono">PTS ${esc(ptsAll(l)[l.cutN||0]||"–")}</b> – taggen skrives ut i det du trykker +1, fest den med en gang · `:""}linjen fullføres ved ${l.qty} av ${l.qty}</div>`
+          :`<button class="bigbtn confirm" onclick="wsFocusConfirm('${f.id}',${i},'${key}',${pos})">${key==="cut"?"✂️ BEKREFT KAPPET + 🏷️ TAG PÅ":s.icon+" BEKREFT "+s.verb.toUpperCase()}</button>`;
         return State.touch
-          ?`<div class="fc-top">${posBlock(l,f)}</div>`
+          ?`<div class="fc-grid">
+              <div class="fc-pos">${posBlock(l,f)}</div>
+              <div class="fc-maincol"><div style="margin-top:2px">${main}</div>${metaHtml}${actionsHtml}</div>
+              <div class="fc-photo2">${photoHtml}</div>
+            </div>`
           :`<div style="display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap">
               <div style="flex:1;min-width:300px">${photoHtml}</div>
               ${posBlock(l,f)}
-            </div>`})()}
-      <div style="margin-top:${State.touch?"6":"14"}px">${main}</div>
-      <div class="focus-meta">
-        <div class="fm"><b>${l.cut?fmtCut(l):(missingMeasures(l).length?"📏":"–")}</b><span>Kutt</span></div>
-        <div class="fm"><b>${l.qty>1?`<span style="color:var(--warn)">✕ ${l.qty} STK</span>`:"1 stk"}</b><span>Antall</span></div>
-        <div class="fm"><b>${esc(l.len)} mm</b><span>Lengde (OAL)</span></div>
-        <div class="fm"><b>${l.wp?l.wp+" bar":"–"}</b><span>WP</span></div>
-        ${key!=="press"?`<div class="fm"><b class="mono" style="font-size:14px">${esc(l.c1)}<br>${esc(l.c2)}</b><span>Koblinger</span></div>`
-          :(()=>{const c=crimpFor(l.hose);return c?`<div class="fm"><b style="color:var(--info)">Ø ${fmtMM(c.od)}</b><span>Pressmål (±${fmtMM(c.tol)})</span></div>`:""})()}
-      </div>
-      ${doneThis
-        ?`<button class="bigbtn confirm" disabled style="opacity:.85">✅ ${s.verb.toUpperCase()} · ${esc(l.st[key].by)} · ${l.st[key].at}${key==="cut"&&l.qty>1?` · ${l.qty} STK`:""}</button>
-          <button class="bigbtn undo" onclick="wsFocusConfirm('${f.id}',${i},'${key}',${pos})">↩︎ Angre bekreftelsen</button>`
-        :mmCut.length
-        ?`<button class="bigbtn confirm" disabled style="opacity:.45">🔒 LEGG INN ${mmCut.map(m=>m.label.toUpperCase()).join(" + ")} FØRST</button>`
-        :key==="cut"&&l.qty>1
-        ?`<div class="cutcount">
-            <div class="ccnum"><b>${l.cutN||0}</b><span>av ${l.qty}</span><div class="cclabel">KAPPET</div></div>
-            <button class="bigbtn confirm" style="margin-top:0;flex:1" onclick="wsCutPieceF('${f.id}',${i},${pos},1)">✂️ KAPPET +1 · 🏷️ ${tagCountFor(l)===2?"2 tagger":"tag"} skrives ut</button>
-            <button class="ccminus" title="Juster ned (feiltelling)" ${l.cutN?"":"disabled"} onclick="wsCutPieceF('${f.id}',${i},${pos},-1)">−1</button>
-          </div>
-          <div class="pieces">${Array.from({length:l.qty},(_,k)=>`<span class="piece ${k<(l.cutN||0)?"done":""}" title="${esc(ptsAll(l)[k]||"")}"></span>`).join("")}</div>
-          <div class="focus-sub" style="text-align:center;margin-top:8px">${(l.cutN||0)<l.qty?`Neste kutt kvitteres på <b class="mono">PTS ${esc(ptsAll(l)[l.cutN||0]||"–")}</b> – taggen skrives ut i det du trykker +1, fest den med en gang · `:""}linjen fullføres ved ${l.qty} av ${l.qty}</div>`
-        :`<button class="bigbtn confirm" onclick="wsFocusConfirm('${f.id}',${i},'${key}',${pos})">${key==="cut"?"✂️ BEKREFT KAPPET + 🏷️ TAG PÅ":s.icon+" BEKREFT "+s.verb.toUpperCase()}</button>`}
-      ${State.touch?`<div class="fc-photo">${key==="cut"?hosePhotoPanel(l,{arrow:true}):key==="clean"?hosePhotoPanel(l,{plugs:true}):photoAssembly(l)}</div>`:""}
+            </div>
+            <div style="margin-top:14px">${main}</div>
+            ${metaHtml}
+            ${actionsHtml}`})()}
     </div>
     ${lastLine}
     <div class="focus-nav">
