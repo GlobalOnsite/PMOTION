@@ -217,6 +217,34 @@ body.fs.touch .content{padding-top:62px}
 .lastconfirm{display:flex;justify-content:center;align-items:center;gap:8px;margin-top:12px;font-size:14px;font-weight:700;color:var(--good)}
 .touch .lastconfirm{font-size:16.5px}
 
+/* --- pakking: paller (tilordning + vekt/mål) --- */
+.pallbar{display:flex;gap:10px;flex-wrap:wrap;align-items:stretch;margin:12px 0 8px}
+.pallchip{background:var(--surface2);border:2px solid var(--border2);border-radius:14px;padding:10px 20px;cursor:pointer;color:var(--text);font-weight:800;font-size:17px;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:118px}
+.pallchip span{font-size:11.5px;color:var(--muted);font-weight:600;letter-spacing:.2px}
+.pallchip.on{border-color:var(--accent2);box-shadow:0 0 0 2px var(--accent2) inset;color:var(--accent2)}
+.pallchip.add{border-style:dashed;color:var(--muted)}
+.pallchip.add:hover{border-color:var(--accent2);color:var(--accent2)}
+.touch .pallchip{font-size:20px;padding:14px 26px;min-width:140px}
+.touch .pallchip span{font-size:13px}
+.packrow{display:flex;align-items:center;gap:14px;background:var(--surface);border:1.5px solid var(--border2);border-radius:14px;padding:10px 16px;margin-bottom:8px;flex-wrap:wrap}
+.packrow .pr-pos{font-family:var(--head);font-weight:800;font-size:26px;color:var(--accent2);min-width:64px}
+.touch .packrow{padding:14px 18px}
+.touch .packrow .pr-pos{font-size:34px;min-width:84px}
+.pallcard{background:var(--surface);border:2px solid var(--border2);border-radius:16px;padding:14px 18px;margin-top:12px}
+.pallcard.full{border-color:var(--good)}
+.pallcard h3{margin:0;font-size:17px}
+.pallline{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px dashed var(--border2);flex-wrap:wrap}
+.pallline:last-of-type{border-bottom:none}
+.pallmeta{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
+.pallmeta label{display:flex;flex-direction:column;font-size:10.5px;color:var(--muted);font-weight:700;letter-spacing:.5px;gap:4px}
+.pallmeta input{width:96px;background:var(--surface2);border:1.5px solid var(--border2);border-radius:10px;color:var(--text);padding:10px;font-size:17px;font-family:var(--mono);text-align:center}
+.pallmeta input:focus{border-color:var(--accent2);outline:none}
+.touch .pallmeta input{width:110px;font-size:20px;padding:13px 10px}
+.movechip{background:none;border:1.5px solid var(--border2);border-radius:8px;color:var(--muted);font-size:11.5px;padding:4px 9px;cursor:pointer}
+.movechip:hover{border-color:var(--accent2);color:var(--accent2)}
+.touch .movechip{font-size:13.5px;padding:8px 12px}
+@media print{.pallet{page-break-after:always}.pallet:last-child{page-break-after:auto}}
+
 /* logget trykktest (ESI-sensor): live kurve + måler */
 .gauge{font-family:var(--head);font-size:clamp(46px,7vw,80px);font-weight:800;line-height:1;color:var(--info)}
 .gauge small{font-size:.35em;color:var(--muted);font-weight:700}
@@ -491,9 +519,10 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
    ===================================================================== */
 
 /* ---------- Versjon (vises i topplinjen, fullskjermlinjen og på Om-siden) ---------- */
-const APP_VERSION="0.23";
+const APP_VERSION="0.24";
 const APP_BUILD="13.08.2026";
 const CHANGELOG=[
+  ["0.24","13.08.2026","Spot-check flyttet FØR pakking (åpner når de fem første operasjonene er ferdige; pakking låses opp etter godkjent kontroll). Ny pakkevisning med pallehåndtering: legg til paller, pakk hver slange på riktig pall, flytt mellom paller, og registrer vekt + mål (L×B×H) per pall før mappen fullføres. Pallemerkelapp skrives ut per pall med innhold, vekt og mål"],
   ["0.23","13.08.2026","Liggende iPad-visning bruker nå hele skjermbredden: POS-banner øverst over full bredde, stor tegning av slange + koblinger til venstre, mål/pressmål og teller til høyre, og bekreft-knapp i full bredde nederst"],
   ["0.22","13.08.2026","Liggende iPad-visning i verkstedet: to kolonner med POS og produktfoto til venstre, mål/teller/bekreft-knapp til høyre – alt synlig samtidig. Stående format beholder én kolonne"],
   ["0.21","13.08.2026","iPad-optimalisert layout i fullskjerm/touch: POS, mål og bekreft-knapp øverst uten scrolling (foto ligger under), kompaktere topplinje, og bedre plassutnyttelse i både liggende og stående format"],
@@ -682,13 +711,32 @@ function buildSpotCheck(f){
 }
 function spotDone(f){return f.spot&&f.spot.items.every(x=>x.result==="ok")}
 
+/* ---------- Rekkefølge og paller ----------
+   Spot-check skjer FØR pakking: den åpner når de fem første operasjonene
+   (kapp, rens, press, test, preservering) er fullført for alle slanger,
+   og pakking låses opp først når spot-checken er godkjent. I pakkingen
+   fordeles slangene på paller, og hver brukt pall må få vekt og mål
+   (L×B×H) før mappen kan fullføres. */
+function prePackDone(f){return STAGES.filter(s=>s.key!=="pack").every(st=>stageCount(f,st.key)===f.lines.length)}
+function qcApproved(f){return !!(f.spot&&f.spot.completedAt)}
+function ensurePallets(f){
+  if(!f.pallets)f.pallets=[];
+  if(!f.pallets.length)f.pallets.push({no:1,weight:null,L:null,W:null,H:null});
+  return f.pallets;
+}
+function palletLines(f,no){return f.lines.map((l,i)=>({l,i})).filter(x=>x.l.st.pack&&x.l.pallet===no)}
+function usedPallets(f){return (f.pallets||[]).filter(p=>palletLines(f,p.no).length)}
+function palletComplete(p){return p.weight>0&&p.L>0&&p.W>0&&p.H>0}
+function palletsReady(f){const u=usedPallets(f);return u.length>0&&u.every(palletComplete)}
+function allPacked(f){return f.lines.every(l=>l.st.pack)}
+
 /* ---------- Demodata ---------- */
 function sibPts(pts,k){ /* deterministisk søsken-ID for demodata (samme prefiks, unik hale) */
   const CS="ABCDEFGHJKMNPQRSTVWXYZ23456789";
   const h=stableHash(pts+":"+k);
   return String(pts).slice(0,6)+CS[h%CS.length]+CS[Math.floor(h/CS.length)%CS.length];
 }
-function L(pts,pos,hose,len,c1,c2,qty,stageN){
+function L(pts,pos,hose,len,c1,c2,qty,stageN,pallet){
   const wp = wpFor(hose,c1,c2);
   const cut = cutFor(len,hose,c1,c2);
   const who=["Christian","Christian","Sigfus","Sigfus","Sigfus","Christian"],
@@ -697,7 +745,7 @@ function L(pts,pos,hose,len,c1,c2,qty,stageN){
   STAGES.forEach((s,i)=>{if(i<(stageN||0))st[s.key]={by:who[i],at:at[i]}});
   const n=qty||1;
   const ptsList=pts?[pts,...Array.from({length:n-1},(_,k)=>sibPts(pts,k+1))]:[];
-  return {pts,pos,hose,len,c1,c2,qty:n,wp,cut:cut.cut,cutErr:cut.err,st,cutN:(stageN||0)>=1?n:0,ptsList};
+  return {pts,pos,hose,len,c1,c2,qty:n,wp,cut:cut.cut,cutErr:cut.err,st,cutN:(stageN||0)>=1?n:0,ptsList,pallet:pallet||null};
 }
 function wpFor(hose,c1,c2){
   const w=[MASTER.hoses[hose]?.wp,MASTER.couplings[c1]?.wp,MASTER.couplings[c2]?.wp].filter(x=>x>0);
@@ -912,11 +960,15 @@ const State = {
     {id:"PM-2026-009",title:"Valaris DS-15 – Transit Flushing",project:"43 – Valaris DS-15",order:"26718",po:"COPS2026R-0311",customer:"Valaris",hub:"Lillesand",
      status:"ferdig",created:"14.07.2026",by:"Kim (PMO)",docsGenerated:true,docsStale:false,
      lines:[
-       L("VDF3K2LM",101,"787ST-8",4200,"1C948-16-8","1C948-16-8",1,6),
-       L("VBN8P4QR",102,"787ST-8",3800,"1C948-16-8","11C48-16-8",1,6),
-       L("VCX2M9TY",103,"487ST-8",2900,"11C48-16-8","11C48-16-8",2,6),
-       L("VLK5R7WE",104,"487ST-8",2400,"1C948-16-8","1C948-16-8",2,6),
-       L("VPO1D6UI",105,"787ST-6",1900,"1C948-12-6","10C48-12-6",1,6)
+       L("VDF3K2LM",101,"787ST-8",4200,"1C948-16-8","1C948-16-8",1,6,1),
+       L("VBN8P4QR",102,"787ST-8",3800,"1C948-16-8","11C48-16-8",1,6,1),
+       L("VCX2M9TY",103,"487ST-8",2900,"11C48-16-8","11C48-16-8",2,6,1),
+       L("VLK5R7WE",104,"487ST-8",2400,"1C948-16-8","1C948-16-8",2,6,2),
+       L("VPO1D6UI",105,"787ST-6",1900,"1C948-12-6","10C48-12-6",1,6,2)
+     ],
+     pallets:[
+       {no:1,weight:412,L:120,W:80,H:95},
+       {no:2,weight:168,L:120,W:80,H:60}
      ],
      spot:{items:[
        {i:0,result:"ok",comment:"",by:"Kim (PMO)",at:"18.07 14:20"},
@@ -924,8 +976,9 @@ const State = {
        {i:4,result:"ok",comment:"",by:"Kim (PMO)",at:"18.07 14:31"}],startedAt:"18.07 14:15",completedAt:"18.07 14:32"},
      log:[
        {t:"14.07 11:20",who:"Kim (PMO)",msg:"Produksjonsmappe opprettet"},
-       {t:"18.07 15:44",who:"Verksted – Christian",msg:"Alle slanger trykktestet – meldt ferdig til PMO"},
-       {t:"18.07 15:45",who:"System",msg:"Status endret: Trykktest → Fullført"}
+       {t:"18.07 14:32",who:"Kim (PMO)",msg:"Spot-check godkjent (3 kontroller) – pakking låst opp"},
+       {t:"18.07 15:44",who:"Verksted – Christian",msg:"Pakking fullført – 2 paller (412 kg + 168 kg), vekt og mål registrert"},
+       {t:"18.07 15:45",who:"System",msg:"Status endret: Pakking → Fullført"}
      ]},
     {id:"PM-2026-013",title:"West Carina – Hose Replacement",project:"14 – West Carina – Hose Replacement Job",order:"26553",po:"26553",customer:"Seadrill",hub:"Lillesand",
      status:"klar",created:"07.08.2026",by:"Kim (PMO)",docsGenerated:true,docsStale:false,plannedStart:null,
@@ -953,7 +1006,7 @@ const State = {
        {t:"07.08 08:55",who:"Simen (PMO)",msg:"Forespørsel registrert fra COSL (RFQ-2026-118) – ikke knyttet til PMOTION-prosjekt"}]}
   ],
   view:"dash", activeId:null, activeTab:"liste", showArchived:false,
-  ws:{folderId:null,stage:null,hoseType:null,onlyRemaining:false,focusPos:0,testSel:{}},
+  ws:{folderId:null,stage:null,hoseType:null,onlyRemaining:false,focusPos:0,testSel:{},packPallet:1},
   touch:(typeof matchMedia==='function'&&matchMedia('(pointer: coarse)').matches),
   fs:false,   /* fullskjerm: meny + topplinje kollapset (verksted/iPad) */
   plan:{fitters:2,hoursPerDay:7.5},
@@ -2111,6 +2164,7 @@ function vVerksted(){
   if(State.ws.stage==="clean")return wsCleanView(f);   // én samlet kvittering
   if(State.ws.stage==="pres")return wsPresView(f);     // én samlet kvittering (krympehetter/plugger)
   if(State.ws.stage==="test")return wsTestView(f);     // puljer per testtrykk
+  if(State.ws.stage==="pack")return wsPackView(f);     // paller: tilordning + vekt/mål (etter spot-check)
   return State.touch?wsFocus(f,State.ws.stage):wsStageList(f,State.ws.stage);
 }
 
@@ -2171,17 +2225,19 @@ function wsStageSelect(f){
     ${act?`<span class="sub" style="margin:0">⏵ Økten din går automatisk (startet ${act.startAt.split(" ")[1]}) – stoppes når du forlater mappen</span>`:""}
     ${run.filter(x=>x.by!==State.user).length?`<span class="sub" style="margin:0">· også pågår: ${run.filter(x=>x.by!==State.user).map(x=>esc(x.by.replace("Verksted – ",""))+" fra "+x.startAt.split(" ")[1]).join(", ")}</span>`:""}
   </div>`})()}
-  <div class="sub">Velg operasjon. Flyten på benken: ✂️ kapp – taggen skrives ut og festes i samme håndvending – → 🧼 rens med UC-propper (samlet kvittering) → 🔧 press → 🧪 trykktest i puljer → 🛡️ preserver (samlet) → 📦 pakk. Du kan bytte operasjon når som helst – ingenting låser deg.</div>
+  <div class="sub">Velg operasjon. Flyten på benken: ✂️ kapp – taggen skrives ut og festes i samme håndvending – → 🧼 rens med UC-propper (samlet kvittering) → 🔧 press → 🧪 trykktest i puljer → 🛡️ preserver (samlet) → 🔍 spot-check → 📦 pakk på pall. Du kan bytte operasjon når som helst – men pakking låses opp først etter godkjent spot-check.</div>
   <div class="pmgrid" style="grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">
     ${STAGES.map((s,i)=>{
       const done=stageCount(f,s.key);
       const prev=i>0?STAGES[i-1]:null;
       const ready=prev?stageCount(f,prev.key):n;          // antall som er klare for denne operasjonen
       const avail=ready-done;                              // klare, men ikke utført
+      const packLock=s.key==="pack"&&!qcApproved(f);
       return `<div class="pmcard" onclick="State.ws.stage='${s.key}';State.ws.hoseType=null;State.ws.focusPos=-1;State.ws.testSel={};State.ws.typeChoice=null;render()">
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <div class="pm-title" style="font-size:18px">${s.icon} ${i+1}. ${s.label}</div>
+          <div class="pm-title" style="font-size:18px">${s.icon} ${i+1}. ${s.label}${s.key==="pack"?" (pall)":""}</div>
           ${done===n?`<span class="status st-ferdig">✅ Ferdig</span>`
+            :packLock?`<span class="status st-utkast">🔒 etter spot-check</span>`
             :avail>0?`<span class="status st-prod">${avail} klar${avail===1?"":"e"}</span>`
             :`<span class="status st-utkast">venter på ${prev?prev.label.toLowerCase():""}</span>`}
         </div>
@@ -2190,8 +2246,13 @@ function wsStageSelect(f){
       </div>`}).join("")}
   </div>
   <div style="margin-top:18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-    ${allDone?`<button class="btn btn-good btn-big wsbig" onclick="wsStartQC('${f.id}')">🔍 Alt utført – start spot-check (annenhåndskontroll)</button>`
-    :`<span class="gatemsg">🔒 Spot-check og utskrifter blir tilgjengelig når alle slanger er gjennom alle seks operasjonene</span>`}
+    ${(()=>{
+      const ppd=prePackDone(f),qca=qcApproved(f),packed=stageCount(f,"pack")===n;
+      if(!ppd)return `<span class="gatemsg">🔒 Spot-check åpner når alle slanger er gjennom de fem første operasjonene – 📦 pakking låses opp etter godkjent spot-check</span>`;
+      if(!qca)return `<button class="btn btn-good btn-big wsbig" onclick="wsStartQC('${f.id}')">🔍 ${f.spot?"Fortsett spot-check":"Alt preservert – start spot-check (annenhåndskontroll)"}</button>`;
+      if(!packed)return `<span class="gatemsg" style="border-color:var(--good);color:var(--good)">✅ Spot-check godkjent</span><button class="btn btn-good btn-big wsbig" onclick="State.ws.stage='pack';render()">📦 Gå til pakking – fordel slangene på paller</button>`;
+      return `<button class="btn btn-good btn-big wsbig" onclick="State.ws.stage='pack';render()">📦 Alt pakket – legg inn vekt og mål per pall for å fullføre</button>`;
+    })()}
   </div>`;
 }
 
@@ -2364,7 +2425,9 @@ function wsPresView(f){
     <div class="big">🎉</div>
     <div style="font-size:21px;font-weight:700">Alle ${elig.length} trykktestede slanger er preservert.</div>
     ${waiting?`<div class="sub">${waiting} slanger er ikke testet ennå – de får egen kvittering senere.</div>`:""}
-    <button class="bigbtn next" onclick="State.ws.stage='pack';State.ws.focusPos=-1;render()">➡️ Gå til 📦 Pakking</button>
+    ${qcApproved(f)?`<button class="bigbtn confirm" onclick="State.ws.stage='pack';render()">➡️ Gå til 📦 Pakking (paller)</button>`
+    :prePackDone(f)?`<button class="bigbtn confirm" onclick="wsStartQC('${f.id}')">🔍 Start spot-check – deretter 📦 pakking</button>`
+    :`<button class="bigbtn next" onclick="State.ws.stage=null;render()">Til operasjonene – spot-check når alle fem er utført</button>`}
   </div></div>`;
   return header+`
   <div class="focus-wrap"><div class="focus-card" style="border-left:10px solid var(--accent)">
@@ -2385,6 +2448,147 @@ function wsPresAll(id){
   const by=State.user.replace("Verksted – ",""),at=now();
   todo.forEach(l=>l.st.pres={by,at});
   addLog(f,`Preservering: samlet kvittering – ${todo.length} slanger med krympehetter/plugger (${by})`);
+  render();
+}
+
+/* --- PAKKING: paller – tilordning, vekt og mål (etter godkjent spot-check) ---
+   Spot-checken skjer FØR pakking, så avvik fanges før slangene pakkes ned.
+   Montøren velger pall, pakker hver slange på den, kan flytte/angre – og
+   til slutt registreres vekt og mål (L×B×H) per pall. Mappen kan først
+   fullføres når alt er pakket og alle brukte paller har vekt og mål. --- */
+function wsPackView(f){
+  const header=`
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+    <h1 style="font-size:24px">📦 Pakking – ${esc(f.title)} <span class="mono" style="font-size:12px;color:var(--muted)">${f.id}</span></h1>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${wsModeBtn()}<button class="btn btn-ghost" onclick="State.ws.stage=null;render()">↩︎ Til operasjonene</button></div>
+  </div>`;
+  if(!qcApproved(f)){
+    const ppd=prePackDone(f);
+    const behind=f.lines.length-Math.min(...STAGES.filter(s=>s.key!=="pack").map(s=>stageCount(f,s.key)));
+    return header+`
+    <div class="focus-wrap"><div class="focus-card donecard">
+      <div class="big">🔒</div>
+      <div style="font-size:20px;font-weight:700">Pakkingen er låst til spot-checken er godkjent.</div>
+      <div class="sub" style="margin-top:4px">Rekkefølgen er: 🛡️ preservering → 🔍 spot-check (annenhåndskontroll) → 📦 pakking på pall – slik fanges avvik FØR slangene pakkes ned.</div>
+      ${ppd?`<button class="bigbtn confirm" onclick="wsStartQC('${f.id}')">🔍 ${f.spot?"Fortsett spot-check":"Start spot-check nå"}</button>`
+        :`<div class="sub">⏳ ${behind} slange${behind===1?" er":"r er"} ikke gjennom de fem første operasjonene ennå.</div>
+         <button class="bigbtn next" onclick="State.ws.stage=null;render()">Til operasjonene</button>`}
+    </div></div>`;
+  }
+  ensurePallets(f);
+  if(!f.pallets.some(p=>p.no===State.ws.packPallet))State.ws.packPallet=f.pallets[0].no;
+  const sel=State.ws.packPallet;
+  const todo=f.lines.map((l,i)=>({l,i})).filter(x=>!x.l.st.pack);
+  const ready=allPacked(f)&&palletsReady(f);
+  const lc=State.ws.lastConfirm;
+  return header+`
+  <div class="sub">✅ Spot-check godkjent ${f.spot.completedAt}. Velg pall i linjen under, pakk hver slange på den – og legg inn <b>vekt og mål per pall</b> til slutt. Innlogget: <b>${esc(State.user)}</b></div>
+  <div class="pallbar">
+    ${f.pallets.map(p=>{const pn=palletLines(f,p.no).length;
+      return `<button class="pallchip ${sel===p.no?"on":""}" onclick="State.ws.packPallet=${p.no};render()">🟫 Pall ${p.no}<span>${pn} linje${pn===1?"":"r"}${pn&&palletComplete(p)?" · ✓ vekt/mål":""}</span></button>`}).join("")}
+    <button class="pallchip add" onclick="wsAddPallet('${f.id}')">＋ Ny pall<span>flere kolli</span></button>
+  </div>
+  ${lc&&lc.key==="pack"?`<div class="lastconfirm">✅ Sist: POS ${esc(lc.pos||"–")} ${esc(lc.what)} kl. ${(lc.at||"").split(" ")[1]||lc.at} av ${esc(lc.by)}</div>`:""}
+  ${todo.length?`
+  <div style="font-weight:800;font-size:16px;margin:10px 0 6px">Gjenstår å pakke (${todo.length}):</div>
+  ${todo.map(x=>`<div class="packrow">
+    <div class="pr-pos">${esc(x.l.pos||"–")}</div>
+    <div style="flex:1;min-width:170px"><b class="mono">${esc(x.l.hose)}</b> · OAL ${Number(x.l.len).toLocaleString("nb-NO")} mm${x.l.qty>1?` · <b style="color:var(--warn)">${x.l.qty} STK</b>`:""}<br><span style="font-size:11.5px;color:var(--muted)" class="mono">${ptsAll(x.l).map(esc).join(" · ")}</span></div>
+    <button class="btn btn-good" style="font-size:15px;padding:12px 18px" onclick="wsPackLine('${f.id}',${x.i})">📦 PAKK PÅ PALL ${sel}</button>
+  </div>`).join("")}`
+  :`<div class="vitem v-good" style="align-items:center">🎉 <div><b>Alle ${f.lines.length} linjene er pakket.</b> Legg inn vekt og mål per pall under, så kan mappen fullføres.</div></div>`}
+  ${f.pallets.map(p=>{
+    const rows=palletLines(f,p.no);
+    const qty=rows.reduce((a,x)=>a+(x.l.qty||1),0);
+    const others=f.pallets.filter(o=>o.no!==p.no);
+    return `<div class="pallcard ${rows.length&&palletComplete(p)?"full":""}">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <h3>🟫 Pall ${p.no} · ${rows.length} linje${rows.length===1?"":"r"} (${qty} slange${qty===1?"":"r"})</h3>
+        <span style="display:flex;gap:8px;align-items:center">
+        ${rows.length?(palletComplete(p)?`<span class="status st-ferdig">✅ ${p.weight} kg · ${p.L}×${p.W}×${p.H} cm</span>`:`<span class="status st-prod">vekt/mål mangler</span>`)
+        :`<span class="status st-utkast">tom</span>${f.pallets.length>1?`<button class="btn btn-ghost" onclick="wsRemovePallet('${f.id}',${p.no})">🗑 Fjern pall</button>`:""}`}
+        </span>
+      </div>
+      ${rows.length?rows.map(x=>`<div class="pallline">
+        <b class="mono" style="color:var(--accent2)">POS ${esc(x.l.pos||"–")}</b>
+        <span class="mono" style="font-size:12.5px">${esc(x.l.hose)}${x.l.qty>1?` ✕${x.l.qty}`:""}</span>
+        <span style="font-size:11px;color:var(--muted)">pakket ${(x.l.st.pack.at||"").split(" ")[1]||x.l.st.pack.at} av ${esc(x.l.st.pack.by)}</span>
+        <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
+          ${others.map(o=>`<button class="movechip" onclick="wsMoveLine('${f.id}',${x.i},${o.no})">→ Pall ${o.no}</button>`).join("")}
+          <button class="movechip" onclick="wsUnpackLine('${f.id}',${x.i})">↩︎ angre</button>
+        </span>
+      </div>`).join(""):`<div class="sub" style="margin:6px 0 0">Ingen slanger på denne pallen ennå – velg den i pallelinjen over og pakk.</div>`}
+      ${rows.length?`<div class="pallmeta">
+        <label>VEKT (KG)<input inputmode="decimal" value="${p.weight??""}" placeholder="kg" onchange="wsPalletMeta('${f.id}',${p.no},'weight',this.value)"></label>
+        <label>LENGDE (CM)<input inputmode="decimal" value="${p.L??""}" placeholder="L" onchange="wsPalletMeta('${f.id}',${p.no},'L',this.value)"></label>
+        <label>BREDDE (CM)<input inputmode="decimal" value="${p.W??""}" placeholder="B" onchange="wsPalletMeta('${f.id}',${p.no},'W',this.value)"></label>
+        <label>HØYDE (CM)<input inputmode="decimal" value="${p.H??""}" placeholder="H" onchange="wsPalletMeta('${f.id}',${p.no},'H',this.value)"></label>
+      </div>`:""}
+    </div>`}).join("")}
+  <div style="margin-top:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    ${ready?`<button class="btn btn-good btn-big wsbig" onclick="wsFinishFolder('${f.id}')">✅ ALT PAKKET – FULLFØR MAPPEN (${usedPallets(f).length} pall${usedPallets(f).length===1?"":"er"} · ${usedPallets(f).reduce((a,p)=>a+(p.weight||0),0).toLocaleString("nb-NO")} kg)</button>`
+    :`<span class="gatemsg">🔒 ${todo.length?`${todo.length} linje${todo.length===1?"":"r"} gjenstår å pakke`:`legg inn vekt og mål på ${usedPallets(f).filter(p=>!palletComplete(p)).length} pall${usedPallets(f).filter(p=>!palletComplete(p)).length===1?"":"er"}`} før mappen kan fullføres</span>`}
+  </div>`;
+}
+function wsPackLine(id,i){
+  const f=folder(id),l=f.lines[i];
+  if(!qcApproved(f)||!l.st.pres||l.st.pack)return;
+  ensurePallets(f);
+  const no=f.pallets.some(p=>p.no===State.ws.packPallet)?State.ws.packPallet:f.pallets[0].no;
+  const by=State.user.replace("Verksted – ",""),at=now();
+  l.st.pack={by,at};l.pallet=no;
+  State.ws.lastConfirm={key:"pack",pos:l.pos,what:`pakket på pall ${no}`,at,by};
+  addLog(f,`POS ${l.pos||"–"} pakket på pall ${no}${l.qty>1?` (${l.qty} stk)`:""} – ${ptsAll(l).join(", ")}`);
+  if(typeof navigator!=="undefined"&&navigator.vibrate)try{navigator.vibrate(30)}catch(e){}
+  render();
+}
+function wsUnpackLine(id,i){
+  const f=folder(id),l=f.lines[i];
+  if(!l.st.pack)return;
+  addLog(f,`POS ${l.pos||"–"}: pakking angret (lå på pall ${l.pallet})`);
+  l.st.pack=null;l.pallet=null;
+  render();
+}
+function wsMoveLine(id,i,no){
+  const f=folder(id),l=f.lines[i];
+  if(!l.st.pack||l.pallet===no)return;
+  addLog(f,`POS ${l.pos||"–"} flyttet fra pall ${l.pallet} til pall ${no}`);
+  l.pallet=no;
+  render();
+}
+function wsAddPallet(id){
+  const f=folder(id);ensurePallets(f);
+  const no=Math.max(...f.pallets.map(p=>p.no))+1;
+  f.pallets.push({no,weight:null,L:null,W:null,H:null});
+  State.ws.packPallet=no;
+  addLog(f,`Pall ${no} lagt til`);
+  render();
+}
+function wsRemovePallet(id,no){
+  const f=folder(id);
+  if(palletLines(f,no).length||f.pallets.length<=1)return;
+  f.pallets=f.pallets.filter(p=>p.no!==no);
+  if(State.ws.packPallet===no)State.ws.packPallet=f.pallets[0].no;
+  addLog(f,`Pall ${no} fjernet (tom)`);
+  render();
+}
+function wsPalletMeta(id,no,field,val){
+  const f=folder(id),p=(f.pallets||[]).find(x=>x.no===no);
+  if(!p)return;
+  const was=palletComplete(p);
+  const v=parseFloat(String(val).replace(",","."));
+  p[field]=isNaN(v)||v<=0?null:v;
+  if(!was&&palletComplete(p))addLog(f,`Pall ${no}: vekt ${p.weight} kg, mål ${p.L}×${p.W}×${p.H} cm registrert`);
+  render();
+}
+function wsFinishFolder(id){
+  const f=folder(id);
+  if(!qcApproved(f)||!allPacked(f)||!palletsReady(f))return;
+  autoClockStop(id,"mappen fullført");
+  const u=usedPallets(f),tot=u.reduce((a,p)=>a+(p.weight||0),0);
+  f.status="ferdig";
+  State.ws.stage="prints";
+  addLog(f,`Pakking fullført – ${u.length} pall${u.length===1?"":"er"}, totalt ${tot.toLocaleString("nb-NO")} kg. Mappen er fullført; trykktestsertifikat, pallemerkelapper (én per pall) og spot-check-rapport er klare for utskrift.`);
   render();
 }
 
@@ -2553,8 +2757,8 @@ function wsTestView(f){
     <button class="bigbtn next" onclick="State.ws.stage='press';State.ws.focusPos=-1;render()">Gå til 🔧 Pressing</button></div></div>`;
   const allDone=doneN===elig.length&&elig.length===f.lines.length;
   return header+`
-  ${allDone?`<div class="vitem v-good" style="align-items:center">✅ <div><b>Alle ${f.lines.length} slanger er trykktestet.</b> Mappen kan meldes klar for spot-check fra operasjonsoversikten.</div>
-    <span class="fix"><button class="btn btn-good" onclick="State.ws.stage=null;render()">➡️ Til oversikten</button></span></div>`:""}
+  ${allDone?`<div class="vitem v-good" style="align-items:center">✅ <div><b>Alle ${f.lines.length} slanger er trykktestet.</b> Neste: 🛡️ Preservering – deretter 🔍 spot-check før 📦 pakking.</div>
+    <span class="fix"><button class="btn btn-good" onclick="State.ws.stage='pres';render()">➡️ Til 🛡️ Preservering</button></span></div>`:""}
   ${keys.map(tp=>{
     const arr=groups[tp];
     if(tp===0)return `<div class="card" style="border-color:var(--warn)">
@@ -2727,6 +2931,7 @@ function wsStage(id,idx,key){
   if(prev&&!l.st[prev.key])return;                 // rekkefølgen håndheves per slange
   if(key==="cut"&&!l.st.cut&&missingMeasures(l).length)return; // port: kutt uten mål kan ikke bekreftes
   if(key==="cut"&&!l.st.cut&&(l.qty||1)>1&&(l.cutN||0)<(l.qty||1))return; // port: antall>1 kvitteres stk for stk (teller)
+  if(key==="pack"&&!l.st.pack&&!qcApproved(f))return; // port: pakking krever godkjent spot-check
   const s=stageDef(key);
   if(l.st[key]){
     l.st[key]=null;
@@ -2734,10 +2939,12 @@ function wsStage(id,idx,key){
     // fjernes et steg, fjernes også stegene etter (kan ikke være testet uten å være presset)
     let after=false;
     STAGES.forEach(x=>{if(x.key===key)after=true;else if(after)l.st[x.key]=null});
+    if(!l.st.pack)l.pallet=null; // pakking fjernet (direkte eller i kaskaden) → av pallen
     addLog(f,`${l.pts}: ${s.verb}-bekreftelse fjernet`);
   }else{
     l.st[key]={by:State.user.replace("Verksted – ",""),at:now()};
     if(key==="cut")logTagPrint(f,l);
+    if(key==="pack"){ensurePallets(f);l.pallet=f.pallets.some(p=>p.no===State.ws.packPallet)?State.ws.packPallet:f.pallets[0].no}
     addLog(f,`${l.pts} bekreftet ${s.verb}`);
     State.ws.lastConfirm={key,pos:l.pos,pts:l.pts,at:l.st[key].at,by:l.st[key].by,what:s.verb};
   }
@@ -2747,6 +2954,7 @@ function wsStage(id,idx,key){
 }
 function wsStageAll(id,key){
   const f=folder(id),prev=prevStage(key),s=stageDef(key);
+  if(key==="pack"&&!qcApproved(f))return; // port: pakking krever godkjent spot-check
   let c=0;
   f.lines.forEach(l=>{
     if((!prev||l.st[prev.key])&&!l.st[key]){l.st[key]={by:State.user.replace("Verksted – ",""),at:now()};c++}
@@ -2756,11 +2964,12 @@ function wsStageAll(id,key){
 }
 function wsStartQC(id){
   const f=folder(id);
-  if(!STAGES.every(st=>stageCount(f,st.key)===f.lines.length))return;
+  if(!prePackDone(f))return;             // spot-check FØR pakking: krever de fem første operasjonene
+  const first=!f.spot;
   if(!f.spot)f.spot=buildSpotCheck(f);
   f.status="qc";
   State.ws.stage="qc";
-  addLog(f,`Alle operasjoner utført – spot-check startet (${f.spot.items.length} slanger i utvalget)`);
+  if(first)addLog(f,`Kapp, rens, press, test og preservering utført – spot-check startet (${f.spot.items.length} slanger i utvalget). Pakking låses opp når kontrollen er godkjent.`);
   render();
 }
 function qcSet(id,idx,result){
@@ -2780,11 +2989,12 @@ function qcComment(id,idx,val){folder(id).spot.items[idx].comment=val}
 function wsCompleteQC(id){
   const f=folder(id);
   if(!spotDone(f))return;
-  autoClockStop(id,"mappen fullført");
   f.spot.completedAt=now();
-  f.status="ferdig";
-  State.ws.stage="prints";
-  addLog(f,"Spot-check godkjent – mappen er fullført. Trykktestsertifikat, pallemerkelapp og spot-check-rapport er klare for utskrift.");
+  f.status="prod";                       // tilbake i produksjon – pakkingen gjenstår
+  ensurePallets(f);
+  State.ws.stage="pack";
+  State.ws.packPallet=f.pallets[0].no;
+  addLog(f,"Spot-check godkjent – 📦 pakkingen er låst opp. Fordel slangene på paller, og legg inn vekt og mål per pall til slutt.");
   render();
 }
 
@@ -3070,12 +3280,12 @@ function vPrints(f){
     <div class="focus-card donecard">
       <div class="big">🎉</div>
       <div style="font-size:22px;font-weight:800">${esc(f.title)} er fullført!</div>
-      <div class="sub" style="margin-top:4px">Alle ${f.lines.length} slanger er kappet og tagget, renset, presset, trykktestet, preservert, pakket og spot-checket (${f.spot?f.spot.items.length:0} kontroller). Skriv ut og legg ved pallen:</div>
+      <div class="sub" style="margin-top:4px">Alle ${f.lines.length} slanger er kappet og tagget, renset, presset, trykktestet, preservert, spot-checket (${f.spot?f.spot.items.length:0} kontroller) og pakket på ${usedPallets(f).length||"–"} pall${usedPallets(f).length===1?"":"er"}${usedPallets(f).length?` (totalt ${usedPallets(f).reduce((a,p)=>a+(p.weight||0),0).toLocaleString("nb-NO")} kg)`:""}. Skriv ut og legg ved forsendelsen:</div>
     </div>
     <div class="docgrid" style="margin-top:16px">
       <div class="doccard"><h3>🧪 Trykktestsertifikat</h3><div class="sub" style="margin:0 0 10px">Utfylt med testtrykk, dato og signatur per slange.</div>
         <button class="btn btn-primary" onclick="State.printDoc={fid:'${f.id}',kind:'test'};render()">🖨️ Vis og skriv ut</button></div>
-      <div class="doccard"><h3>📦 Pallemerkelapp</h3><div class="sub" style="margin:0 0 10px">Stor etikett med ordreinfo så lageret finner pallen igjen.</div>
+      <div class="doccard"><h3>📦 Pallemerkelapper</h3><div class="sub" style="margin:0 0 10px">Én etikett per pall – med innhold, vekt og mål (L×B×H).</div>
         <button class="btn btn-primary" onclick="State.printDoc={fid:'${f.id}',kind:'pallet'};render()">🖨️ Vis og skriv ut</button></div>
       <div class="doccard"><h3>🔍 Spot-check-rapport</h3><div class="sub" style="margin:0 0 10px">Dokumentert annenhåndskontroll med signaturer.</div>
         <button class="btn btn-primary" onclick="State.printDoc={fid:'${f.id}',kind:'spot'};render()">🖨️ Vis og skriv ut</button></div>
@@ -3134,6 +3344,38 @@ function testCertHTML(f){
 }
 
 function palletHTML(f){
+  const ps=usedPallets(f);
+  /* Én merkelapp PER PALL med innhold, vekt og mål – faller tilbake til én
+     samlet lapp hvis mappen (eldre demo) ikke har pallefordeling. */
+  if(ps.length){
+    return ps.map(p=>{
+      const rows=palletLines(f,p.no);
+      const qty=rows.reduce((a,x)=>a+(x.l.qty||1),0);
+      return `<div class="pallet">
+      <div class="qr"></div>
+      <h3>GLOBAL ONSITE AS · HOSEMAKER</h3>
+      <div class="pl-id">${esc(f.id)} · PALLET ${p.no} OF ${ps.length}</div>
+      <div style="font-size:19px;font-weight:700">${esc(f.title)}</div>
+      <div class="pl-row">
+        <div class="pl-f"><b>${esc(f.po||"–")}</b><span>Order / PO</span></div>
+        <div class="pl-f"><b>${esc(f.customer||"–")}</b><span>Customer / rig</span></div>
+        <div class="pl-f"><b>${esc(f.project||"–")}</b><span>PMOTION project</span></div>
+        <div class="pl-f"><b>${esc(f.hub)}</b><span>Hub</span></div>
+      </div>
+      <div class="pl-row">
+        <div class="pl-f"><b>${rows.length} lines (${qty} hoses)</b><span>Contents this pallet</span></div>
+        <div class="pl-f"><b>${p.weight?p.weight.toLocaleString("en-GB")+" kg":"–"}</b><span>Gross weight</span></div>
+        <div class="pl-f"><b>${p.L&&p.W&&p.H?`${p.L} × ${p.W} × ${p.H} cm`:"–"}</b><span>Dimensions L × W × H</span></div>
+        <div class="pl-f"><b>✔ Spot check</b><span>${f.spot?f.spot.items.length+" checks OK":"–"}</span></div>
+      </div>
+      <table><tr><th>POS</th><th>Hose type</th><th>Qty</th><th>PTS ID</th></tr>
+      ${rows.map(x=>`<tr><td style="text-align:center"><b>${esc(x.l.pos||"–")}</b></td><td>${esc(x.l.hose)}</td><td style="text-align:center">${x.l.qty||1}</td><td class="mono" style="font-size:10px">${ptsAll(x.l).map(esc).join(", ")}</td></tr>`).join("")}</table>
+      <div class="pl-row">
+        <div class="pl-f" style="flex:1"><b style="border-bottom:2px solid #111;display:inline-block;min-width:220px">&nbsp;</b><span>Storage location (filled in by warehouse)</span></div>
+        <div class="pl-f"><b style="border-bottom:2px solid #111;display:inline-block;min-width:130px">&nbsp;</b><span>Received date / sign</span></div>
+      </div>
+    </div>`}).join("");
+  }
   const types={};
   f.lines.forEach(l=>{types[l.hose]=(types[l.hose]||0)+1});
   const totQty=f.lines.reduce((a,l)=>a+(l.qty||1),0);
@@ -3381,9 +3623,10 @@ function vOm(){
     2. I steg 2, klikk <b>Fyll med demodata</b> – kundens liste legges rett i det redigerbare rutenettet. Skriv i cellene som i Excel (med forslag fra masterdata), legg til/slett rader, eller lim inn flere rader. Merk: kundelister har ingen PTS-ID-er – kolonnen står på «hentes».<br>
     3. Se valideringen fange ekte feil (bl.a. tastefeilen «14948-18-8» fra dagens slangeliste!) og rett med ett klikk. Kuttemålene (CUT = Lengde − B1 − B2 − S-mål) regnes ut automatisk fra masterdata – samme formel som i Excel-arket, men uten formler som kan mangle eller bli ødelagt.<br>
     4. Generer dokumenter, og i siste steg: klikk <b>🔖 Hent PTS-ID-er til alle slangene</b> – systemet reserverer neste ledige ID-er i PTS-registeret. Lagre. I mappen følger du så prosessen slik den faktisk er: <b>⚙️ Opprett slangepakke i Telaris</b> (varenummer og BOM genereres automatisk) → <b>📤 Marker tilbud sendt fra Telaris</b> (tilbudet sendes på pakkevaren) → <b>📦 Registrer bestilling</b> når kunden bestiller. Portene håndhever rekkefølgen.<br>
-    5. «Send til verksted», bytt bruker til <b>Verksted – Christian</b> øverst, åpne <b>Verkstedsmodus</b>. Tiden begynner å gå <b>automatisk</b> i det mappen åpnes i verkstedsmodus, og stopper når du forlater den – mappen viser løpende om dere er frempå, on track eller bakpå mot kalkylen. Trykk <b>⛶ Fullskjerm</b> (på iPad skjer det automatisk): menyen og topplinjen kollapses så hele skjermen brukes til arbeidet – bruker og avslutt-knapp ligger i en liten flytende linje øverst til høyre. Verkstedet følger benkens flyt i seks operasjoner: ✂️ Kapping + tag (taggen skrives ut per stk i det kuttet kvitteres og festes umiddelbart – idiotsikker identitet fra første sekund) → 🧼 Rens → 🔧 Pressing → 🧪 Trykktest → 🛡️ Preservering → 📦 Pakking. I Kapping velges slangetype fra kort med tegninger, så ingen kapper feil slange. Rens kvitteres med <b>én samlet kvittering</b> for alt som er kappet, og trykktesten kjøres i <b>puljer per testtrykk</b> – hak bort slanger som ikke får plass i benken, så blir de liggende til neste pulje. Koble til <b>ESI-sensoren</b> i trykktest-skjermen og trykk «Start logget trykktest»: hele forløpet logges med live kurve, holdetid-nedtelling og automatisk godkjent/avvik på trykkfall (prøv «Simuler lekkasje»!) – loggen havner rett i sertifikatet.<br>
-    6. Når alle seks operasjonene er fullført: «Start spot-check» – annenhåndskontrollen der en annen person enn den som testet må godkjenne et utvalg (bytt bruker øverst for å se regelen håndheves).<br>
-    7. Etter godkjent spot-check: skriv ut trykktestsertifikat, pallemerkelapp og spot-check-rapport fra utskriftspanelet.</p>
+    5. «Send til verksted», bytt bruker til <b>Verksted – Christian</b> øverst, åpne <b>Verkstedsmodus</b>. Tiden begynner å gå <b>automatisk</b> i det mappen åpnes i verkstedsmodus, og stopper når du forlater den – mappen viser løpende om dere er frempå, on track eller bakpå mot kalkylen. Trykk <b>⛶ Fullskjerm</b> (på iPad skjer det automatisk): menyen og topplinjen kollapses så hele skjermen brukes til arbeidet – bruker og avslutt-knapp ligger i en liten flytende linje øverst til høyre. Verkstedet følger benkens flyt: ✂️ Kapping + tag (taggen skrives ut per stk i det kuttet kvitteres og festes umiddelbart – idiotsikker identitet fra første sekund) → 🧼 Rens → 🔧 Pressing → 🧪 Trykktest → 🛡️ Preservering → 🔍 Spot-check → 📦 Pakking på pall. I Kapping velges slangetype fra kort med tegninger, så ingen kapper feil slange. Rens kvitteres med <b>én samlet kvittering</b> for alt som er kappet, og trykktesten kjøres i <b>puljer per testtrykk</b> – hak bort slanger som ikke får plass i benken, så blir de liggende til neste pulje. Koble til <b>ESI-sensoren</b> i trykktest-skjermen og trykk «Start logget trykktest»: hele forløpet logges med live kurve, holdetid-nedtelling og automatisk godkjent/avvik på trykkfall (prøv «Simuler lekkasje»!) – loggen havner rett i sertifikatet.<br>
+    6. Etter 🛡️ Preservering (femte operasjon): «Start spot-check» – annenhåndskontrollen der en annen person enn den som testet må godkjenne et utvalg (bytt bruker øverst for å se regelen håndheves). <b>Pakkingen er låst til kontrollen er godkjent</b> – avvik skal fanges FØR slangene pakkes ned.<br>
+    7. Etter godkjent spot-check: 📦 <b>Pakking på pall</b> – legg til så mange paller du trenger, pakk hver slange på riktig pall (flytt/angre om du bommer), og legg inn <b>vekt og mål (L×B×H)</b> per pall. Mappen kan først fullføres når alt er pakket og alle brukte paller har vekt og mål.<br>
+    8. Til slutt: skriv ut trykktestsertifikat, pallemerkelapp <b>per pall</b> (med innhold, vekt og mål) og spot-check-rapport fra utskriftspanelet.</p>
   </div>`;
 }
 
