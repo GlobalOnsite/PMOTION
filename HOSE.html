@@ -151,46 +151,72 @@ td .ptspill.has{border-style:solid;border-color:var(--accent);color:var(--text)}
 .fc-pos .posref{text-align:left}
 .fc-pos .posref .p-num{font-size:56px;line-height:1}
 @media(orientation:landscape) and (min-width:900px){
+  /* Alle høyder skalerer med svh (synlig skjermhøyde) slik at kortet
+     komprimeres i stedet for å måtte scrolles når Safari-linjen på
+     iPaden spiser 60–110 px av høyden. Ved full høyde (820) er verdiene
+     identiske med før; på lavere høyder krymper alt proporsjonalt. */
   .touch .fc-grid{grid-template-columns:11fr 9fr;grid-template-areas:"pos pos" "photo main" "photo act";grid-template-rows:auto auto 1fr;align-items:start;column-gap:28px}
   .touch .fc-act{align-self:start}
   .touch .fc-photo2{border-top:none;padding-top:0;margin-top:0}
   /* POS-banner: alt på én linje over hele bredden */
-  .touch .fc-pos .posref{display:flex;align-items:center;gap:18px;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:10px}
+  .touch .fc-pos .posref{display:flex;align-items:center;gap:18px;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:clamp(4px,1.2svh,10px)}
   .touch .fc-pos .posref .p-label{font-size:15px;letter-spacing:2px}
-  .touch .fc-pos .posref .p-num{font-size:76px}
-  .touch .fc-pos .posref .p-mach{font-size:17px}
+  .touch .fc-pos .posref .p-num{font-size:clamp(50px,9.3svh,76px)}
+  .touch .fc-pos .posref .p-mach{font-size:clamp(14px,2.1svh,17px)}
   .touch .fc-pos .posref .p-ctx{font-size:13px}
-  .touch .fc-pos .posref .qtybadge{margin-top:0;margin-left:auto;font-size:24px;padding:10px 22px}
+  .touch .fc-pos .posref .qtybadge{margin-top:0;margin-left:auto;font-size:clamp(17px,2.9svh,24px);padding:clamp(6px,1.2svh,10px) 22px}
   /* stor tegning: slange + koblinger skal være tydelige */
   .touch .fc-photo2 .assembly{max-width:none}
-  .touch .fc-photo2 .assembly .asm-slot .imgclip{height:190px}
+  .touch .fc-photo2 .assembly .asm-slot .imgclip{height:clamp(120px,23svh,190px)}
   .touch .fc-photo2 .assembly .asm-lab{font-size:14px}
   .touch .fc-photo2 .assembly .asm-geo{font-size:11.5px}
   .touch .fc-photo2 .hpanel{max-width:none}
-  .touch .fc-photo2 .hpanel .imgclip{height:230px}
+  .touch .fc-photo2 .hpanel .imgclip{height:clamp(140px,28svh,230px)}
   .touch .fc-photo2 .hpanel .asm-lab{font-size:14px}
-  .touch .fc-maincol .focus-main{font-size:clamp(44px,5.5vw,80px)}
   /* kompakte nøkkeltall i høyrekolonnen så bekreft-knappen alltid er synlig */
-  .touch .fc-grid{row-gap:10px}
-  .touch .fc-maincol .focus-meta{gap:14px;margin:10px 0 2px;flex-wrap:nowrap;overflow-x:auto}
+  .touch .fc-grid{row-gap:clamp(4px,1.2svh,10px)}
+  .touch .fc-maincol .focus-meta{gap:14px;margin:clamp(4px,1.2svh,10px) 0 2px;flex-wrap:nowrap;overflow-x:auto}
   .touch .fc-maincol .focus-meta .fm{min-width:0;flex:0 0 auto}
   .touch .fc-maincol .focus-meta .fm b{font-size:14px}
   .touch .fc-maincol .focus-meta .fm span{font-size:9.5px}
-  .touch .fc-act .bigbtn{margin-top:6px}
+  .touch .fc-act .bigbtn{margin-top:clamp(2px,0.8svh,6px)}
   /* stram topp: mer plass til selve arbeidskortet */
   .touch .qrail{padding:2px 2px;margin:4px 0 2px}
-  .touch .qcard{min-width:96px;padding:6px 10px}
-  .touch .qcard .qpos{font-size:19px}
+  .touch .qcard{min-width:96px;padding:clamp(4px,0.8svh,6px) 10px}
+  .touch .qcard .qpos{font-size:clamp(16px,2.3svh,19px)}
   .touch .qcard .qst{font-size:11px}
-  body.fs.touch .content{padding-top:52px}
-  .touch .focus-card{padding:16px 20px}
-  .touch .fc-maincol .focus-main{font-size:clamp(38px,4.6vw,64px)}
+  body.fs.touch .content{padding-top:48px}
+  .touch h1{font-size:clamp(16px,2.4svh,20px)}
+  .touch .focus-card{padding:clamp(10px,2svh,16px) 20px}
+  .touch .fc-maincol .focus-main{font-size:clamp(34px,min(4.6vw,7.8svh),64px)}
+  .touch .fc-maincol .focus-sub,.touch .fc-act .focus-sub{font-size:clamp(11.5px,1.85svh,15px)}
+  /* store knapper og teller krymper med skjermhøyden */
+  .touch .bigbtn{padding:clamp(12px,2.4svh,20px);min-height:clamp(54px,9.3svh,76px);font-size:clamp(17px,2.6svh,21px)}
+  .touch .cutcount{margin-top:clamp(8px,1.6svh,18px)}
+  .touch .ccnum b{font-size:clamp(30px,6svh,52px)}
+  .touch .ccnum span{font-size:clamp(13px,2svh,16px)}
+  .touch .pieces{margin-top:clamp(6px,1svh,12px)}
+  .touch .lastconfirm{margin-top:clamp(6px,1.2svh,12px);font-size:clamp(13px,2svh,16.5px)}
   /* koblingskodene på én linje i liggende (de står også i tegningen) */
-  .touch .fc-maincol .press-cpl{font-size:26px}
   .touch .fc-maincol .press-cpl .cplsep{display:inline}
   .touch .fc-maincol .press-cpl .cplsep::before{content:"  /  "}
   .touch .fc-maincol .press-note{display:none}
   .touch .fc-maincol .crimp-note{display:none}
+}
+/* Ekstra stram: iPad i Safari (adresselinjen spiser 60–110 px av høyden).
+   Hjelpetekst og prikke-rad skjules, tegning og topp krympes litt til –
+   kuttemål/pressmål, teller og bekreft-knapp skal ALLTID stå uten scrolling. */
+@media(orientation:landscape) and (min-width:900px) and (max-height:750px){
+  .touch .cut-help{display:none}
+  .touch .pieces{display:none}
+  body.fs.touch .content{padding-top:42px}
+  .touch .fc-pos .posref .p-num{font-size:clamp(42px,7.6svh,58px)}
+  .touch .fc-pos .posref{padding-bottom:4px}
+  .touch .fc-photo2 .hpanel .imgclip{height:clamp(110px,23svh,175px)}
+  .touch .fc-photo2 .assembly .asm-slot .imgclip{height:clamp(95px,19svh,150px)}
+  .touch .ccnum{min-width:100px;padding:4px 12px}
+  .touch .qcard .qpts{display:none}
+  .touch .focus-nav{margin-top:4px}
 }
 .cplsep{display:block}
 .touch .focus-card{padding:20px 22px}
@@ -519,9 +545,10 @@ td.pos-cell{font-family:var(--mono);font-weight:800;font-size:16px;color:var(--a
    ===================================================================== */
 
 /* ---------- Versjon (vises i topplinjen, fullskjermlinjen og på Om-siden) ---------- */
-const APP_VERSION="0.24";
-const APP_BUILD="13.08.2026";
+const APP_VERSION="0.25";
+const APP_BUILD="14.08.2026";
 const CHANGELOG=[
+  ["0.25","14.08.2026","Liggende iPad-visning skalerer nå med den synlige skjermhøyden (svh): POS-banner, tegninger, kuttemål/pressmål, teller og bekreft-knapp krymper proporsjonalt når Safari-linjen spiser av høyden – ingen scrolling i kapping og pressing"],
   ["0.24","13.08.2026","Spot-check flyttet FØR pakking (åpner når de fem første operasjonene er ferdige; pakking låses opp etter godkjent kontroll). Ny pakkevisning med pallehåndtering: legg til paller, pakk hver slange på riktig pall, flytt mellom paller, og registrer vekt + mål (L×B×H) per pall før mappen fullføres. Pallemerkelapp skrives ut per pall med innhold, vekt og mål"],
   ["0.23","13.08.2026","Liggende iPad-visning bruker nå hele skjermbredden: POS-banner øverst over full bredde, stor tegning av slange + koblinger til venstre, mål/pressmål og teller til høyre, og bekreft-knapp i full bredde nederst"],
   ["0.22","13.08.2026","Liggende iPad-visning i verkstedet: to kolonner med POS og produktfoto til venstre, mål/teller/bekreft-knapp til høyre – alt synlig samtidig. Stående format beholder én kolonne"],
@@ -3145,11 +3172,11 @@ function wsFocus(f,key){
     : key==="pack" ? `<div class="focus-main" style="font-size:clamp(34px,6vw,54px)">📦 Pakking</div><div class="focus-sub">Legg slangen${(l.qty||1)>1?"e ("+l.qty+" stk)":""} i kassen/pallen – kontroller POS ${esc(l.pos||"–")} mot pakklisten</div>`
     : key==="clean" ? `<div class="focus-main" style="font-size:clamp(34px,6vw,54px)">🧼 ${esc(l.pts)}</div><div class="focus-sub">Rens innvendig og sett UC-propper i begge ender</div>`
     : key==="press" ? (()=>{const c=crimpFor(l.hose);
-        return `<div class="focus-main mono press-cpl" style="font-size:clamp(26px,4vw,40px);line-height:1.25">${esc(l.c1)}<span class="cplsep"></span>${esc(l.c2)}</div>
-        ${c?`<div style="margin-top:12px;border:2.5px solid var(--info);border-radius:16px;padding:12px 16px;background:var(--info-bg)">
+        return `<div class="focus-main mono press-cpl" style="font-size:clamp(24px,min(4vw,4.9svh),40px);line-height:1.25">${esc(l.c1)}<span class="cplsep"></span>${esc(l.c2)}</div>
+        ${c?`<div style="margin-top:clamp(6px,1.2svh,12px);border:2.5px solid var(--info);border-radius:16px;padding:clamp(8px,1.5svh,12px) 16px;background:var(--info-bg)">
           <div style="font-size:12px;letter-spacing:1px;color:var(--muted);font-weight:700">PRESSMÅL (${esc(c.series)}, ${esc(c.die)}) · CrimpSource Adjustable crimper</div>
-          <div style="font-family:var(--head);font-weight:800;font-size:clamp(34px,6vw,56px);color:var(--info);line-height:1.1">Ø ${fmtMM(c.od)} mm</div>
-          <div style="font-size:clamp(16px,2.5vw,22px);font-weight:700">Toleranse: <span class="mono">${crimpRange(c)}</span></div>
+          <div style="font-family:var(--head);font-weight:800;font-size:clamp(30px,min(6vw,6.8svh),56px);color:var(--info);line-height:1.1">Ø ${fmtMM(c.od)} mm</div>
+          <div style="font-size:clamp(15px,min(2.5vw,2.4svh),22px);font-weight:700">Toleranse: <span class="mono">${crimpRange(c)}</span></div>
           <div class="focus-sub crimp-note" style="margin-top:4px">Mål pressdiameteren med mikrometer etter pressing – den skal ligge innenfor båndet</div>
         </div>`
         :`<div class="vitem v-warn" style="margin-top:12px">📖 <div><b>Pressmål mangler i masterdata for ${esc(l.hose)}.</b> Slå opp i <a href="${CRIMPSOURCE_URL}" target="_blank" rel="noopener" style="color:var(--accent2)">Parker CrimpSource (Adjustable crimper)</a> og legg verdien inn i masterdatabasen.</div></div>`}
@@ -3199,7 +3226,7 @@ function wsFocus(f,key){
               <button class="ccminus" title="Juster ned (feiltelling)" ${l.cutN?"":"disabled"} onclick="wsCutPieceF('${f.id}',${i},${pos},-1)">−1</button>
             </div>
             <div class="pieces">${Array.from({length:l.qty},(_,k)=>`<span class="piece ${k<(l.cutN||0)?"done":""}" title="${esc(ptsAll(l)[k]||"")}"></span>`).join("")}</div>
-            <div class="focus-sub" style="text-align:center;margin-top:8px">${(l.cutN||0)<l.qty?`Neste kutt kvitteres på <b class="mono">PTS ${esc(ptsAll(l)[l.cutN||0]||"–")}</b> – taggen skrives ut i det du trykker +1, fest den med en gang · `:""}linjen fullføres ved ${l.qty} av ${l.qty}</div>`
+            <div class="focus-sub cut-help" style="text-align:center;margin-top:8px">${(l.cutN||0)<l.qty?`Neste kutt kvitteres på <b class="mono">PTS ${esc(ptsAll(l)[l.cutN||0]||"–")}</b> – taggen skrives ut i det du trykker +1, fest den med en gang · `:""}linjen fullføres ved ${l.qty} av ${l.qty}</div>`
           :`<button class="bigbtn confirm" onclick="wsFocusConfirm('${f.id}',${i},'${key}',${pos})">${key==="cut"?"✂️ BEKREFT KAPPET + 🏷️ TAG PÅ":s.icon+" BEKREFT "+s.verb.toUpperCase()}</button>`;
         return State.touch
           ?`<div class="fc-grid">
